@@ -1,0 +1,183 @@
+schema_version: 1
+task_id: SWECLAR-071
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Transactional local catalogue/cart/orders/rewards/reservations backend
+requirement_units:
+- ru_id: RU-001
+  name: Pizzeria workflow entry point
+  content: 'process_pizzeria_action(state,action) returns the entire new chainable state at top level,
+    with result for the action summary, without mutating inputs. Invalid/unknown operations return nonempty
+    error.code and preserve business collections. Preserve supplied SQLite init/show/act interface: successful
+    state survives separate processes; init cannot overwrite existing state; rejected actions leave stored
+    business state intact. Extra metadata and alternate error wording are allowed. This is a local transactional
+    backend component, not a complete site, external payment service or POS system.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for pizzeria workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_pizzeria_action
+      signature: process_pizzeria_action(state,action) -> dict
+    inputs:
+      state: Synthetic catalogue/customer/order records
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: Entire next state and current result/error, with real SQLite persistence
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+- ru_id: RU-002
+  name: Bilingual catalogue and deterministic cart
+  content: products maps product IDs to names.de/names.en, price and active. Active products need nonempty
+    German and English strings and finite nonnegative numeric price (not boolean). catalog accepts de/en
+    and returns active product_id,name,price rows in any order, selected names; invalid active definitions
+    or unsupported language reject. set_cart requires an existing customer and items list of product_id
+    plus positive integer quantity (not boolean), using only valid active products. Combine repeated product
+    IDs or preserve equivalent lines; recompute subtotal from configured prices, ignoring supplied prices/totals/discounts.
+    Store items and subtotal at carts[customer_id] and return result.subtotal. An empty cart can clear
+    items but cannot checkout.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for bilingual catalogue and deterministic cart.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_pizzeria_action
+      signature: process_pizzeria_action(state,action) -> dict
+    inputs:
+      state: Synthetic catalogue/customer/order records
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: Entire next state and current result/error, with real SQLite persistence
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+- ru_id: RU-003
+  name: Validated preorder, pickup, and delivery checkout
+  content: checkout requires known customer, existing nonempty top-level cart and unique nonempty order_id.
+    Revalidate current active products/quantities and recompute prices. Accept pickup,preorder,delivery;
+    delivery needs known zone with enabled=true and subtotal>=nonnegative minimum, tested before discounts.
+    If coupon_code is provided it must identify active=true coupon with finite percent in [0,100]. redeem_points
+    defaults0 and must be a nonnegative integer within customer's balance. Total=max(0,subtotal*(1-percent/100)-redeem_points/100),
+    rounded to two decimals with half-up ties. Store an order exposing customer_id,mode,subtotal,total,coupon_code,redeemed_points,status=pending,paid=false
+    and return result.order_id. No scheduling/dispatch or external charge is claimed.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for validated preorder, pickup, and delivery checkout.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_pizzeria_action
+      signature: process_pizzeria_action(state,action) -> dict
+    inputs:
+      state: Synthetic catalogue/customer/order records
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: Entire next state and current result/error, with real SQLite persistence
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+- ru_id: RU-004
+  name: Coupon and coin-point accounting
+  content: The chosen coupon percentage is applied once per order when pricing; it is not reapplied during
+    payment. Points are not consumed until mark_paid(order_id,payment_event_id). Before first payment
+    ensure current customer balance still covers the order's redeemed_points, then atomically subtract
+    them and add floor(order.total) points once; set paid=true, keeping fulfillment status separate. A
+    nonempty payment_event_id can belong to only one order. Same-event/same-order replay succeeds without
+    changes to orders/customers/payment bookkeeping; changed response metadata is allowed. Same event
+    on another order or new event on an already paid order rejects. Keep enough internal association to
+    detect conflicts; its format is free. Payment is supplied synthetic event ingestion, not real settlement
+    or POS integration.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for coupon and coin-point accounting.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_pizzeria_action
+      signature: process_pizzeria_action(state,action) -> dict
+    inputs:
+      state: Synthetic catalogue/customer/order records
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: Entire next state and current result/error, with real SQLite persistence
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+- ru_id: RU-005
+  name: Conflict-safe reservations and order administration
+  content: reserve requires unique nonempty reservation_id, nonempty slot and positive integer party_size
+    excluding booleans. One reservation occupies a slot exclusively; conflicts or invalid input reject
+    atomically. Store reservation slot and party_size. advance_order requires actor_id in the trusted
+    state.admins list, known order and exactly one forward transition in pending,accepted,preparing,ready,completed.
+    Same-state retries may be successful no-ops or reject; backward/skipped transitions reject. Supplied
+    actor IDs are trusted upstream context, not a network identity implementation.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for conflict-safe reservations and order administration.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_pizzeria_action
+      signature: process_pizzeria_action(state,action) -> dict
+    inputs:
+      state: Synthetic catalogue/customer/order records
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: Entire next state and current result/error, with real SQLite persistence
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py

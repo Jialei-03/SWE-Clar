@@ -1,0 +1,121 @@
+schema_version: 1
+task_id: SWECLAR-037
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual recorded-video target detection, trigger policy, clipping and delivery integration
+requirement_units:
+- ru_id: RU-001
+  name: Stable offline delivery interface
+  content: Implement src/goal_policy.py::detect_goal_events(frames, **policy_options). For a chronological
+    list of well-formed observations, the function returns a chronological list of numeric trigger timestamps,
+    is deterministic, does not mutate its inputs, and performs no console, file, process, or network I/O.
+    The supplied pipeline must decode actual detection frames and use the preserved red-target centroid
+    condition (x >= line_x). For each trigger, cut the separate synchronized recording from max(0,t-5)
+    to min(recording_duration,t+2), produce playable MP4 bytes and POST them to the configured delivery
+    URL. Require accepted:true and the matching content SHA-256 before committing output_dir with manifest.json.
+    Reject an existing output directory and leave no completed output on error. No detection flag, empty
+    file or manifest alone counts as execution. The public cooldown_seconds option defaults to five seconds;
+    the suppression policy is clarified separately. CLI output and manifest.json contain chronological
+    clips records with file, trigger, start, end and sha256, matching on these fields; additional nonconflicting
+    metadata is allowed. Encoded duration tolerance is 0.12 seconds; for spatially uniform synthetic recordings,
+    corresponding decoded spatial-average RGB values must differ by no more than 8 per channel on the
+    0–255 scale. The POST uses Content-Type video/mp4, X-Content-SHA256 and a nonempty X-Clip-ID. These
+    public media and delivery conventions are independent reconstruction choices.
+  requirement_category: core
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the callable delivery interface and the observable result it returns, including
+    the side effects it must avoid.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: src/goal_policy.py
+      function: detect_goal_events
+    inputs:
+      frames: chronological list of well-formed dictionaries containing numeric timestamp and Boolean
+        goal_candidate; extra metadata may be present
+      policy_options: optional policy settings disclosed only with applicable Requirement Units
+    output:
+      type: list[float]
+      meaning: chronological goal-trigger timestamps
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/video_contract.py
+  pass_rule: all_tests_pass
+  notes: Independent synthetic red-target detector and normalized clip HTTP delivery are benchmark reconstruction
+    choices. No original footage, detector weights, source implementation or messaging account is included.
+    Real camera capture, trained vision quality and multi-camera synchronization are not evaluated.
+- ru_id: RU-002
+  name: Goal candidate creates a final trigger
+  content: The preserved trajectory detector has already classified each observation. An observation with
+    goal_candidate set to true is eligible to create a final goal trigger. An observation with goal_candidate
+    set to false does not create a trigger.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: After the preserved detector classifies an observation, which Boolean value makes that
+    observation eligible to create a final trigger?
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: src/goal_policy.py
+      function: detect_goal_events
+    inputs:
+      frames: observations with Boolean goal_candidate values
+    output:
+      type: list[float]
+      meaning: events originate only from true goal candidates
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/video_contract.py
+  pass_rule: all_tests_pass
+  notes: Independent synthetic red-target detector and normalized clip HTTP delivery are benchmark reconstruction
+    choices. No original footage, detector weights, source implementation or messaging account is included.
+    Real camera capture, trained vision quality and multi-camera synchronization are not evaluated.
+- ru_id: RU-003
+  name: Duplicate suppression boundaries
+  content: After emitting a trigger, suppress candidates occurring before the last emitted trigger plus
+    cooldown_seconds. A candidate at the exact boundary is eligible. Intervening non-candidate observations
+    do not reset the cooldown, and no intervening non-candidate is required before a new trigger.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the complete suppression interval after a trigger, including how a goal candidate
+    at the exact boundary must be handled.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: src/goal_policy.py
+      function: detect_goal_events
+    inputs:
+      frames: chronological goal-candidate observations
+      policy_options.cooldown_seconds: non-negative seconds, default 5.0
+    output:
+      type: list[float]
+      meaning: trigger timestamps without premature duplicates
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/video_contract.py
+  pass_rule: all_tests_pass
+  notes: Independent synthetic red-target detector and normalized clip HTTP delivery are benchmark reconstruction
+    choices. No original footage, detector weights, source implementation or messaging account is included.
+    Real camera capture, trained vision quality and multi-camera synchronization are not evaluated.

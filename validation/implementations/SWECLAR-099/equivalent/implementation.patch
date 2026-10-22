@@ -1,0 +1,451 @@
+diff --git a/index.html b/index.html
+index a39a963e5c2aa284f57f63fc1602cfbd913bff36..19d0dcd3c3afe6db1a376252812b5d416cf90a64 100644
+--- a/index.html
++++ b/index.html
+@@ -41,6 +41,13 @@
+       width: 100%;
+       height: auto;
+     }
++    /* Keep a one-image final row visually centered without changing the
++       genuine two-column grid used by full rows. */
++    #grid > figure:last-child:nth-child(odd) {
++      grid-column: 1 / -1;
++      justify-self: center;
++      width: calc((100% - 12px) / 2);
++    }
+     figure {
+       margin: 0;
+     }
+@@ -197,8 +204,17 @@
+         figure.dataset.photo = row.id;
+         $("#timeline").append(figure);
+         if (row.eligible) {
+-          let tile = figure.cloneNode(true);
++          let tile = document.createElement('figure');
++          const tileImage = document.createElement('img');
++          tileImage.src = image.src; tileImage.alt = image.alt;
++          const tileCaption = document.createElement('figcaption');
++          tileCaption.textContent = caption.textContent;
++          tile.dataset.photo = row.id;
++          tile.append(tileImage, tileCaption);
+           $("#grid").append(tile);
++          // Decode the second, rendered copy as well; the grid is not a
++          // placeholder/state-only representation of the timeline photo.
++          await tile.querySelector("img").decode();
+         }
+       }
+     }
+diff --git a/server.py b/server.py
+index 5bd4a92bdad947ad0941ee32c9f0272ee732f215..f1e872dde710be397e4d3bd211be424102af7ae1 100644
+--- a/server.py
++++ b/server.py
+@@ -7,14 +7,27 @@ import os, json, sqlite3, secrets, hashlib, hmac, time, re, base64, io, urllib.p
+ class Error(Exception):
+ 
+     def __init__(self, message, status=400):
++        super().__init__(message)
+         self.message = message
+         self.status = status
+ 
+ class Store:
+ 
+     def __init__(self, path, config, assets):
+-        self.path = path
+         self.config = config
++        self._memory_keeper = None
++        if os.fspath(path) == ':memory:':
++            # sqlite normally creates a new database for every connection to
++            # ':memory:'.  A shared URI plus a keeper connection makes the
++            # Store API behave consistently for direct in-memory tests too.
++            self.path = 'file:photo-chat-%x?mode=memory&cache=shared' % id(self)
++            self._uri = True
++            self._memory_keeper = sqlite3.connect(self.path, uri=True, timeout=10)
++        else:
++            self.path = path
++            self._uri = False
++            state_parent = Path(path).parent
++            state_parent.mkdir(parents=True, exist_ok=True)
+         self.assets = Path(assets)
+         self.assets.mkdir(parents=True, exist_ok=True)
+         with self.db() as db:
+@@ -24,23 +37,34 @@ class Store:
+                 db.execute('INSERT OR IGNORE INTO users VALUES(?,?,?)', (user['id'], salt, self.digest(user['password'], salt)))
+ 
+     def db(self):
+-        db = sqlite3.connect(self.path, timeout=10)
++        db = sqlite3.connect(self.path, uri=self._uri, timeout=10)
++        db.execute('PRAGMA busy_timeout = 10000')
+         db.row_factory = sqlite3.Row
+         return db
+ 
+     def digest(self, password, salt):
++        if not isinstance(password, str):
++            password = ''
+         return hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=16384, r=8, p=1).hex()
+ 
+     def login(self, a):
++        if not isinstance(a, dict):
++            raise Error('invalid_input')
++        supplied_user = a.get('user')
++        supplied_password = a.get('password', '')
++        if not isinstance(supplied_user, str) or not isinstance(supplied_password, str):
++            raise Error('invalid_login', 401)
+         with self.db() as db:
+-            row = db.execute('SELECT * FROM users WHERE id=?', (a.get('user'),)).fetchone()
+-            if not row or not hmac.compare_digest(row['verifier'], self.digest(a.get('password', ''), row['salt'])):
++            row = db.execute('SELECT * FROM users WHERE id=?', (supplied_user,)).fetchone()
++            if not row or not hmac.compare_digest(row['verifier'], self.digest(supplied_password, row['salt'])):
+                 raise Error('invalid_login', 401)
+             token = secrets.token_urlsafe(32)
+             db.execute('INSERT INTO sessions VALUES(?,?)', (hashlib.sha256(token.encode()).hexdigest(), row['id']))
+             return {'token': token}
+ 
+     def actor(self, token):
++        if not isinstance(token, str):
++            raise Error('unauthorized', 401)
+         with self.db() as db:
+             row = db.execute('SELECT user FROM sessions WHERE hash=?', (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+         if not row:
+@@ -54,6 +78,8 @@ class Store:
+         return room
+ 
+     def request(self, db, user, rid):
++        if not isinstance(rid, str) or not rid:
++            raise Error('not_found', 404)
+         row = db.execute('SELECT * FROM requests WHERE id=?', (rid,)).fetchone()
+         if not row:
+             raise Error('not_found', 404)
+@@ -61,85 +87,216 @@ class Store:
+         return row
+ 
+     def targets(self, row):
++        """Return the recipients implied by a request's mode.
++
++        A Duo is a room-wide moment: the sender participates just like every
++        other room member.  Ask and Challenge are responses requested from
++        the other members only.  The recipient set is derived from the
++        server-owned room fixture rather than from request input, so a caller
++        cannot add an arbitrary user to a request.
++        """
+         room = self.room(row['sender'], row['room'])
++        if row['mode'] == 'duo':
++            return list(room['members'])
+         return [u for u in room['members'] if u != row['sender']]
+ 
+     def normalize(self, value):
+-        value = re.sub('[ ()-]', '', value)
++        """Normalize one supplied phone number using the fixture convention."""
++        if not isinstance(value, str):
++            raise Error('invalid_phone')
++        # The component deliberately implements only the documented, local
++        # convention.  It is not a general address-book phone parser.
++        value = re.sub(r'[\s()\-]', '', value)
+         if value.startswith('00'):
+             value = '+' + value[2:]
+-        if not re.fullmatch('\\+[1-9][0-9]{7,14}', value):
++        if not re.fullmatch(r'\+[1-9][0-9]{7,14}', value):
+             raise Error('invalid_phone')
+         return value
+ 
+-    def act(self, user, path, a):
++    def _valid_image(self, encoded):
++        """Decode a supplied JPEG and return a metadata-free JPEG payload."""
++        if not isinstance(encoded, str):
++            raise Error('invalid_image')
++        try:
++            raw = base64.b64decode(encoded, validate=True)
++            if not raw or len(raw) > 4000000:
++                raise ValueError()
++            with Image.open(io.BytesIO(raw)) as source:
++                # The public endpoint accepts the documented upload type.  A
++                # fresh JPEG is then written below, so source EXIF, ICC and
++                # other ancillary metadata cannot be carried into storage.
++                if source.format != 'JPEG':
++                    raise ValueError()
++                if source.width <= 0 or source.height <= 0 or source.width * source.height > 12000000:
++                    raise ValueError()
++                source.load()
++                picture = ImageOps.exif_transpose(source).convert('RGB')
++                clean = Image.new('RGB', picture.size)
++                clean.paste(picture)
++                buffer = io.BytesIO()
++                clean.save(buffer, format='JPEG', quality=90, exif=b'')
++                return buffer.getvalue()
++        except Error:
++            raise
++        except Exception:
++            raise Error('invalid_image')
++
++    def act(self, authenticated_user, path, action):
++        """Perform one authenticated mutation and return its persisted result."""
++        if not isinstance(action, dict):
++            raise Error('invalid_input')
++        user = authenticated_user
+         with self.db() as db:
+             if path == '/requests':
+-                room = self.room(user, a['room'])
+-                mode = a['mode']
+-                caption = a.get('caption', '')
+-                if mode not in ['ask', 'duo', 'challenge'] or not isinstance(caption, str) or len(caption) > 500 or (not isinstance(a.get('id'), str)) or (not a['id']):
++                if 'room' not in action:
++                    raise Error('invalid_input')
++                room_id = action.get('room')
++                room = self.room(user, room_id)
++                request_id = action.get('id')
++                mode = action.get('mode')
++                caption = action.get('caption', '')
++                if (
++                    not isinstance(request_id, str)
++                    or not request_id
++                    or mode not in ('ask', 'duo', 'challenge')
++                    or not isinstance(caption, str)
++                    or len(caption) > 500
++                ):
+                     raise Error('invalid_request')
++
++                # Lock before looking up the stable ID.  This makes retries
++                # idempotent even when two HTTP workers submit them together.
+                 db.execute('BEGIN IMMEDIATE')
+-                old = db.execute('SELECT * FROM requests WHERE id=?', (a['id'],)).fetchone()
++                old = db.execute('SELECT * FROM requests WHERE id=?', (request_id,)).fetchone()
+                 if old:
+-                    if (old['room'], old['sender'], old['mode'], old['caption']) != (room['id'], user, mode, caption):
++                    if (old['room'], old['sender'], old['mode'], old['caption']) != (
++                        room['id'], user, mode, caption
++                    ):
+                         raise Error('request_conflict', 409)
+                     return {**dict(old), 'targets': self.targets(old)}
+-                row = {'id': a['id'], 'room': room['id'], 'sender': user, 'mode': mode, 'caption': caption, 'created': time.time()}
+-                db.execute('INSERT INTO requests VALUES(:id,:room,:sender,:mode,:caption,:created)', row)
++                row = {
++                    'id': request_id,
++                    'room': room['id'],
++                    'sender': user,
++                    'mode': mode,
++                    'caption': caption,
++                    'created': time.time(),
++                }
++                db.execute(
++                    'INSERT INTO requests(id,room,sender,mode,caption,created) '
++                    'VALUES(:id,:room,:sender,:mode,:caption,:created)',
++                    row,
++                )
+                 return {**row, 'targets': self.targets(row)}
++
+             if path == '/open':
+-                row = self.request(db, user, a['request'])
++                if 'request' not in action:
++                    raise Error('invalid_input')
++                request_id = action.get('request')
++                row = self.request(db, user, request_id)
+                 if user not in self.targets(row):
+                     raise Error('not_recipient', 403)
+-                db.execute('INSERT OR IGNORE INTO opened VALUES(?,?,?)', (row['id'], user, time.time()))
++                db.execute('BEGIN IMMEDIATE')
++                # Re-opening never resets the server-side clock.  A browser
++                # refresh therefore cannot extend the response window.
++                db.execute(
++                    'INSERT OR IGNORE INTO opened(request,user,at) VALUES(?,?,?)',
++                    (row['id'], user, time.time()),
++                )
+                 return {'request': row['id'], 'countdown': self.config.get('countdown', 3)}
++
+             if path == '/respond':
+-                row = self.request(db, user, a['request'])
++                if 'request' not in action:
++                    raise Error('invalid_input')
++                request_id = action.get('request')
++                row = self.request(db, user, request_id)
+                 if user not in self.targets(row):
+                     raise Error('not_recipient', 403)
+                 db.execute('BEGIN IMMEDIATE')
+-                old = db.execute('SELECT * FROM photos WHERE request=? AND user=?', (row['id'], user)).fetchone()
++                old = db.execute(
++                    'SELECT * FROM photos WHERE request=? AND user=?',
++                    (row['id'], user),
++                ).fetchone()
+                 if old:
++                    # A retry is idempotent and cannot replace the original
++                    # response with a second photo.
+                     return self.photo_record(db, old)
+-                opened = db.execute('SELECT at FROM opened WHERE request=? AND user=?', (row['id'], user)).fetchone()
++
++                opened = db.execute(
++                    'SELECT at FROM opened WHERE request=? AND user=?',
++                    (row['id'], user),
++                ).fetchone()
+                 now = time.time()
+-                if not opened or now - opened['at'] < self.config.get('countdown', 3):
++                countdown = self.config.get('countdown', 3)
++                if not opened or now - opened['at'] < countdown:
+                     raise Error('countdown_not_finished', 409)
+-                try:
+-                    raw = base64.b64decode(a['image'], validate=True)
+-                    if len(raw) > 4000000:
+-                        raise ValueError()
+-                    with Image.open(io.BytesIO(raw)) as src:
+-                        if src.width * src.height > 12000000:
+-                            raise ValueError()
+-                        src.load()
+-                        picture = ImageOps.exif_transpose(src).convert('RGB')
+-                        clean = Image.new('RGB', picture.size)
+-                        clean.paste(picture)
+-                        buffer = io.BytesIO()
+-                        clean.save(buffer, format='JPEG', quality=90)
+-                except Exception:
+-                    raise Error('invalid_image')
++
++                payload = self._valid_image(action.get('image'))
++                # elapsed is calculated solely from server timestamps.  The
++                # request creation time is the start of the response window;
++                # the client cannot submit or override this value.
++                elapsed = now - row['created']
++                response_window = self.config.get('response_window', 60)
++                eligible = 0 <= elapsed <= response_window
+                 pid = secrets.token_hex(16)
+                 filename = pid + '.jpg'
+-                elapsed = now - row['created']
+-                eligible = elapsed <= self.config.get('response_window', 60)
+-                (self.assets / filename).write_bytes(buffer.getvalue())
+-                db.execute('INSERT INTO photos VALUES(?,?,?,?,?,?,?)', (pid, row['id'], user, filename, now, elapsed, int(eligible)))
+-                return self.photo_record(db, db.execute('SELECT * FROM photos WHERE id=?', (pid,)).fetchone())
++                image_path = self.assets / filename
++                image_path.write_bytes(payload)
++                try:
++                    db.execute(
++                        'INSERT INTO photos(id,request,user,filename,created,elapsed,eligible) '
++                        'VALUES(?,?,?,?,?,?,?)',
++                        (pid, row['id'], user, filename, now, elapsed, int(eligible)),
++                    )
++                except Exception:
++                    # Do not leave an apparently accepted asset behind if the
++                    # SQLite write is rolled back.
++                    try:
++                        image_path.unlink()
++                    except FileNotFoundError:
++                        pass
++                    raise
++                return self.photo_record(
++                    db, db.execute('SELECT * FROM photos WHERE id=?', (pid,)).fetchone()
++                )
++
+             if path == '/contact':
+-                numbers = a.get('numbers')
+-                if not isinstance(numbers, list) or not 1 <= len(numbers) <= 10 or any((not isinstance(x, str) for x in numbers)):
++                numbers = action.get('numbers')
++                if (
++                    not isinstance(numbers, list)
++                    or not 1 <= len(numbers) <= 10
++                    or any(not isinstance(number, str) for number in numbers)
++                ):
+                     raise Error('invalid_contact')
+-                normalized = {self.normalize(x) for x in numbers}
+-                matches = [u['id'] for u in self.config['users'] if u['id'] != user and any((self.normalize(n) in normalized for n in u.get('phones', [])))]
++                normalized = {self.normalize(number) for number in numbers}
++                matches = []
++                for fixture_user in self.config['users']:
++                    peer = fixture_user['id']
++                    if peer == user:
++                        continue
++                    registered = set()
++                    for phone in fixture_user.get('phones', []):
++                        try:
++                            registered.add(self.normalize(phone))
++                        except Error:
++                            # A malformed fixture number must not make an
++                            # otherwise valid selected contact unusable.
++                            continue
++                    if registered & normalized:
++                        matches.append(peer)
++                matches = sorted(set(matches))
+                 if matches:
+                     for peer in matches:
+-                        db.execute('INSERT OR IGNORE INTO contacts VALUES(?,?)', (user, peer))
+-                    return {'action': 'added', 'users': sorted(matches)}
+-                return {'action': 'invite', 'numbers': sorted(normalized), 'body': 'Join the synthetic photo chat.'}
++                        db.execute(
++                            'INSERT OR IGNORE INTO contacts(owner,peer) VALUES(?,?)',
++                            (user, peer),
++                        )
++                    return {'action': 'added', 'users': matches}
++                return {
++                    'action': 'invite',
++                    'numbers': sorted(normalized),
++                    'body': 'Join the synthetic photo chat.',
++                }
+             raise Error('not_found', 404)
+ 
+     def photo_record(self, db, p):
+@@ -151,16 +308,40 @@ class Store:
+             if path == '/rooms':
+                 return [r for r in self.config['rooms'] if user in r['members']]
+             if path == '/timeline':
+-                room = self.room(user, q['room'])
+-                return [self.photo_record(db, p) for p in db.execute('SELECT photos.* FROM photos JOIN requests ON photos.request=requests.id WHERE room=? ORDER BY photos.created,photos.id', (room['id'],))]
++                if 'room' not in q:
++                    raise Error('invalid_input')
++                room = self.room(user, q.get('room'))
++                return [
++                    self.photo_record(db, p)
++                    for p in db.execute(
++                        'SELECT photos.* FROM photos '
++                        'JOIN requests ON photos.request=requests.id '
++                        'WHERE room=? ORDER BY photos.created,photos.id',
++                        (room['id'],),
++                    )
++                ]
+             if path == '/requests':
+-                room = self.room(user, q['room'])
+-                return [{**dict(r), 'targets': self.targets(r)} for r in db.execute('SELECT * FROM requests WHERE room=? ORDER BY created,id', (room['id'],))]
++                if 'room' not in q:
++                    raise Error('invalid_input')
++                room = self.room(user, q.get('room'))
++                return [
++                    {**dict(r), 'targets': self.targets(r)}
++                    for r in db.execute(
++                        'SELECT * FROM requests WHERE room=? ORDER BY created,id',
++                        (room['id'],),
++                    )
++                ]
+             if path == '/route':
+-                row = self.request(db, user, q['request'])
+-                if row['room'] != q['room']:
++                if 'room' not in q or 'request' not in q:
++                    raise Error('invalid_input')
++                row = self.request(db, user, q.get('request'))
++                if row['room'] != q.get('room'):
+                     raise Error('not_found', 404)
+-                return {'room': row['room'], 'request': row['id'], 'route': '/rooms/' + row['room'] + '/requests/' + row['id']}
++                return {
++                    'room': row['room'],
++                    'request': row['id'],
++                    'route': '/rooms/' + row['room'] + '/requests/' + row['id'],
++                }
+             if path == '/contacts':
+                 return [r[0] for r in db.execute('SELECT peer FROM contacts WHERE owner=? ORDER BY peer', (user,))]
+             raise Error('not_found', 404)
+@@ -204,12 +385,21 @@ def main():
+                         db.execute('DELETE FROM sessions WHERE hash=?', (hashlib.sha256(token.encode()).hexdigest(),))
+                     return self.send(200, {})
+                 if path.startswith('/photos/') and self.command == 'GET':
++                    photo_id = path[len('/photos/'):]
+                     with store.db() as db:
+-                        photo = db.execute('SELECT * FROM photos WHERE id=?', (path[8:],)).fetchone()
++                        photo = db.execute(
++                            'SELECT * FROM photos WHERE id=?', (photo_id,)
++                        ).fetchone()
+                         if not photo:
+                             raise Error('not_found', 404)
+-                        request = store.request(db, user, photo['request'])
+-                        return self.send(200, (store.assets / photo['filename']).read_bytes(), 'image/jpeg')
++                        # The membership check is deliberately performed from
++                        # the request's room, not from the photo URL.
++                        store.request(db, user, photo['request'])
++                        try:
++                            payload = (store.assets / photo['filename']).read_bytes()
++                        except OSError:
++                            raise Error('not_found', 404)
++                        return self.send(200, payload, 'image/jpeg')
+                 return self.send(200, store.read(user, path, {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()}) if self.command == 'GET' else store.act(user, path, a))
+             except Error as e:
+                 self.send(e.status, {'error': e.message})

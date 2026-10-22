@@ -1,0 +1,371 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Microsoft.Data.Sqlite;
+
+/// <summary>
+/// The application service for the small HTTP API.  Each call is reduced to a
+/// route plus one SQLite transaction.  The process-wide lock keeps the
+/// connection's transaction boundaries deterministic while SQLite supplies the
+/// durable state and uniqueness constraints.
+/// </summary>
+public sealed class TransactionsService
+{
+    private readonly Storage storage;
+    private readonly HashSet<string> autoRemoveTypes;
+
+    private enum RouteKind
+    {
+        Unknown,
+        CreateTransaction,
+        CreateNote,
+        GetTransaction
+    }
+
+    private readonly record struct RequestRoute(RouteKind Kind, string? TransactionId);
+    private sealed record TransactionRow(double Amount, string Type);
+
+    // A typed view keeps the wire names explicit without changing the shape of
+    // the JSON returned by the API.
+    private sealed class NoteView
+    {
+        public NoteView(string noteId, string text, bool active)
+        {
+            NoteId = noteId;
+            Text = text;
+            Active = active;
+        }
+
+        [JsonPropertyName("note_id")]
+        public string NoteId { get; }
+
+        [JsonPropertyName("text")]
+        public string Text { get; }
+
+        [JsonPropertyName("active")]
+        public bool Active { get; }
+    }
+
+    public TransactionsService(Storage storage, string[] autoRemoveNoteTypes)
+    {
+        this.storage = storage;
+        autoRemoveTypes = new HashSet<string>(
+            (autoRemoveNoteTypes ?? Array.Empty<string>())
+                .Where(token => !string.IsNullOrEmpty(token)),
+            StringComparer.Ordinal);
+    }
+
+    public ApiResponse Execute(string method, string path, JsonElement body, string requestId)
+    {
+        // Only POST requests participate in the idempotency cache.  A key on a
+        // GET is intentionally ignored and consequently remains available for
+        // a later POST.
+        string? cacheKey = IsPost(method) && !string.IsNullOrEmpty(requestId)
+            ? requestId
+            : null;
+
+        lock (storage.Sync)
+        {
+            using SqliteTransaction transaction = storage.Connection.BeginTransaction();
+
+            if (cacheKey is not null)
+            {
+                ApiResponse? saved = ReadResponse(transaction, cacheKey);
+                if (saved is not null)
+                {
+                    transaction.Commit();
+                    return saved;
+                }
+            }
+
+            ApiResponse response = RunRoute(MatchRoute(method, path), body, transaction);
+
+            // The cache row is written before commit so a failure to persist a
+            // response also rolls back the business mutation that produced it.
+            if (cacheKey is not null)
+            {
+                WriteResponse(transaction, cacheKey, response);
+            }
+
+            transaction.Commit();
+            return response;
+        }
+    }
+
+    private ApiResponse RunRoute(RequestRoute route, JsonElement body, SqliteTransaction transaction)
+    {
+        return route.Kind switch
+        {
+            RouteKind.CreateTransaction => CreateTransaction(body, transaction),
+            RouteKind.CreateNote => CreateNote(route.TransactionId!, body, transaction),
+            RouteKind.GetTransaction => GetTransaction(route.TransactionId!, transaction),
+            _ => Error(404, "route_not_found")
+        };
+    }
+
+    private static RequestRoute MatchRoute(string method, string path)
+    {
+        if (IsPost(method))
+        {
+            if (string.Equals(path, "/transactions", StringComparison.OrdinalIgnoreCase))
+            {
+                return new RequestRoute(RouteKind.CreateTransaction, null);
+            }
+
+            string[] segments = SplitPath(path);
+            if (segments.Length == 3 &&
+                string.Equals(segments[0], "transactions", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(segments[2], "notes", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrEmpty(segments[1]))
+            {
+                return new RequestRoute(RouteKind.CreateNote, segments[1]);
+            }
+
+            return new RequestRoute(RouteKind.Unknown, null);
+        }
+
+        if (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
+        {
+            string[] segments = SplitPath(path);
+            if (segments.Length == 2 &&
+                string.Equals(segments[0], "transactions", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrEmpty(segments[1]))
+            {
+                return new RequestRoute(RouteKind.GetTransaction, segments[1]);
+            }
+        }
+
+        return new RequestRoute(RouteKind.Unknown, null);
+    }
+
+    private ApiResponse CreateTransaction(JsonElement body, SqliteTransaction transaction)
+    {
+        if (body.ValueKind != JsonValueKind.Object ||
+            !TryGetNonBlankString(body, "transaction_id", out string transactionId) ||
+            !TryGetFiniteNumber(body, "amount", out double amount) ||
+            !TryGetNonBlankString(body, "type", out string type))
+        {
+            return Error(400, "invalid_transaction");
+        }
+
+        // The transaction remains open from the request cache lookup through
+        // this check and insert, so two creates in this process cannot both
+        // pass the uniqueness check.  The PRIMARY KEY is the durable backstop.
+        if (ReadTransaction(transaction, transactionId) is not null)
+        {
+            return Error(409, "duplicate_transaction");
+        }
+
+        using SqliteCommand command = storage.Connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            "INSERT INTO transactions (id, amount, type) VALUES ($id, $amount, $type);";
+        command.Parameters.AddWithValue("$id", transactionId);
+        command.Parameters.AddWithValue("$amount", amount);
+        command.Parameters.AddWithValue("$type", type);
+        command.ExecuteNonQuery();
+
+        return JsonResponse(201, new
+        {
+            transaction_id = transactionId,
+            amount,
+            type,
+            notes = Array.Empty<object>()
+        });
+    }
+
+    private ApiResponse CreateNote(string transactionId, JsonElement body, SqliteTransaction transaction)
+    {
+        if (body.ValueKind != JsonValueKind.Object ||
+            !TryGetNonBlankString(body, "note_id", out string noteId) ||
+            !TryGetNonBlankString(body, "text", out string text))
+        {
+            return Error(400, "invalid_note");
+        }
+
+        TransactionRow? owner = ReadTransaction(transaction, transactionId);
+        if (owner is null)
+        {
+            return Error(404, "transaction_not_found");
+        }
+
+        if (NoteExists(transaction, transactionId, noteId))
+        {
+            return Error(409, "duplicate_note");
+        }
+
+        bool active = !autoRemoveTypes.Contains(owner.Type);
+        using (SqliteCommand command = storage.Connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText =
+                "INSERT INTO notes (transaction_id, note_id, text, active) " +
+                "VALUES ($transaction_id, $note_id, $text, $active);";
+            command.Parameters.AddWithValue("$transaction_id", transactionId);
+            command.Parameters.AddWithValue("$note_id", noteId);
+            command.Parameters.AddWithValue("$text", text);
+            command.Parameters.AddWithValue("$active", active ? 1 : 0);
+            command.ExecuteNonQuery();
+        }
+
+        return JsonResponse(201, new
+        {
+            note_id = noteId,
+            text,
+            active
+        });
+    }
+
+    private ApiResponse GetTransaction(string transactionId, SqliteTransaction transaction)
+    {
+        TransactionRow? row = ReadTransaction(transaction, transactionId);
+        if (row is null)
+        {
+            return Error(404, "transaction_not_found");
+        }
+
+        var notes = new List<NoteView>();
+        var activeNotes = new List<NoteView>();
+
+        using (SqliteCommand command = storage.Connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText =
+                "SELECT note_id, text, active FROM notes " +
+                "WHERE transaction_id = $transaction_id ORDER BY seq ASC;";
+            command.Parameters.AddWithValue("$transaction_id", transactionId);
+            using SqliteDataReader reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var note = new NoteView(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetInt32(2) != 0);
+                notes.Add(note);
+                if (note.Active)
+                {
+                    activeNotes.Add(note);
+                }
+            }
+        }
+
+        return JsonResponse(200, new
+        {
+            transaction_id = transactionId,
+            amount = row.Amount,
+            type = row.Type,
+            notes,
+            active_notes = activeNotes
+        });
+    }
+
+    private TransactionRow? ReadTransaction(SqliteTransaction transaction, string transactionId)
+    {
+        using SqliteCommand command = storage.Connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT amount, type FROM transactions WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", transactionId);
+        using SqliteDataReader reader = command.ExecuteReader();
+        return reader.Read()
+            ? new TransactionRow(reader.GetDouble(0), reader.GetString(1))
+            : null;
+    }
+
+    private bool NoteExists(SqliteTransaction transaction, string transactionId, string noteId)
+    {
+        using SqliteCommand command = storage.Connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            "SELECT 1 FROM notes " +
+            "WHERE transaction_id = $transaction_id AND note_id = $note_id LIMIT 1;";
+        command.Parameters.AddWithValue("$transaction_id", transactionId);
+        command.Parameters.AddWithValue("$note_id", noteId);
+        return command.ExecuteScalar() is not null;
+    }
+
+    private ApiResponse? ReadResponse(SqliteTransaction transaction, string requestId)
+    {
+        using SqliteCommand command = storage.Connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            "SELECT status, body FROM responses WHERE request_id = $request_id;";
+        command.Parameters.AddWithValue("$request_id", requestId);
+        using SqliteDataReader reader = command.ExecuteReader();
+        return reader.Read()
+            ? new ApiResponse(reader.GetInt32(0), reader.GetString(1))
+            : null;
+    }
+
+    private void WriteResponse(SqliteTransaction transaction, string requestId, ApiResponse response)
+    {
+        using SqliteCommand command = storage.Connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            "INSERT INTO responses (request_id, status, body) " +
+            "VALUES ($request_id, $status, $body);";
+        command.Parameters.AddWithValue("$request_id", requestId);
+        command.Parameters.AddWithValue("$status", response.Status);
+        command.Parameters.AddWithValue("$body", response.Json);
+        command.ExecuteNonQuery();
+    }
+
+    private static bool IsPost(string method) =>
+        string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryGetNonBlankString(JsonElement objectElement, string propertyName, out string value)
+    {
+        value = string.Empty;
+        if (!objectElement.TryGetProperty(propertyName, out JsonElement property) ||
+            property.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        string? candidate = property.GetString();
+        if (candidate is null || string.IsNullOrWhiteSpace(candidate))
+        {
+            return false;
+        }
+
+        value = candidate;
+        return true;
+    }
+
+    private static bool TryGetFiniteNumber(JsonElement objectElement, string propertyName, out double value)
+    {
+        value = 0;
+        if (!objectElement.TryGetProperty(propertyName, out JsonElement property) ||
+            property.ValueKind != JsonValueKind.Number ||
+            !property.TryGetDouble(out value) ||
+            !double.IsFinite(value))
+        {
+            value = 0;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static string[] SplitPath(string path)
+    {
+        if (string.IsNullOrEmpty(path) || path[0] != '/')
+        {
+            return Array.Empty<string>();
+        }
+
+        // Split before decoding so an encoded slash remains part of an ID,
+        // rather than silently becoming another route segment.
+        string[] segments = path[1..].Split('/', StringSplitOptions.None);
+        for (int i = 0; i < segments.Length; i++)
+        {
+            segments[i] = Uri.UnescapeDataString(segments[i]);
+        }
+
+        return segments;
+    }
+
+    private static ApiResponse Error(int status, string error) =>
+        JsonResponse(status, new { error });
+
+    private static ApiResponse JsonResponse<T>(int status, T value) =>
+        new(status, JsonSerializer.Serialize(value));
+}

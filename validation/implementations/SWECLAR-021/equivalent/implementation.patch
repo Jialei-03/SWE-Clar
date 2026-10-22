@@ -1,0 +1,928 @@
+diff --git a/cli.py b/cli.py
+index b2354f8adc0539f88d61d9714a9f702741a3476e..e7bc7291ec375f4afdbb7f54e0bd15ae97b1a78b 100644
+--- a/cli.py
++++ b/cli.py
+@@ -1,40 +1,106 @@
+ """One bounded JSON response per physical input line; state persists in SQLite."""
++
+ import argparse
+ import json
++import math
+ import sys
++
+ from reports import Failure
+ from store import Store
+ 
+-LIMIT=262144
++
++LIMIT = 262_144
++
++
++def _reject_constant(_value):
++    raise ValueError("non-finite JSON constant")
++
++
++class _OversizedInteger:
++    """A JSON-number placeholder when Python's digit limit is exceeded.
++
++    It keeps the enclosing request parseable so field validation can report
++    the operation-specific public error; unknown extra members can still be
++    ignored as the contract requires.
++    """
++
++
++def _parse_int(token):
++    try:
++        return int(token)
++    except ValueError:
++        return _OversizedInteger()
++
++
++def _parse_float(token):
++    value = float(token)
++    return value if math.isfinite(value) else _OversizedInteger()
+ 
+ 
+ def commands(stream):
++    """Yield one parsed request (or None) for each physical input line."""
++
+     while True:
+-        raw=stream.readline(LIMIT+1)
+-        if not raw:return
+-        if len(raw)>LIMIT:
+-            while raw and not raw.endswith(b'\n'):raw=stream.readline(LIMIT+1)
+-            yield None;continue
++        raw = stream.readline(LIMIT + 1)
++        if not raw:
++            return
++
++        if len(raw) > LIMIT:
++            # Consume the remainder of this physical line before yielding its
++            # single invalid response.  This keeps the next line aligned even
++            # when an oversized line has no newline until EOF.
++            while raw and not raw.endswith(b"\n"):
++                raw = stream.readline(LIMIT + 1)
++            yield None
++            continue
++
+         try:
+-            value=json.loads(raw.decode('utf-8'),parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
+-            if not isinstance(value,dict):raise ValueError()
++            value = json.loads(
++                raw.decode("utf-8"),
++                parse_int=_parse_int,
++                parse_float=_parse_float,
++                parse_constant=_reject_constant,
++            )
++            if not isinstance(value, dict):
++                raise ValueError("request is not an object")
+             yield value
+-        except (ValueError,UnicodeDecodeError):yield None
++        except (UnicodeDecodeError, ValueError, json.JSONDecodeError, RecursionError):
++            yield None
+ 
+ 
+ def main():
+-    parser=argparse.ArgumentParser();parser.add_argument('--db',required=True);parser.add_argument('--adapter',required=True)
+-    args=parser.parse_args();store=Store(args.db,args.adapter)
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--db", required=True)
++    parser.add_argument("--adapter", required=True)
++    args = parser.parse_args()
++
++    store = Store(args.db, args.adapter)
+     try:
+         for command in commands(sys.stdin.buffer):
+             try:
+-                if command is None:raise Failure('invalid_request')
+-                result=store.execute(command)
+-                if command.get('op')=='deliver' and result['delivery']['status']=='pending':
+-                    output={'ok':False,'error':{'code':'delivery_failed'},**result}
+-                else:output={'ok':True,'result':result}
+-            except Failure as error:output={'ok':False,'error':{'code':error.code}}
+-            print(json.dumps(output,ensure_ascii=True,allow_nan=False),flush=True)
+-    finally:store.db.close()
+-
+-if __name__=='__main__':main()
++                if command is None:
++                    raise Failure("invalid_request")
++                result = store.execute(command)
++                if (
++                    command.get("op") == "deliver"
++                    and result["delivery"]["status"] == "pending"
++                ):
++                    output = {
++                        "ok": False,
++                        "error": {"code": "delivery_failed"},
++                        **result,
++                    }
++                else:
++                    output = {"ok": True, "result": result}
++            except Failure as error:
++                output = {"ok": False, "error": {"code": error.code}}
++
++            # ensure_ascii makes stdout safe even for valid Unicode IDs and
++            # guarantees exactly one physical JSON line per input line.
++            print(json.dumps(output, ensure_ascii=True, allow_nan=False), flush=True)
++    finally:
++        store.db.close()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/control_algorithms.py b/control_algorithms.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..bf399bc567946d5b0bd010fc73393cd8896555d6
+--- /dev/null
++++ b/control_algorithms.py
+@@ -0,0 +1,12 @@
++def stable_order(values, key=None):
++    rows=[((key(value) if key else value), value) for value in values]
++    def merge_sort(items):
++        if len(items)<2: return items
++        middle=len(items)//2
++        left,right=merge_sort(items[:middle]),merge_sort(items[middle:])
++        result=[];i=j=0
++        while i<len(left) and j<len(right):
++            if right[j][0]<left[i][0]: result.append(right[j]);j+=1
++            else: result.append(left[i]);i+=1
++        return result+left[i:]+right[j:]
++    return [row[1] for row in merge_sort(rows)]
+diff --git a/reports.py b/reports.py
+index a0fbace6c830d5f543a62392b3fa9b9c6dc209f3..73247c6e712f052891f5c5ec2a5278672afdf84d 100644
+--- a/reports.py
++++ b/reports.py
+@@ -1,4 +1,5 @@
+-"""Strict data values, snapshot aggregation and atomic CSV interchange."""
++"""Validation, snapshot aggregation, and safe CSV interchange helpers."""
++
+ import csv
+ from datetime import date
+ import os
+@@ -8,74 +9,248 @@ import tempfile
+ 
+ 
+ class Failure(Exception):
++    """An expected command failure represented by a public error code."""
++
+     def __init__(self, code):
+         self.code = code
+         super().__init__(code)
+ 
+ 
++_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
++
++
++def _has_surrogate(value):
++    return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
++
++
+ def identifier(value):
+-    return isinstance(value, str) and 1 <= len(value) <= 100 and not any(0xD800 <= ord(c) <= 0xDFFF for c in value)
++    """Return whether *value* is one of the contract's opaque string IDs."""
++
++    return (
++        isinstance(value, str)
++        and 1 <= len(value) <= 100
++        and not _has_surrogate(value)
++    )
+ 
+ 
+ def calendar_date(value):
+-    if not isinstance(value, str) or not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', value): return False
+-    try: return date.fromisoformat(value).isoformat() == value
+-    except ValueError: return False
++    """Validate the exact, zero-padded Gregorian date representation."""
++
++    if not isinstance(value, str) or not _DATE_RE.fullmatch(value):
++        return False
++    try:
++        parsed = date.fromisoformat(value)
++    except ValueError:
++        return False
++    return parsed.isoformat() == value
+ 
+ 
+ def event(value):
+-    if not isinstance(value, dict): raise Failure('invalid_batch')
+-    if not all(identifier(value.get(k)) for k in ['source','event_id','customer_id','booking_id']): raise Failure('invalid_batch')
+-    if not calendar_date(value.get('date')): raise Failure('invalid_batch')
+-    if type(value.get('amount_cents')) is not int or not -1000000000 <= value['amount_cents'] <= 1000000000: raise Failure('invalid_batch')
+-    if type(value.get('revision')) is not int or not 0 <= value['revision'] <= 1000000: raise Failure('invalid_batch')
+-    return {k:value[k] for k in ['source','event_id','customer_id','booking_id','amount_cents','date','revision']}
++    """Validate and normalize one input event.
++
++    Unknown members are intentionally discarded.  The returned dictionary has
++    the stable seven-field Event shape used by both live and snapshot storage.
++    """
++
++    if not isinstance(value, dict):
++        raise Failure("invalid_batch")
++
++    string_fields = ("source", "event_id", "customer_id", "booking_id")
++    if any(not identifier(value.get(field)) for field in string_fields):
++        raise Failure("invalid_batch")
++    if not calendar_date(value.get("date")):
++        raise Failure("invalid_batch")
++
++    amount = value.get("amount_cents")
++    if type(amount) is not int or not -1_000_000_000 <= amount <= 1_000_000_000:
++        raise Failure("invalid_batch")
++
++    revision = value.get("revision")
++    if type(revision) is not int or not 0 <= revision <= 1_000_000:
++        raise Failure("invalid_batch")
++
++    return {
++        "source": value["source"],
++        "event_id": value["event_id"],
++        "customer_id": value["customer_id"],
++        "booking_id": value["booking_id"],
++        "amount_cents": amount,
++        "date": value["date"],
++        "revision": revision,
++    }
+ 
+ 
+ def filters(command):
+-    result = {k:command.get(k) for k in ['customer_id','start','end']}
+-    if result['customer_id'] is not None and not identifier(result['customer_id']): raise Failure('invalid_filter')
+-    for key in ['start','end']:
+-        if result[key] is not None and not calendar_date(result[key]): raise Failure('invalid_filter')
+-    if result['start'] is not None and result['end'] is not None and result['start'] > result['end']: raise Failure('invalid_filter')
+-    return result
++    """Validate report filters and return their normalized nullable shape."""
++
++    customer_id = command.get("customer_id")
++    if customer_id is not None and not identifier(customer_id):
++        raise Failure("invalid_filter")
++
++    start = command.get("start")
++    end = command.get("end")
++    if start is not None and not calendar_date(start):
++        raise Failure("invalid_filter")
++    if end is not None and not calendar_date(end):
++        raise Failure("invalid_filter")
++    if start is not None and end is not None and start > end:
++        raise Failure("invalid_filter")
++
++    return {"customer_id": customer_id, "start": start, "end": end}
+ 
+ 
+ def report(rows, version, selection):
+-    selected = [r for r in rows if (selection['customer_id'] is None or r['customer_id'] == selection['customer_id'])
+-        and True
+-        and True]
++    """Aggregate snapshot rows according to a validated selection."""
++
++    selected = []
++    for row in rows:
++        if selection["customer_id"] is not None and row["customer_id"] != selection["customer_id"]:
++            continue
++        if selection["start"] is not None and row["date"] < selection["start"]:
++            continue
++        if selection["end"] is not None and row["date"] > selection["end"]:
++            continue
++        selected.append(row)
++
+     groups = {}
+     for row in selected:
+-        key = row['customer_id'], row['booking_id']
+-        group = groups.setdefault(key, {'customer_id':key[0], 'booking_id':key[1], 'event_count':0, 'total_cents':0})
+-        group['event_count'] += 1; group['total_cents'] += row['amount_cents']
+-    return {**selection, 'snapshot_version':version, 'event_count':len(selected),
+-        'total_cents':sum(r['amount_cents'] for r in selected), 'bookings':[groups[k] for k in sorted(groups)]}
++        key = (row["customer_id"], row["booking_id"])
++        group = groups.setdefault(
++            key,
++            {
++                "customer_id": key[0],
++                "booking_id": key[1],
++                "event_count": 0,
++                "total_cents": 0,
++            },
++        )
++        group["event_count"] += 1
++        group["total_cents"] += row["amount_cents"]
++
++    return {
++        **selection,
++        "snapshot_version": version,
++        "event_count": len(selected),
++        "total_cents": sum(row["amount_cents"] for row in selected),
++        "bookings": [groups[key] for key in __import__('control_algorithms').stable_order(groups)],
++    }
++
++
++def validate_export_path(raw_path):
++    """Validate an export destination without creating or replacing anything.
++
++    The returned Path is the normalized filesystem representation used for
++    writing.  The caller retains *raw_path* for the contract's exact echo.
++    """
++
++    if (
++        not isinstance(raw_path, str)
++        or not 1 <= len(raw_path) <= 4096
++        or "\x00" in raw_path
++        or _has_surrogate(raw_path)
++    ):
++        raise Failure("invalid_path")
++
++    try:
++        target = Path(raw_path)
++        root = Path.cwd().resolve()
++    except (OSError, ValueError, RuntimeError) as error:
++        raise Failure("invalid_path") from error
++
++    if not target.is_absolute() or ".." in target.parts:
++        raise Failure("invalid_path")
++    try:
++        target.relative_to(root)
++    except ValueError as error:
++        raise Failure("invalid_path") from error
++
++    # lstat-style checks are made for the target and every existing parent.
++    # A missing parent is allowed and is created only after all other command
++    # validation has succeeded.
++    try:
++        for component in (target, *target.parents):
++            if component.is_symlink():
++                raise Failure("invalid_path")
++        if target.exists() and target.is_dir():
++            raise Failure("invalid_path")
++    except Failure:
++        raise
++    except OSError as error:
++        raise Failure("export_failed") from error
++
++    return target
++
++
++def _recheck_export_target(target):
++    """Repeat path checks after parent creation to avoid writing through a link."""
++
++    try:
++        for component in (target, *target.parents):
++            if component.is_symlink():
++                raise Failure("invalid_path")
++        if target.exists() and target.is_dir():
++            raise Failure("invalid_path")
++    except Failure:
++        raise
++    except OSError as error:
++        raise Failure("export_failed") from error
+ 
+ 
+ def export_csv(raw_path, value):
+-    if not isinstance(raw_path, str) or not 1 <= len(raw_path) <= 4096 or '\x00' in raw_path: raise Failure('invalid_path')
+-    target = Path(raw_path); root = Path.cwd().resolve()
+-    if not target.is_absolute() or '..' in target.parts: raise Failure('invalid_path')
+-    try: target.relative_to(root)
+-    except ValueError: raise Failure('invalid_path')
++    """Atomically replace an export file with the supplied report."""
++
++    target = validate_export_path(raw_path)
++
+     try:
+-        if target.is_dir() or any(p.is_symlink() for p in [target,*target.parents]): raise Failure('invalid_path')
+         target.parent.mkdir(parents=True, exist_ok=True)
+-    except OSError as error: raise Failure('export_failed') from error
++        _recheck_export_target(target)
++    except Failure:
++        raise
++    except OSError as error:
++        raise Failure("export_failed") from error
++
+     temporary = None
+     try:
+-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', newline='', dir=target.parent, prefix='.report-', delete=False) as output:
++        with tempfile.NamedTemporaryFile(
++            mode="w",
++            encoding="utf-8",
++            newline="",
++            dir=str(target.parent),
++            prefix=".report-",
++            delete=False,
++        ) as output:
+             temporary = Path(output.name)
+             writer = csv.writer(output)
+-            writer.writerow(['customer_id','booking_id','event_count','total_cents'])
+-            for row in value['bookings']: writer.writerow([row[k] for k in ['customer_id','booking_id','event_count','total_cents']])
+-            output.flush(); os.fsync(output.fileno())
+-        os.replace(temporary, target); temporary = None
+-    except OSError as error: raise Failure('export_failed') from error
++            writer.writerow(["customer_id", "booking_id", "event_count", "total_cents"])
++            for row in value["bookings"]:
++                writer.writerow(
++                    [
++                        row["customer_id"],
++                        row["booking_id"],
++                        row["event_count"],
++                        row["total_cents"],
++                    ]
++                )
++            output.flush()
++            os.fsync(output.fileno())
++        os.replace(temporary, target)
++        temporary = None
++    except Exception as error:
++        # This includes filesystem, encoding, and csv writer failures.  The
++        # destination is only replaced after the complete temporary file is
++        # flushed, so an existing destination remains intact on these errors.
++        raise Failure("export_failed") from error
+     finally:
+         if temporary is not None:
+-            try: temporary.unlink()
+-            except FileNotFoundError: pass
+-    return {'path':raw_path, 'snapshot_version':value['snapshot_version'], 'row_count':len(value['bookings'])}
++            try:
++                temporary.unlink()
++            except FileNotFoundError:
++                pass
++            except OSError:
++                pass
++
++    return {
++        "path": raw_path,
++        "snapshot_version": value["snapshot_version"],
++        "row_count": len(value["bookings"]),
++    }
+diff --git a/store.py b/store.py
+index 593efbcb536441428472b700cc27e4e0a4f355d5..fb157c670398f9d840679a27f4af78efd535a7ed 100644
+--- a/store.py
++++ b/store.py
+@@ -1,90 +1,319 @@
+-"""Transactional live events, immutable reporting snapshots and delivery queue."""
++"""Durable SQLite state for events, snapshots, and connector deliveries."""
++
+ from contextlib import contextmanager
+ import json
+ from pathlib import Path
+ import sqlite3
+-from reports import Failure,event,filters,identifier,report,export_csv
++
++from reports import Failure, event, filters, identifier, report, export_csv, validate_export_path
+ from transport import deliver
+ 
+ 
+ class Store:
+-    def __init__(self,path,adapter):
+-        Path(path).parent.mkdir(parents=True,exist_ok=True)
+-        self.db=sqlite3.connect(path,timeout=30,isolation_level=None)
+-        self.adapter=adapter
+-        self.db.executescript('''
+-        CREATE TABLE IF NOT EXISTS events(source TEXT,event_id TEXT,record TEXT NOT NULL,PRIMARY KEY(source,event_id));
+-        CREATE TABLE IF NOT EXISTS snapshot(id INTEGER PRIMARY KEY,meta TEXT NOT NULL,records TEXT NOT NULL);
+-        CREATE TABLE IF NOT EXISTS deliveries(request_id TEXT PRIMARY KEY,selection TEXT NOT NULL,record TEXT NOT NULL);
+-        INSERT OR IGNORE INTO snapshot VALUES(1,'{"version":0,"record_count":0,"watermark":null}','[]');
+-        ''')
++    def __init__(self, path, adapter):
++        Path(path).parent.mkdir(parents=True, exist_ok=True)
++        self.db = sqlite3.connect(path, timeout=30, isolation_level=None)
++        self.db.execute("PRAGMA busy_timeout=30000")
++        self.db.execute("PRAGMA foreign_keys=ON")
++        self.adapter = adapter
++
++        # These are deliberately ordinary SQLite tables (rather than an
++        # in-memory state mirror).  rowid is the durable insertion order for
++        # events and deliveries; updating a row does not change that rowid.
++        self.db.execute(
++            """
++            CREATE TABLE IF NOT EXISTS events(
++                source TEXT,
++                event_id TEXT,
++                record TEXT NOT NULL,
++                PRIMARY KEY(source,event_id)
++            )
++            """
++        )
++        self.db.execute(
++            """
++            CREATE TABLE IF NOT EXISTS snapshot(
++                id INTEGER PRIMARY KEY,
++                meta TEXT NOT NULL,
++                records TEXT NOT NULL
++            )
++            """
++        )
++        self.db.execute(
++            """
++            CREATE TABLE IF NOT EXISTS deliveries(
++                request_id TEXT PRIMARY KEY,
++                selection TEXT NOT NULL,
++                record TEXT NOT NULL
++            )
++            """
++        )
++        self.db.execute(
++            "INSERT OR IGNORE INTO snapshot(id,meta,records) VALUES(1,?,?)",
++            (
++                json.dumps(
++                    {"version": 0, "record_count": 0, "watermark": None},
++                    ensure_ascii=False,
++                    separators=(",", ":"),
++                ),
++                "[]",
++            ),
++        )
+ 
+     @contextmanager
+     def transaction(self):
+-        self.db.execute('BEGIN IMMEDIATE')
+-        try:yield
+-        except BaseException:self.db.execute('ROLLBACK');raise
+-        else:self.db.execute('COMMIT')
++        """Serialize a command and commit all of its SQLite changes together."""
++
++        self.db.execute("BEGIN IMMEDIATE")
++        try:
++            yield
++        except BaseException:
++            try:
++                self.db.execute("ROLLBACK")
++            except sqlite3.Error:
++                pass
++            raise
++        else:
++            self.db.execute("COMMIT")
++
++    @staticmethod
++    def _dump(value):
++        return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
++
++    def records(self):
++        return [
++            json.loads(row[0])
++            for row in self.db.execute("SELECT record FROM events ORDER BY rowid")
++        ]
+ 
+-    def records(self):return [json.loads(row[0]) for row in self.db.execute('SELECT record FROM events ORDER BY rowid')]
+     def snapshot(self):
+-        row=self.db.execute('SELECT meta,records FROM snapshot WHERE id=1').fetchone()
+-        return json.loads(row[0]),json.loads(row[1])
+-    def deliveries(self):return [json.loads(row[0]) for row in self.db.execute('SELECT record FROM deliveries ORDER BY rowid')]
++        row = self.db.execute(
++            "SELECT meta,records FROM snapshot WHERE id=1"
++        ).fetchone()
++        if row is None:
++            # Initialization always creates this row.  Treat its absence as an
++            # environment/database failure rather than fabricating a snapshot.
++            raise sqlite3.DatabaseError("snapshot row is missing")
++        return json.loads(row[0]), json.loads(row[1])
++
++    def deliveries(self):
++        return [
++            json.loads(row[0])
++            for row in self.db.execute("SELECT record FROM deliveries ORDER BY rowid")
++        ]
++
++    def execute(self, command):
++        if not isinstance(command, dict):
++            raise Failure("invalid_request")
++
++        op = command.get("op")
++        operations = {
++            "status",
++            "records",
++            "ingest",
++            "refresh",
++            "report",
++            "export",
++            "queue",
++            "deliver",
++            "deliveries",
++        }
++        if not isinstance(op, str) or op not in operations:
++            raise Failure("unknown_operation")
++
++        if op == "ingest":
++            incoming = command.get("records")
++            if not isinstance(incoming, list) or len(incoming) > 200:
++                raise Failure("invalid_batch")
++            # Complete validation happens before opening the write transaction,
++            # so no invalid occurrence can partially affect durable state.
++            normalized = [event(value) for value in incoming]
++            with self.transaction():
++                return self._ingest(normalized)
++
++        if op == "refresh":
++            watermark = command.get("watermark")
++            if watermark is not None and not identifier(watermark):
++                raise Failure("invalid_request")
++            with self.transaction():
++                return self._refresh(watermark)
++
++        if op == "report":
++            selection = filters(command)
++            with self.transaction():
++                meta, rows = self.snapshot()
++                return report(rows, meta["version"], selection)
++
++        if op == "export":
++            # Validate both the filters and destination before reading the
++            # snapshot or creating any filesystem output.
++            selection = filters(command)
++            validate_export_path(command.get("path"))
++            with self.transaction():
++                meta, rows = self.snapshot()
++                value = report(rows, meta["version"], selection)
++                return export_csv(command.get("path"), value)
+ 
+-    def execute(self,command):
+-        op=command.get('op')
+-        if op not in ['status','records','ingest','refresh','report','export','queue','deliver','deliveries']:raise Failure('unknown_operation')
++        if op == "queue":
++            target = command.get("target")
++            if target not in ("table", "mail", "archive"):
++                raise Failure("invalid_target")
++            request_id = command.get("request_id")
++            if not identifier(request_id):
++                raise Failure("invalid_request")
++            selection = filters(command)
++            with self.transaction():
++                return self._queue(request_id, target, selection)
++
++        if op == "deliver":
++            request_id = command.get("request_id")
++            if not identifier(request_id):
++                raise Failure("invalid_request")
++            # Keep the network attempt inside the write transaction.  A second
++            # process therefore waits for the first attempt's durable status
++            # and cannot issue a second request after a successful delivery.
++            with self.transaction():
++                return self._deliver(request_id)
++
++        if op == "status":
++            with self.transaction():
++                meta, _ = self.snapshot()
++                record_count = self.db.execute(
++                    "SELECT COUNT(*) FROM events"
++                ).fetchone()[0]
++                delivery_rows = self.db.execute(
++                    "SELECT record FROM deliveries"
++                ).fetchall()
++                pending = 0
++                delivered_count = 0
++                for (encoded_delivery,) in delivery_rows:
++                    status = json.loads(encoded_delivery)["status"]
++                    if status == "pending":
++                        pending += 1
++                    elif status == "delivered":
++                        delivered_count += 1
++                return {
++                    "record_count": record_count,
++                    "snapshot": meta,
++                    "pending_deliveries": pending,
++                    "delivered_count": delivered_count,
++                }
++
++        if op == "records":
++            with self.transaction():
++                return {"records": self.records()}
++
++        # The only remaining operation is deliveries.
+         with self.transaction():
+-            if op=='status':
+-                deliveries=self.deliveries();meta,_=self.snapshot()
+-                return {'record_count':len(self.records()),'snapshot':meta,'pending_deliveries':sum(d['status']=='pending' for d in deliveries),'delivered_count':sum(d['status']=='delivered' for d in deliveries)}
+-            if op=='records':return {'records':self.records()}
+-            if op=='deliveries':return {'deliveries':self.deliveries()}
+-            if op=='ingest':return self.ingest(command)
+-            if op=='refresh':return self.refresh(command)
+-            if op in ['report','export']:
+-                selection=filters(command);meta,rows=self.snapshot();value=report(rows,meta['version'],selection)
+-                return value if op=='report' else export_csv(command.get('path'),value)
+-            if op=='queue':return self.queue(command)
+-            return self.send(command)
+-
+-    def ingest(self,command):
+-        incoming=command.get('records')
+-        if not isinstance(incoming,list) or len(incoming)>200:raise Failure('invalid_batch')
+-        rows=[event(row) for row in incoming];counts={'inserted':0,'updated':0,'unchanged':0}
++            return {"deliveries": self.deliveries()}
++
++    def _ingest(self, rows):
++        counts = {"inserted": 0, "updated": 0, "unchanged": 0}
+         for row in rows:
+-            key=row['source'],row['event_id']
+-            stored=self.db.execute('SELECT record FROM events WHERE source=? AND event_id=?',key).fetchone()
++            key = (row["source"], row["event_id"])
++            stored = self.db.execute(
++                "SELECT record FROM events WHERE source=? AND event_id=?", key
++            ).fetchone()
++            encoded = self._dump(row)
+             if stored is None:
+-                self.db.execute('INSERT INTO events VALUES(?,?,?)',(*key,json.dumps(row,ensure_ascii=False)));counts['inserted']+=1
++                self.db.execute(
++                    "INSERT INTO events(source,event_id,record) VALUES(?,?,?)",
++                    (*key, encoded),
++                )
++                counts["inserted"] += 1
++                continue
++
++            previous = json.loads(stored[0])
++            if row["revision"] > previous["revision"]:
++                self.db.execute(
++                    "UPDATE events SET record=? WHERE source=? AND event_id=?",
++                    (encoded, *key),
++                )
++                counts["updated"] += 1
++            elif row["revision"] == previous["revision"] and row == previous:
++                counts["unchanged"] += 1
+             else:
+-                counts['unchanged']+=1
+-        return {**counts,'record_count':len(self.records())}
+-
+-    def refresh(self,command):
+-        watermark=command.get('watermark')
+-        if watermark is not None and not identifier(watermark):raise Failure('invalid_request')
+-        meta,previous=self.snapshot();rows=self.records()
+-        if len(rows)!=len(previous):
+-            meta={'version':meta['version']+1,'record_count':len(rows),'watermark':watermark}
+-            self.db.execute('UPDATE snapshot SET meta=?,records=? WHERE id=1',(json.dumps(meta,ensure_ascii=False),json.dumps(rows,ensure_ascii=False)))
++                # The surrounding transaction rolls back every earlier insert
++                # and update in this batch.
++                raise Failure("revision_conflict")
++
++        record_count = self.db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
++        return {**counts, "record_count": record_count}
++
++    def _refresh(self, watermark):
++        meta, previous = self.snapshot()
++        current = self.records()
++        if current != previous:
++            meta = {
++                "version": meta["version"] + 1,
++                "record_count": len(current),
++                "watermark": watermark,
++            }
++            self.db.execute(
++                "UPDATE snapshot SET meta=?,records=? WHERE id=1",
++                (self._dump(meta), self._dump(current)),
++            )
+         return meta
+ 
+-    def queue(self,command):
+-        target=command.get('target');key=command.get('request_id')
+-        if target not in ['table','mail','archive']:raise Failure('invalid_target')
+-        if not identifier(key):raise Failure('invalid_request')
+-        selection=filters(command)
+-        row=self.db.execute('SELECT selection,record FROM deliveries WHERE request_id=?',(key,)).fetchone()
+-        if row:
+-            stored=json.loads(row[1])
+-            if stored['target']!=target or json.loads(row[0])!=selection:raise Failure('request_conflict')
+-            return {'delivery':stored}
+-        meta,rows=self.snapshot();value=report(rows,meta['version'],selection)
+-        delivery={'request_id':key,'target':target,'envelope':{'request_id':key,'target':target,'report':value},'status':'pending','attempts':0,'last_error':None}
+-        self.db.execute('INSERT INTO deliveries VALUES(?,?,?)',(key,json.dumps(selection,ensure_ascii=False),json.dumps(delivery,ensure_ascii=False)))
+-        return {'delivery':delivery}
+-
+-    def send(self,command):
+-        raise Failure('not_implemented')
++    def _queue(self, request_id, target, selection):
++        row = self.db.execute(
++            "SELECT selection,record FROM deliveries WHERE request_id=?",
++            (request_id,),
++        ).fetchone()
++        if row is not None:
++            stored_selection = json.loads(row[0])
++            stored_delivery = json.loads(row[1])
++            if (
++                stored_delivery["target"] != target
++                or stored_selection != selection
++            ):
++                raise Failure("request_conflict")
++            return {"delivery": stored_delivery}
++
++        meta, rows = self.snapshot()
++        value = report(rows, meta["version"], selection)
++        delivery = {
++            "request_id": request_id,
++            "target": target,
++            "envelope": {
++                "request_id": request_id,
++                "target": target,
++                "report": value,
++            },
++            "status": "pending",
++            "attempts": 0,
++            "last_error": None,
++        }
++        self.db.execute(
++            "INSERT INTO deliveries(request_id,selection,record) VALUES(?,?,?)",
++            (request_id, self._dump(selection), self._dump(delivery)),
++        )
++        return {"delivery": delivery}
++
++    def _deliver(self, request_id):
++        row = self.db.execute(
++            "SELECT record FROM deliveries WHERE request_id=?", (request_id,)
++        ).fetchone()
++        if row is None:
++            raise Failure("not_found")
++
++        delivery = json.loads(row[0])
++        if delivery["status"] == "delivered":
++            return {"delivery": delivery}
++
++        # transport.deliver performs one bounded HTTP attempt and returns only
++        # a validated acknowledgement result.
++        succeeded = deliver(self.adapter, delivery["envelope"])
++        delivery["attempts"] += 1
++        if succeeded:
++            delivery["status"] = "delivered"
++            delivery["last_error"] = None
++        else:
++            delivery["status"] = "pending"
++            delivery["last_error"] = "delivery_failed"
++
++        self.db.execute(
++            "UPDATE deliveries SET record=? WHERE request_id=?",
++            (self._dump(delivery), request_id),
++        )
++        return {"delivery": delivery}
+diff --git a/transport.py b/transport.py
+index 3cccc617acc215a715ceac06e33c37973455b588..530ac6dc129c71558ff97743c6fe86319cde9474 100644
+--- a/transport.py
++++ b/transport.py
+@@ -1,17 +1,68 @@
+ """One bounded, idempotency-keyed HTTP delivery per explicit command."""
++
+ import json
+-from urllib.request import Request,urlopen
+-from urllib.parse import quote
+-from urllib.error import HTTPError,URLError
++from urllib.parse import quote_from_bytes
++from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
++
++
++_MAX_ACK_BYTES = 1_048_576
++
++
++class _NoRedirect(HTTPRedirectHandler):
++    """A delivery command has one POST attempt, never a redirect chain."""
++
++    def redirect_request(self, request, fp, code, msg, headers, newurl):
++        return None
++
++
++_OPENER = build_opener(ProxyHandler({}), _NoRedirect())
++
++
++def _idempotency_key(value):
++    # quote_from_bytes operates on UTF-8 bytes and leaves exactly the HTTP
++    # unreserved ASCII bytes required by the adapter protocol untouched.
++    return quote_from_bytes(value.encode("utf-8"), safe=b"-._~")
++
++
++def _reject_constant(_value):
++    raise ValueError("non-finite JSON number")
+ 
+ 
+ def deliver(base, envelope):
++    """Make exactly one POST and accept only a valid adapter acknowledgement."""
++
+     try:
+-        request = Request(base.rstrip('/') + '/deliveries/' + envelope['target'],
+-            data=json.dumps(envelope,ensure_ascii=False,allow_nan=False).encode(),
+-            headers={'Content-Type':'application/json','Idempotency-Key':quote(envelope['request_id'],safe='')},method='POST')
+-        with urlopen(request,timeout=5) as response:
+-            if response.status not in [200,201]: return False
+-            value = json.loads(response.read(262145))
+-        return isinstance(value,dict) and value.get('accepted') is True and value.get('request_id') == envelope['request_id'] and value.get('target') == envelope['target']
+-    except (OSError,ValueError,UnicodeError,HTTPError,URLError): return False
++        target = envelope["target"]
++        request_id = envelope["request_id"]
++        body = json.dumps(
++            envelope, ensure_ascii=False, allow_nan=False, separators=(",", ":")
++        ).encode("utf-8")
++        request = Request(
++            base.rstrip("/") + "/deliveries/" + target,
++            data=body,
++            headers={
++                "Content-Type": "application/json",
++                "Idempotency-Key": _idempotency_key(request_id),
++            },
++            method="POST",
++        )
++        with _OPENER.open(request, timeout=5) as response:
++            if response.status not in (200, 201):
++                return False
++            raw = response.read(_MAX_ACK_BYTES + 1)
++            if len(raw) > _MAX_ACK_BYTES:
++                return False
++            value = json.loads(
++                raw.decode("utf-8"), parse_constant=_reject_constant
++            )
++        return (
++            isinstance(value, dict)
++            and value.get("accepted") is True
++            and value.get("request_id") == request_id
++            and value.get("target") == target
++        )
++    except Exception:
++        # Network errors, timeouts, malformed responses, invalid acknowledgments,
++        # and local transport encoding errors are all the public delivery_failed
++        # outcome.  The caller persists the attempt and keeps the row pending.
++        return False

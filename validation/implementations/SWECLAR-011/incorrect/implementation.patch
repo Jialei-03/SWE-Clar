@@ -1,0 +1,1376 @@
+diff --git a/document.php b/document.php
+index a530fa93a47a0db15a51e9ef51365c3b0bdd739a..3d669d5c1022e61e4ae4f7a74c41e8f1563ef8e8 100644
+--- a/document.php
++++ b/document.php
+@@ -1,26 +1,215 @@
+ <?php
+ declare(strict_types=1);
+-function rgb(string $color):array {return [hexdec(substr($color,1,2)),hexdec(substr($color,3,2)),hexdec(substr($color,5,2))];}
+-function renderPDF(array $values,array $template,array $assets,string $kind):string {
+-    if(!defined('K_TCPDF_THROW_EXCEPTION_ERROR'))define('K_TCPDF_THROW_EXCEPTION_ERROR',true);
+-    require_once getenv('TCPDF_ROOT').'/tcpdf.php';
+-    $pdf=new TCPDF('L','mm',[210,148],true,'UTF-8',false);
+-    $pdf->setPrintHeader(false);$pdf->setPrintFooter(false);$pdf->SetMargins(10,10,10);$pdf->SetAutoPageBreak(false);
+-    $pdf->SetCreator('Clar-SWE synthetic document application');$pdf->SetAuthor('');$pdf->SetTitle('SAMPLE - NOT VALID');
+-    $labels=['document_id'=>['Identifiant','المعرّف'],'name'=>['Nom','الاسم'],'group'=>['Groupe','المجموعة'],'contact'=>['Contact','جهة الاتصال'],'reviewer'=>['Révision','المراجعة'],'reference'=>['Référence','المرجع']];
+-    foreach([array_slice(FIELDS,0,3),array_slice(FIELDS,3,3)] as $side=>$fields){
+-        $pdf->AddPage('L',[210,148]);
+-        $pdf->SetTextColor(0,0,0);$pdf->SetFont('dejavusans','B',14);$pdf->SetXY(35,8);$pdf->Cell(140,10,'SAMPLE / NOT VALID',0,0,'C');
+-        foreach($fields as $i=>$field){
+-            // The existing preview uses default text settings. Template integration is unfinished.
+-            $style=defaults();$y=25+$i*29;
+-            if($style['background']!==null){$pdf->SetFillColor(...rgb($style['background']));$pdf->Rect(10,$y,190,29,'F');}
+-            if($style['border']){$pdf->SetDrawColor(0,0,0);$pdf->Rect(10,$y,190,29,'D');}
+-            $pdf->SetTextColor(0,0,0);$pdf->SetFont('dejavusans','',8);$pdf->SetXY(10,$y);$pdf->Cell(90,5,$labels[$field][0]);
+-            $pdf->setRTL(true);$pdf->SetXY(10,$y);$pdf->Cell(90,5,$labels[$field][1],0,0,'R');$pdf->setRTL(false);
+-            $pdf->SetTextColor(...rgb($style['color']));$pdf->SetFont('dejavusans',$style['weight']==='bold'?'B':'',$style['font_size']);
+-            $rtl=(bool)preg_match('/^[^\p{L}]*\p{Arabic}/u',$values[$field]);$pdf->setRTL($rtl);$pdf->SetXY(10,$y+5);$pdf->MultiCell(190,6,$values[$field],0,$rtl?'R':'L');$pdf->setRTL(false);
++
++function rgb(string $color): array
++{
++    return [
++        hexdec(substr($color, 1, 2)),
++        hexdec(substr($color, 3, 2)),
++        hexdec(substr($color, 5, 2)),
++    ];
++}
++
++/** Draw one stored PNG inside a slot without distorting its aspect ratio. */
++function drawStoredImage(TCPDF $pdf, array $asset, float $x, float $y, float $width, float $height): void
++{
++    $sourceWidth = (int) $asset['width'];
++    $sourceHeight = (int) $asset['height'];
++    if ($sourceWidth < 1 || $sourceHeight < 1 || !is_string($asset['data'])) {
++        throw new RuntimeException('Invalid image data');
++    }
++
++    $scale = min($width / $sourceWidth, $height / $sourceHeight);
++    $drawWidth = $sourceWidth * $scale;
++    $drawHeight = $sourceHeight * $scale;
++    $drawX = $x + (($width - $drawWidth) / 2);
++    $drawY = $y + (($height - $drawHeight) / 2);
++
++    // TCPDF accepts an @-prefixed binary string and embeds the supplied PNG.
++    $pdf->Image('@' . $asset['data'], $drawX, $drawY, $drawWidth, $drawHeight, 'PNG');
++}
++
++function drawSlotIfPresent(TCPDF $pdf, ?array $asset, float $x, float $y, float $width, float $height, float $opacity = 1.0): void
++{
++    if ($asset === null) {
++        return;
++    }
++    $pdf->setAlpha($opacity);
++    drawStoredImage($pdf, $asset, $x, $y, $width, $height);
++    $pdf->setAlpha(1.0);
++}
++
++function drawSampleHeading(TCPDF $pdf): void
++{
++    $pdf->setRTL(false);
++    $pdf->SetTextColor(0, 0, 0);
++    $pdf->SetFont('dejavusans', 'B', 14);
++    $pdf->SetXY(35, 8);
++    $pdf->Cell(140, 10, 'SAMPLE / NOT VALID', 0, 0, 'C');
++}
++
++function drawFieldPanel(
++    TCPDF $pdf,
++    string $field,
++    string $value,
++    array $style,
++    float $y,
++    array $labels
++): void {
++    // An invisible field has no panel, label, value, border, or fill, but its
++    // reserved panel remains in place so other fields never move.
++    if ($style['visible'] !== true) {
++        return;
++    }
++
++    if ($style['background'] !== null) {
++        $pdf->SetFillColor(...rgb($style['background']));
++        $pdf->Rect(10, $y, 190, 29, 'F');
++    }
++    if ($style['border'] === true) {
++        $pdf->SetDrawColor(0, 0, 0);
++        $pdf->SetLineWidth(0.25);
++        $pdf->Rect(10, $y, 190, 29, 'D');
++    }
++
++    $pdf->setRTL(false);
++    $pdf->SetTextColor(0, 0, 0);
++    $pdf->SetFont('dejavusans', '', 8);
++    $pdf->SetXY(10, $y);
++    $pdf->Cell(90, 5, $labels[$field][0], 0, 0, 'L');
++
++    // Arabic labels occupy the right half of the five-millimetre label row.
++    $pdf->setRTL(true);
++    // Use an absolute right edge: SetXY's normal RTL coordinate mode
++    // mirrors positive X values around the page.
++    $pdf->SetXY(10, $y);
++    $pdf->Cell(90, 5, $labels[$field][1], 0, 0, 'R');
++    $pdf->setRTL(false);
++
++    $pdf->SetTextColor(...rgb($style['color']));
++    $pdf->SetFont('dejavusans', $style['weight'] === 'bold' ? 'B' : '', (int) $style['font_size']);
++    $hasArabic = preg_match('/\p{Arabic}/u', $value) === 1;
++    $pdf->setRTL($hasArabic);
++    $pdf->MultiCell(190, 6, $value, 0, $hasArabic ? 'R' : 'L', false, 1, 10, $y + 5, true, 0, false, true, 0, 'T', false);
++    $pdf->setRTL(false);
++}
++
++/**
++ * Render the two-page public sample format. $assets is keyed by asset id and
++ * contains the original PNG BLOB plus its independently stored dimensions.
++ */
++function renderPDF(array $values, array $template, array $assets, string $kind): string
++{
++    if (!defined('K_TCPDF_THROW_EXCEPTION_ERROR')) {
++        define('K_TCPDF_THROW_EXCEPTION_ERROR', true);
++    }
++    $tcpdfRoot = getenv('TCPDF_ROOT');
++    if (!is_string($tcpdfRoot) || $tcpdfRoot === '') {
++        throw new RuntimeException('TCPDF is unavailable');
++    }
++    require_once $tcpdfRoot . '/tcpdf.php';
++
++    // TCPDF normally appends its own tiny "Powered by TCPDF" link at
++    // document close. Disable that library watermark so the sample remains
++    // wholly application-owned and contains no unsolicited external URL.
++    $pdf = new class('L', 'mm', [210, 148], true, 'UTF-8', false) extends TCPDF {
++        public function __construct(...$arguments)
++        {
++            parent::__construct(...$arguments);
++            $this->tcpdflink = false;
++        }
++    };
++    $pdf->setPrintHeader(false);
++    $pdf->setPrintFooter(false);
++    $pdf->SetMargins(10, 5, 10);
++    $pdf->SetAutoPageBreak(false);
++    $pdf->setCellPadding(0);
++    $pdf->setCellMargins(0, 0, 0, 0);
++    $pdf->SetCreator('Clar-SWE synthetic document application');
++    $pdf->SetAuthor('');
++    $pdf->SetTitle('SAMPLE - NOT VALID');
++    $pdf->SetSubject('Bilingual sample document');
++
++    $labels = [
++        'document_id' => ['Identifiant', 'المختلف'],
++        'name' => ['Nom', 'الاسم'],
++        'group' => ['Groupe', 'المجموعة'],
++        'contact' => ['Contact', 'جهة الاتصال'],
++        'reviewer' => ['Révision', 'المراجعة'],
++        'reference' => ['Référence', 'المرجع'],
++    ];
++    $frontFields = ['document_id', 'name', 'group'];
++    $backFields = ['contact', 'reviewer', 'reference'];
++
++    foreach ([$frontFields, $backFields] as $side => $fields) {
++        $pdf->AddPage('L', [210, 148]);
++
++        // Image slots are behind text. The watermark is deliberately only a
++        // sample_pass feature and is drawn before all field backgrounds/text.
++        if ($kind === 'sample_pass' && isset($template['placements']['watermark'])
++            && $template['placements']['watermark'] !== null) {
++            $assetId = $template['placements']['watermark'];
++            if (!isset($assets[$assetId])) {
++                throw new RuntimeException('Watermark asset unavailable');
++            }
++            drawSlotIfPresent($pdf, $assets[$assetId], 60, 30, 90, 80, 0.15);
+         }
++
++        if ($side === 0) {
++            foreach ([['front_left', 10.0], ['front_right', 180.0]] as [$slot, $x]) {
++                $assetId = $template['placements'][$slot] ?? null;
++                if ($assetId !== null) {
++                    if (!isset($assets[$assetId])) {
++                        throw new RuntimeException('Image asset unavailable');
++                    }
++                    drawSlotIfPresent($pdf, $assets[$assetId], $x, 5, 20, 18);
++                }
++            }
++        } else {
++            $assetId = $template['placements']['back'] ?? null;
++            if ($assetId !== null) {
++                if (!isset($assets[$assetId])) {
++                    throw new RuntimeException('Image asset unavailable');
++                }
++                drawSlotIfPresent($pdf, $assets[$assetId], 180, 5, 20, 18);
++            }
++        }
++
++        drawSampleHeading($pdf);
++        foreach ($fields as $index => $field) {
++            $style = $template['styles'][$field] ?? defaults();
++            drawFieldPanel($pdf, $field, $values[$field], $style, 25 + ($index * 29), $labels);
++        }
++
++        if ($side === 1) {
++            // TCPDF's PDF417 implementation consumes the string byte-for-byte
++            // in byte compaction for UTF-8 data and emits a real symbol. A
++            // white padded background supplies a quiet zone in the reserved
++            // public envelope.
++            $pdf->setRTL(false);
++            $pdf->setAlpha(1.0);
++            $pdf->write2DBarcode(
++                $values['reference'],
++                'PDF417,8,2',
++                20,
++                113,
++                170,
++                28,
++                [
++                    'border' => false,
++                    'padding' => 2,
++                    'fgcolor' => [0, 0, 0],
++                    'bgcolor' => [255, 255, 255],
++                ],
++                '',
++                false
++            );
++        }
++    }
++
++    $data = $pdf->Output('', 'S');
++    if (!is_string($data) || !str_starts_with($data, '%PDF-') || !str_contains($data, '%%EOF')) {
++        throw new RuntimeException('Incomplete PDF');
+     }
+-    $data=$pdf->Output('','S');if(!str_starts_with($data,'%PDF-')||!str_contains($data,'%%EOF'))throw new RuntimeException('Incomplete PDF');return $data;
++    return $data;
+ }
+diff --git a/features.php b/features.php
+index e6cc99a4f16421209d58eb193bd3249b5c4794d6..3947f6c1f82f1646c771ac6be9a62efd120b143c 100644
+--- a/features.php
++++ b/features.php
+@@ -1,19 +1,375 @@
+ <?php
+ declare(strict_types=1);
+-require_once __DIR__.'/document.php';
+-// Feature hooks: keep the working profile administration and PDF preview intact.
+-function admin(array $actor):void {}
+-function configureField(SQLite3 $db,array $actor,string $field,array $request):array {fail(501,'not_implemented','Field configuration is unfinished.');}
+-function uploadAsset(SQLite3 $db,array $actor):array {fail(501,'not_implemented','Image upload is unfinished.');}
+-function placeAsset(SQLite3 $db,array $actor,string $slot,array $request):array {fail(501,'not_implemented','Image placement is unfinished.');}
+-function renderDocument(SQLite3 $db,array $actor,array $request):array {
+-    $kind=$request['kind']??null;$filename=$request['filename']??null;$profile=$request['profile_id']??null;
+-    if(!in_array($kind,['sample_card','sample_pass'],true)||!is_string($filename)||!preg_match('/^[A-Za-z0-9_-]{1,64}\.pdf$/D',$filename)||!is_string($profile))fail(400,'invalid_request');
+-    $stored=row($db,'SELECT data FROM profiles WHERE id=:id',['id'=>$profile]);if(!$stored)fail(404,'not_found');
+-    $values=validatedProfile(json_decode($stored['data'],true));$t=templateState($db);
+-    $pdf=renderPDF($values,$t,[],$kind);$sha=hash('sha256',$pdf);$bytes=strlen($pdf);
+-    $s=$db->prepare('INSERT INTO documents VALUES(:filename,:kind,:profile,:data,:bytes,:sha,:revision) ON CONFLICT(filename) DO UPDATE SET kind=excluded.kind,profile_id=excluded.profile_id,data=excluded.data,bytes=excluded.bytes,sha256=excluded.sha256,revision=excluded.revision');
+-    foreach(['filename'=>$filename,'kind'=>$kind,'profile'=>$profile,'sha'=>$sha] as $key=>$value)$s->bindValue(':'.$key,$value,SQLITE3_TEXT);
+-    $s->bindValue(':data',$pdf,SQLITE3_BLOB);$s->bindValue(':bytes',$bytes,SQLITE3_INTEGER);$s->bindValue(':revision',$t['revision'],SQLITE3_INTEGER);$s->execute();
+-    return ['document'=>['filename'=>$filename,'kind'=>$kind,'profile_id'=>$profile,'bytes'=>$bytes,'sha256'=>$sha,'revision'=>$t['revision']]];
++
++require_once __DIR__ . '/document.php';
++
++function admin(array $actor): void
++{
++    if (($actor['role'] ?? null) !== 'admin') {
++        fail(403, 'configuration_denied', 'Only authenticated administrators can change document configuration.');
++    }
++}
++
++function expectedRevision(array $request): int
++{
++    if (!array_key_exists('expected_revision', $request)
++        || !is_int($request['expected_revision'])
++        || $request['expected_revision'] < 0) {
++        fail(400, 'invalid_revision', 'expected_revision must be a nonnegative integer.');
++    }
++    return $request['expected_revision'];
++}
++
++function stylePatch(mixed $values): array
++{
++    if (!is_array($values) || count($values) === 0) {
++        fail(400, 'invalid_style', 'values must be a nonempty style patch.');
++    }
++
++    $allowed = ['color', 'background', 'font_size', 'weight', 'border', 'visible'];
++    if (array_diff(array_keys($values), $allowed)) {
++        fail(400, 'invalid_style', 'The style patch contains an unknown property.');
++    }
++
++    $patch = [];
++    foreach ($values as $key => $value) {
++        switch ($key) {
++            case 'color':
++                if (!is_string($value) || preg_match('/\A#[0-9a-fA-F]{6}\z/D', $value) !== 1) {
++                    fail(400, 'invalid_style', 'color must be a six-digit hexadecimal color.');
++                }
++                $patch[$key] = strtoupper($value);
++                break;
++            case 'background':
++                if ($value !== null
++                    && (!is_string($value) || preg_match('/\A#[0-9a-fA-F]{6}\z/D', $value) !== 1)) {
++                    fail(400, 'invalid_style', 'background must be a color or null.');
++                }
++                $patch[$key] = $value === null ? null : strtoupper($value);
++                break;
++            case 'font_size':
++                if (!is_int($value) || $value < 6 || $value > 12) {
++                    fail(400, 'invalid_style', 'font_size must be an integer from 6 through 12.');
++                }
++                $patch[$key] = $value;
++                break;
++            case 'weight':
++                if (!is_string($value) || !in_array($value, ['normal', 'bold'], true)) {
++                    fail(400, 'invalid_style', 'weight must be normal or bold.');
++                }
++                $patch[$key] = $value;
++                break;
++            case 'border':
++            case 'visible':
++                if (!is_bool($value)) {
++                    fail(400, 'invalid_style', $key . ' must be boolean.');
++                }
++                $patch[$key] = $value;
++                break;
++            default:
++                // The key whitelist above makes this unreachable.
++                fail(400, 'invalid_style');
++        }
++    }
++    return $patch;
++}
++
++function configureField(SQLite3 $db, array $actor, string $field, array $request): array
++{
++    admin($actor);
++    if (!in_array($field, FIELDS, true)) {
++        fail(400, 'invalid_style', 'Unknown template field.');
++    }
++    $revision = expectedRevision($request);
++    $patch = stylePatch($request['values'] ?? null);
++
++    return transaction($db, function () use ($db, $actor, $field, $revision, $patch): array {
++        $template = templateState($db);
++        if ($template['revision'] !== $revision) {
++            fail(409, 'revision_conflict', 'The template changed; refresh and retry explicitly.');
++        }
++
++        $merged = array_replace($template['styles'][$field], $patch);
++        if ($merged === $template['styles'][$field]) {
++            return $template;
++        }
++
++        $template['styles'][$field] = $merged;
++        $template['revision']++;
++        saveTemplate($db, $template);
++        audit($db, $actor, 'configure_field', $field, $template['revision']);
++        return templateState($db);
++    });
++}
++
++/** Decode and independently inspect a PNG; return dimensions or null. */
++function inspectPng(string $data): ?array
++{
++    if ($data === '' || strlen($data) > 262144) {
++        return null;
++    }
++    $info = @getimagesizefromstring($data);
++    if ($info === false || ($info[2] ?? null) !== IMAGETYPE_PNG) {
++        return null;
++    }
++    // Reject dimensions from the PNG header before asking GD to allocate an
++    // image, which also makes oversized dimension fixtures safe to inspect.
++    $headerWidth = (int) ($info[0] ?? 0);
++    $headerHeight = (int) ($info[1] ?? 0);
++    if ($headerWidth < 8 || $headerWidth > 1024 || $headerHeight < 8 || $headerHeight > 1024) {
++        return null;
++    }
++    $decoded = @imagecreatefromstring($data);
++    if ($decoded === false) {
++        return null;
++    }
++    $width = imagesx($decoded);
++    $height = imagesy($decoded);
++    imagedestroy($decoded);
++    if ($width !== $headerWidth || $height !== $headerHeight) {
++        return null;
++    }
++    return ['width' => $width, 'height' => $height];
++}
++
++function uploadAsset(SQLite3 $db, array $actor): array
++{
++    // Check trust before looking at multipart content: an editor gets the
++    // policy error, not a validation hint about an otherwise forbidden action.
++    admin($actor);
++    $upload = $_FILES['image'] ?? null;
++    if (!is_array($upload)
++        || !array_key_exists('name', $upload)
++        || is_array($upload['name'])
++        || ($upload['error'] ?? null) !== UPLOAD_ERR_OK
++        || !is_string($upload['tmp_name'] ?? null)
++        || $upload['tmp_name'] === '') {
++        fail(400, 'invalid_asset', 'A single PNG image upload is required.');
++    }
++
++    $data = @file_get_contents($upload['tmp_name']);
++    if ($data === false || strlen($data) > 262144) {
++        fail(400, 'invalid_asset', 'The uploaded image is invalid or too large.');
++    }
++    $dimensions = inspectPng($data);
++    if ($dimensions === null) {
++        fail(400, 'invalid_asset', 'The upload must be a genuine PNG between 8 and 1024 pixels per side.');
++    }
++
++    $sha256 = hash('sha256', $data);
++    return transaction($db, function () use ($db, $actor, $data, $dimensions, $sha256): array {
++        do {
++            $id = bin2hex(random_bytes(16));
++        } while (row($db, 'SELECT id FROM assets WHERE id = :id', ['id' => $id]) !== null);
++
++        $statement = $db->prepare('INSERT INTO assets(id, data, sha256, width, height)
++                                   VALUES(:id, :data, :sha256, :width, :height)');
++        $statement->bindValue(':id', $id, SQLITE3_TEXT);
++        $statement->bindValue(':data', $data, SQLITE3_BLOB);
++        $statement->bindValue(':sha256', $sha256, SQLITE3_TEXT);
++        $statement->bindValue(':width', $dimensions['width'], SQLITE3_INTEGER);
++        $statement->bindValue(':height', $dimensions['height'], SQLITE3_INTEGER);
++        $statement->execute();
++
++        $template = templateState($db);
++        audit($db, $actor, 'upload_asset', $id, $template['revision']);
++        return [
++            'asset' => [
++                'id' => $id,
++                'sha256' => $sha256,
++                'width' => $dimensions['width'],
++                'height' => $dimensions['height'],
++            ],
++        ];
++    });
++}
++
++function placeAsset(SQLite3 $db, array $actor, string $slot, array $request): array
++{
++    admin($actor);
++    if (!in_array($slot, SLOTS, true)) {
++        fail(400, 'invalid_asset', 'Unknown image placement slot.');
++    }
++    $revision = expectedRevision($request);
++    if (!array_key_exists('asset_id', $request)
++        || ($request['asset_id'] !== null && !is_string($request['asset_id']))) {
++        fail(400, 'invalid_asset', 'asset_id must be a stored asset id or null.');
++    }
++    $assetId = $request['asset_id'];
++    if (is_string($assetId) && $assetId === '') {
++        fail(400, 'invalid_asset', 'asset_id must be a stored asset id or null.');
++    }
++
++    return transaction($db, function () use ($db, $actor, $slot, $revision, $assetId): array {
++        $template = templateState($db);
++        if ($template['revision'] !== $revision) {
++            fail(409, 'revision_conflict', 'The template changed; refresh and retry explicitly.');
++        }
++        if ($assetId !== null && row($db, 'SELECT id FROM assets WHERE id = :id', ['id' => $assetId]) === null) {
++            fail(400, 'invalid_asset', 'The selected image is not stored.');
++        }
++
++        if ($template['placements'][$slot] === $assetId) {
++            return $template;
++        }
++
++        $template['placements'][$slot] = $assetId;
++        $template['revision']++;
++        saveTemplate($db, $template);
++        audit($db, $actor, 'place_asset', $slot, $template['revision']);
++        return templateState($db);
++    });
++}
++
++function assertRenderableTemplate(array $template): void
++{
++    foreach (FIELDS as $field) {
++        $style = $template['styles'][$field] ?? null;
++        if (!is_array($style)
++            || !is_string($style['color'] ?? null)
++            || preg_match('/\A#[0-9A-Fa-f]{6}\z/D', $style['color']) !== 1
++            || (($style['background'] ?? null) !== null
++                && (!is_string($style['background'])
++                    || preg_match('/\A#[0-9A-Fa-f]{6}\z/D', $style['background']) !== 1))
++            || !is_int($style['font_size'] ?? null)
++            || $style['font_size'] < 6
++            || $style['font_size'] > 12
++            || !is_string($style['weight'] ?? null)
++            || !in_array($style['weight'], ['normal', 'bold'], true)
++            || !is_bool($style['border'] ?? null)
++            || !is_bool($style['visible'] ?? null)) {
++            throw new RuntimeException('The stored template is invalid');
++        }
++    }
++}
++
++/** Load and verify only assets that the selected document kind will embed. */
++function renderAssets(SQLite3 $db, array $template, string $kind): array
++{
++    $slots = ['front_left', 'front_right', 'back'];
++    if ($kind === 'sample_pass') {
++        $slots[] = 'watermark';
++    }
++
++    $assets = [];
++    foreach ($slots as $slot) {
++        $assetId = $template['placements'][$slot] ?? null;
++        if ($assetId === null) {
++            continue;
++        }
++        if (!is_string($assetId) || $assetId === '') {
++            fail(422, 'asset_unavailable', 'A configured image is unavailable.');
++        }
++        if (isset($assets[$assetId])) {
++            continue;
++        }
++        $stored = row($db, 'SELECT id, data, sha256, width, height FROM assets WHERE id = :id', ['id' => $assetId]);
++        if ($stored === null || !is_string($stored['data']) || !is_string($stored['sha256'])) {
++            fail(422, 'asset_unavailable', 'A configured image is unavailable.');
++        }
++        if (!hash_equals($stored['sha256'], hash('sha256', $stored['data']))) {
++            fail(422, 'asset_unavailable', 'A configured image is corrupt.');
++        }
++        $dimensions = inspectPng($stored['data']);
++        if ($dimensions === null
++            || (int) $stored['width'] !== $dimensions['width']
++            || (int) $stored['height'] !== $dimensions['height']) {
++            fail(422, 'asset_unavailable', 'A configured image is corrupt.');
++        }
++        $stored['width'] = $dimensions['width'];
++        $stored['height'] = $dimensions['height'];
++        $assets[$assetId] = $stored;
++    }
++    return $assets;
++}
++
++function validPdfOutput(string $pdf): bool
++{
++    if (!str_starts_with($pdf, '%PDF-') || !str_contains($pdf, '%%EOF')) {
++        return false;
++    }
++    preg_match_all('/\/Type\s*\/Page\b/', $pdf, $pages);
++    return count($pages[0]) === 2;
++}
++
++function renderDocument(SQLite3 $db, array $actor, array $request): array
++{
++    $kind = $request['kind'] ?? null;
++    $filename = $request['filename'] ?? null;
++    $profileId = $request['profile_id'] ?? null;
++    if (!is_string($kind)
++        || !in_array($kind, ['sample_card', 'sample_pass'], true)
++        || !is_string($filename)
++        || preg_match('/\A[A-Za-z0-9_-]{1,64}\.pdf\z/D', $filename) !== 1
++        || !is_string($profileId)
++        || preg_match('/\A[a-z][a-z0-9-]{0,39}\z/D', $profileId) !== 1) {
++        fail(400, 'invalid_request', 'The document kind, filename, or profile is invalid.');
++    }
++
++    try {
++        return transaction($db, function () use ($db, $actor, $kind, $filename, $profileId): array {
++            $storedProfile = row($db, 'SELECT data FROM profiles WHERE id = :id', ['id' => $profileId]);
++            if ($storedProfile === null) {
++                fail(404, 'not_found', 'Profile not found.');
++            }
++            try {
++                $decoded = json_decode($storedProfile['data'], true, flags: JSON_THROW_ON_ERROR);
++            } catch (JsonException) {
++                fail(400, 'invalid_profile', 'The selected profile is invalid.');
++            }
++            $values = validatedProfile($decoded);
++            $template = templateState($db);
++            assertRenderableTemplate($template);
++            $assets = renderAssets($db, $template, $kind);
++
++            try {
++                $pdf = renderPDF($values, $template, $assets, $kind);
++            } catch (ApiError $exception) {
++                throw $exception;
++            } catch (Throwable $exception) {
++                error_log('PDF generation failed: ' . $exception->getMessage());
++                fail(500, 'render_failed', 'The PDF could not be generated.');
++            }
++            if (!validPdfOutput($pdf)) {
++                fail(500, 'render_failed', 'The generated PDF failed output validation.');
++            }
++
++            $sha256 = hash('sha256', $pdf);
++            $bytes = strlen($pdf);
++            $statement = $db->prepare('INSERT INTO documents(filename, kind, profile_id, data, bytes, sha256, revision)
++                                       VALUES(:filename, :kind, :profile_id, :data, :bytes, :sha256, :revision)
++                                       ON CONFLICT(filename) DO UPDATE SET
++                                         kind = excluded.kind,
++                                         profile_id = excluded.profile_id,
++                                         data = excluded.data,
++                                         bytes = excluded.bytes,
++                                         sha256 = excluded.sha256,
++                                         revision = excluded.revision');
++            $statement->bindValue(':filename', $filename, SQLITE3_TEXT);
++            $statement->bindValue(':kind', $kind, SQLITE3_TEXT);
++            $statement->bindValue(':profile_id', $profileId, SQLITE3_TEXT);
++            $statement->bindValue(':data', $pdf, SQLITE3_BLOB);
++            $statement->bindValue(':bytes', $bytes, SQLITE3_INTEGER);
++            $statement->bindValue(':sha256', $sha256, SQLITE3_TEXT);
++            $statement->bindValue(':revision', $template['revision'], SQLITE3_INTEGER);
++            $statement->execute();
++
++            audit($db, $actor, 'render', $filename, $template['revision']);
++            return [
++                'document' => [
++                    'filename' => $filename,
++                    'kind' => $kind,
++                    'profile_id' => $profileId,
++                    'bytes' => $bytes,
++                    'sha256' => $sha256,
++                    'revision' => $template['revision'],
++                ],
++            ];
++        });
++    } catch (ApiError $exception) {
++        throw $exception;
++    } catch (Throwable $exception) {
++        error_log('Document publication failed: ' . $exception->getMessage());
++        fail(500, 'render_failed', 'The document could not be published.');
++    }
+ }
+diff --git a/router.php b/router.php
+index 5056f3ff49fb0bb39b9225eba085b313b741f70f..a37a9f5dba13ec2c15dcb5dc1f2835471bbec1c6 100644
+--- a/router.php
++++ b/router.php
+@@ -1,57 +1,295 @@
+ <?php
+ declare(strict_types=1);
+-ini_set('display_errors','0');
+-require __DIR__.'/storage.php';require __DIR__.'/features.php';
+-function jsonResponse(mixed $data,int $status=200):never {http_response_code($status);header('Content-Type: application/json; charset=utf-8');header('Cache-Control: no-store');echo encode($data);exit;}
+-function body():array {
+-    try{$raw=json_decode(file_get_contents('php://input'),false,flags:JSON_THROW_ON_ERROR);if(!is_object($raw))fail(400,'invalid_json');return json_decode(json_encode($raw),true,flags:JSON_THROW_ON_ERROR);}catch(JsonException){fail(400,'invalid_json');}
+-}
+-function actor(SQLite3 $db):array {
+-    $token=$_COOKIE['document_session']??'';
+-    $user=row($db,'SELECT a.id,a.role FROM sessions s JOIN accounts a ON a.id=s.actor_id WHERE s.token=:token',['token'=>$token]);if(!$user)fail(401,'authentication_required');return $user;
+-}
+-try{
+-    $method=$_SERVER['REQUEST_METHOD'];$path=parse_url($_SERVER['REQUEST_URI'],PHP_URL_PATH);
+-    $static=['/'=>['web/index.html','text/html; charset=utf-8'],'/ui.js'=>['web/ui.js','text/javascript'],'/style.css'=>['web/style.css','text/css']];
+-    if(isset($static[$path])&&$method==='GET'){header('Content-Type: '.$static[$path][1]);readfile(__DIR__.'/'.$static[$path][0]);exit;}
+-    if(!str_starts_with($path,'/api/'))fail(404,'not_found');
+-    $db=database();
+-    if($path==='/api/login'&&$method==='POST'){
+-        $r=body();$username=$r['username']??null;$password=$r['password']??null;
+-        $user=is_string($username)?row($db,'SELECT * FROM accounts WHERE id=:id',['id'=>$username]):null;
+-        if(!$user||!is_string($password)||!password_verify($password,$user['password']))fail(401,'invalid_credentials');
+-        $token=bin2hex(random_bytes(32));query($db,'INSERT INTO sessions VALUES(:token,:actor)',['token'=>$token,'actor'=>$user['id']]);
+-        setcookie('document_session',$token,['path'=>'/','httponly'=>true,'samesite'=>'Strict']);jsonResponse(['user'=>['id'=>$user['id'],'role'=>$user['role']]]);
+-    }
+-    $who=actor($db);
+-    if($path==='/api/session'&&$method==='GET')jsonResponse(['user'=>$who]);
+-    if($path==='/api/logout'&&$method==='POST'){
+-        query($db,'DELETE FROM sessions WHERE token=:token',['token'=>$_COOKIE['document_session']]);setcookie('document_session','',['expires'=>1,'path'=>'/','httponly'=>true,'samesite'=>'Strict']);jsonResponse(['ok'=>true]);
+-    }
+-    if($path==='/api/profiles'&&$method==='GET')jsonResponse(['profiles'=>array_map(fn($r)=>['id'=>$r['id'],'values'=>json_decode($r['data'],true)],rows($db,'SELECT * FROM profiles ORDER BY id'))]);
+-    if($path==='/api/profiles'&&$method==='POST'){
+-        $r=body();$id=$r['id']??null;$values=validatedProfile($r['values']??null);
+-        if(!is_string($id)||!preg_match('/^[a-z][a-z0-9-]{0,39}$/D',$id))fail(400,'invalid_profile');
+-        transaction($db,function()use($db,$id,$values){if(row($db,'SELECT id FROM profiles WHERE id=:id',['id'=>$id]))fail(409,'profile_exists');query($db,'INSERT INTO profiles VALUES(:id,:data)',['id'=>$id,'data'=>encode($values)]);});
+-        jsonResponse(['profile'=>['id'=>$id,'values'=>$values]],201);
+-    }
+-    if(preg_match('~^/api/profiles/([a-z][a-z0-9-]{0,39})$~D',$path,$m)&&$method==='PUT'){
+-        $r=body();$values=validatedProfile($r['values']??null);$id=$m[1];
+-        transaction($db,function()use($db,$id,$values){if(!row($db,'SELECT id FROM profiles WHERE id=:id',['id'=>$id]))fail(404,'not_found');query($db,'UPDATE profiles SET data=:data WHERE id=:id',['id'=>$id,'data'=>encode($values)]);});jsonResponse(['profile'=>['id'=>$id,'values'=>$values]]);
+-    }
+-    if($path==='/api/template'&&$method==='GET')jsonResponse(templateState($db));
+-    if(preg_match('~^/api/template/fields/([^/]+)$~D',$path,$m)&&$method==='PATCH'){admin($who);jsonResponse(configureField($db,$who,$m[1],body()));}
+-    if(preg_match('~^/api/template/placements/([^/]+)$~D',$path,$m)&&$method==='PUT'){admin($who);jsonResponse(placeAsset($db,$who,$m[1],body()));}
+-    if($path==='/api/assets'&&$method==='POST')jsonResponse(uploadAsset($db,$who),201);
+-    if($path==='/api/assets'&&$method==='GET')jsonResponse(['assets'=>rows($db,'SELECT id,sha256,width,height FROM assets ORDER BY id')]);
+-    if(preg_match('~^/api/assets/([a-f0-9]{32})$~D',$path,$m)&&$method==='GET'){
+-        $a=row($db,'SELECT data FROM assets WHERE id=:id',['id'=>$m[1]]);if(!$a)fail(404,'not_found');header('Content-Type: image/png');header('Cache-Control: no-store');echo $a['data'];exit;
+-    }
+-    if($path==='/api/render'&&$method==='POST')jsonResponse(renderDocument($db,$who,body()),201);
+-    if($path==='/api/documents'&&$method==='GET')jsonResponse(['documents'=>rows($db,'SELECT filename,kind,profile_id,bytes,sha256,revision FROM documents ORDER BY filename')]);
+-    if(preg_match('~^/api/documents/([A-Za-z0-9_-]{1,64}\.pdf)$~D',$path,$m)&&$method==='GET'){
+-        $d=row($db,'SELECT data FROM documents WHERE filename=:filename',['filename'=>$m[1]]);if(!$d)fail(404,'not_found');header('Content-Type: application/pdf');header('Content-Disposition: attachment; filename="'.$m[1].'"');header('Content-Length: '.strlen($d['data']));header('Cache-Control: no-store');echo $d['data'];exit;
+-    }
+-    if($path==='/api/audit'&&$method==='GET')jsonResponse(['events'=>rows($db,'SELECT * FROM audit ORDER BY id')]);
+-    fail(404,'not_found');
+-}catch(ApiError $e){jsonResponse(['error'=>['code'=>$e->kind,'message'=>$e->getMessage()]],$e->status);}catch(Throwable $e){error_log($e->getMessage());jsonResponse(['error'=>['code'=>'internal_error','message'=>'The operation could not be completed.']],500);}
++
++ini_set('display_errors', '0');
++require __DIR__ . '/storage.php';
++require __DIR__ . '/features.php';
++
++function jsonResponse(mixed $data, int $status = 200): never
++{
++    http_response_code($status);
++    header('Content-Type: application/json; charset=utf-8');
++    header('Cache-Control: no-store');
++    echo encode($data);
++    exit;
++}
++
++function bodyValueToArray(mixed $value): mixed
++{
++    if ($value instanceof stdClass) {
++        $output = [];
++        foreach (get_object_vars($value) as $key => $nested) {
++            $output[$key] = bodyValueToArray($nested);
++        }
++        return $output;
++    }
++    if (is_array($value)) {
++        foreach ($value as $key => $nested) {
++            $value[$key] = bodyValueToArray($nested);
++        }
++    }
++    return $value;
++}
++
++function body(string $unicodeErrorCode = 'invalid_json'): array
++{
++    $raw = file_get_contents('php://input');
++    if ($raw === false) {
++        fail(400, 'invalid_json', 'The request body is not valid JSON.');
++    }
++    try {
++        $decoded = json_decode($raw, false, flags: JSON_THROW_ON_ERROR);
++        if (!is_object($decoded)) {
++            fail(400, 'invalid_json', 'The request body must be a JSON object.');
++        }
++        // Convert only objects, without a JSON round trip that would turn
++        // 10.0 into an integer and defeat strict integer validation.
++        return bodyValueToArray($decoded);
++    } catch (JsonException $exception) {
++        if ($unicodeErrorCode !== 'invalid_json'
++            && in_array($exception->getCode(), [JSON_ERROR_UTF8, JSON_ERROR_UTF16], true)) {
++            fail(400, $unicodeErrorCode, 'Profile values must be valid UTF-8 text.');
++        }
++        fail(400, 'invalid_json', 'The request body is not valid JSON.');
++    }
++}
++
++function actor(SQLite3 $db): array
++{
++    $token = $_COOKIE['document_session'] ?? '';
++    if (!is_string($token) || $token === '') {
++        fail(401, 'authentication_required', 'An active session is required.');
++    }
++    $user = row(
++        $db,
++        'SELECT a.id, a.role
++         FROM sessions s JOIN accounts a ON a.id = s.actor_id
++         WHERE s.token = :token',
++        ['token' => $token]
++    );
++    if ($user === null) {
++        fail(401, 'authentication_required', 'An active session is required.');
++    }
++    return ['id' => (string) $user['id'], 'role' => (string) $user['role']];
++}
++
++function publicAssets(SQLite3 $db): array
++{
++    return array_map(static fn(array $asset): array => [
++        'id' => (string) $asset['id'],
++        'sha256' => (string) $asset['sha256'],
++        'width' => (int) $asset['width'],
++        'height' => (int) $asset['height'],
++    ], rows($db, 'SELECT id, sha256, width, height FROM assets ORDER BY id'));
++}
++
++function publicDocuments(SQLite3 $db): array
++{
++    return array_map(static fn(array $document): array => [
++        'filename' => (string) $document['filename'],
++        'kind' => (string) $document['kind'],
++        'profile_id' => (string) $document['profile_id'],
++        'bytes' => (int) $document['bytes'],
++        'sha256' => (string) $document['sha256'],
++        'revision' => (int) $document['revision'],
++    ], rows($db, 'SELECT filename, kind, profile_id, bytes, sha256, revision
++                   FROM documents ORDER BY filename'));
++}
++
++function publicAudit(SQLite3 $db): array
++{
++    return array_map(static fn(array $event): array => [
++        'id' => (int) $event['id'],
++        'actor_id' => (string) $event['actor_id'],
++        'type' => (string) $event['type'],
++        'target' => (string) $event['target'],
++        'revision' => (int) $event['revision'],
++        'timestamp' => (int) $event['timestamp'],
++    ], rows($db, 'SELECT id, actor_id, type, target, revision, timestamp
++                   FROM audit ORDER BY id'));
++}
++
++try {
++    $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
++    $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
++    if (!is_string($path)) {
++        fail(404, 'not_found');
++    }
++
++    $static = [
++        '/' => ['web/index.html', 'text/html; charset=utf-8'],
++        '/ui.js' => ['web/ui.js', 'text/javascript; charset=utf-8'],
++        '/style.css' => ['web/style.css', 'text/css; charset=utf-8'],
++    ];
++    if ($method === 'GET' && isset($static[$path])) {
++        header('Content-Type: ' . $static[$path][1]);
++        header('Cache-Control: no-store');
++        readfile(__DIR__ . '/' . $static[$path][0]);
++        exit;
++    }
++
++    if (!str_starts_with($path, '/api/')) {
++        fail(404, 'not_found');
++    }
++
++    $db = database();
++    if ($path === '/api/login' && $method === 'POST') {
++        $request = body();
++        $username = $request['username'] ?? null;
++        $password = $request['password'] ?? null;
++        $user = is_string($username)
++            ? row($db, 'SELECT id, role, password FROM accounts WHERE id = :id', ['id' => $username])
++            : null;
++        if ($user === null || !is_string($password) || !password_verify($password, $user['password'])) {
++            fail(401, 'invalid_credentials', 'The username or password is incorrect.');
++        }
++
++        $token = bin2hex(random_bytes(32));
++        query($db, 'INSERT INTO sessions(token, actor_id) VALUES(:token, :actor_id)', [
++            'token' => $token,
++            'actor_id' => $user['id'],
++        ]);
++        setcookie('document_session', $token, [
++            'path' => '/',
++            'httponly' => true,
++            'samesite' => 'Strict',
++        ]);
++        jsonResponse(['user' => ['id' => (string) $user['id'], 'role' => (string) $user['role']]]);
++    }
++
++    $who = actor($db);
++    if ($path === '/api/session' && $method === 'GET') {
++        jsonResponse(['user' => $who]);
++    }
++    if ($path === '/api/logout' && $method === 'POST') {
++        body();
++        $token = $_COOKIE['document_session'] ?? '';
++        if (is_string($token) && $token !== '') {
++            query($db, 'DELETE FROM sessions WHERE token = :token', ['token' => $token]);
++        }
++        setcookie('document_session', '', [
++            'expires' => 1,
++            'path' => '/',
++            'httponly' => true,
++            'samesite' => 'Strict',
++        ]);
++        jsonResponse(['ok' => true]);
++    }
++
++    if ($path === '/api/profiles' && $method === 'GET') {
++        $profiles = array_map(static fn(array $profile): array => [
++            'id' => (string) $profile['id'],
++            'values' => json_decode($profile['data'], true),
++        ], rows($db, 'SELECT id, data FROM profiles ORDER BY id'));
++        jsonResponse(['profiles' => $profiles]);
++    }
++    if ($path === '/api/profiles' && $method === 'POST') {
++        $request = body('invalid_profile');
++        $id = $request['id'] ?? null;
++        $values = validatedProfile($request['values'] ?? null);
++        if (!is_string($id) || preg_match('/\A[a-z][a-z0-9-]{0,39}\z/D', $id) !== 1) {
++            fail(400, 'invalid_profile', 'The profile id is invalid.');
++        }
++        transaction($db, function () use ($db, $id, $values): void {
++            if (row($db, 'SELECT id FROM profiles WHERE id = :id', ['id' => $id]) !== null) {
++                fail(409, 'profile_exists', 'That profile already exists.');
++            }
++            query($db, 'INSERT INTO profiles(id, data) VALUES(:id, :data)', [
++                'id' => $id,
++                'data' => encode($values),
++            ]);
++        });
++        jsonResponse(['profile' => ['id' => $id, 'values' => $values]], 201);
++    }
++    if (preg_match('/\A\/api\/profiles\/([a-z][a-z0-9-]{0,39})\z/D', $path, $match) === 1
++        && $method === 'PUT') {
++        $request = body('invalid_profile');
++        $values = validatedProfile($request['values'] ?? null);
++        $id = $match[1];
++        transaction($db, function () use ($db, $id, $values): void {
++            if (row($db, 'SELECT id FROM profiles WHERE id = :id', ['id' => $id]) === null) {
++                fail(404, 'not_found', 'Profile not found.');
++            }
++            query($db, 'UPDATE profiles SET data = :data WHERE id = :id', [
++                'id' => $id,
++                'data' => encode($values),
++            ]);
++        });
++        jsonResponse(['profile' => ['id' => $id, 'values' => $values]]);
++    }
++
++    if ($path === '/api/template' && $method === 'GET') {
++        jsonResponse(templateState($db));
++    }
++    if (preg_match('/\A\/api\/template\/fields\/([^\/]+)\z/D', $path, $match) === 1
++        && $method === 'PATCH') {
++        admin($who);
++        jsonResponse(configureField($db, $who, $match[1], body()));
++    }
++    if ($path === '/api/assets' && $method === 'POST') {
++        jsonResponse(uploadAsset($db, $who), 201);
++    }
++    if ($path === '/api/assets' && $method === 'GET') {
++        jsonResponse(['assets' => publicAssets($db)]);
++    }
++    if (preg_match('/\A\/api\/assets\/([a-f0-9]{32})\z/D', $path, $match) === 1
++        && $method === 'GET') {
++        $asset = row($db, 'SELECT data FROM assets WHERE id = :id', ['id' => $match[1]]);
++        if ($asset === null || !is_string($asset['data'])) {
++            fail(404, 'not_found', 'Asset not found.');
++        }
++        header('Content-Type: image/png');
++        header('Cache-Control: no-store');
++        header('Content-Length: ' . strlen($asset['data']));
++        echo $asset['data'];
++        exit;
++    }
++    if (preg_match('/\A\/api\/template\/placements\/([^\/]+)\z/D', $path, $match) === 1
++        && $method === 'PUT') {
++        admin($who);
++        jsonResponse(placeAsset($db, $who, $match[1], body()));
++    }
++
++    if ($path === '/api/render' && $method === 'POST') {
++        jsonResponse(renderDocument($db, $who, body()), 201);
++    }
++    if ($path === '/api/documents' && $method === 'GET') {
++        jsonResponse(['documents' => publicDocuments($db)]);
++    }
++    if (preg_match('/\A\/api\/documents\/([A-Za-z0-9_-]{1,64}\.pdf)\z/D', $path, $match) === 1
++        && $method === 'GET') {
++        $document = row($db, 'SELECT data FROM documents WHERE filename = :filename', ['filename' => $match[1]]);
++        if ($document === null || !is_string($document['data'])) {
++            fail(404, 'not_found', 'Document not found.');
++        }
++        header('Content-Type: application/pdf');
++        header('Content-Disposition: attachment; filename="' . $match[1] . '"');
++        header('Content-Length: ' . strlen($document['data']));
++        header('Cache-Control: no-store');
++        echo $document['data'];
++        exit;
++    }
++    if ($path === '/api/audit' && $method === 'GET') {
++        jsonResponse(['events' => publicAudit($db)]);
++    }
++
++    fail(404, 'not_found');
++} catch (ApiError $exception) {
++    jsonResponse([
++        'error' => [
++            'code' => $exception->kind,
++            'message' => $exception->getMessage(),
++        ],
++    ], $exception->status);
++} catch (Throwable $exception) {
++    error_log($exception->getMessage());
++    $renderFailure = ($method ?? '') === 'POST' && ($path ?? '') === '/api/render';
++    jsonResponse([
++        'error' => [
++            'code' => $renderFailure ? 'render_failed' : 'internal_error',
++            'message' => $renderFailure
++                ? 'The document could not be published.'
++                : 'The operation could not be completed.',
++        ],
++    ], 500);
++}
+diff --git a/storage.php b/storage.php
+index b113d26f3fc55400f7670b88f207c99c3320b8fb..ae4059d4552e15a4285cc1fcfee2bba0bf63b00e 100644
+--- a/storage.php
++++ b/storage.php
+@@ -1,55 +1,327 @@
+ <?php
+ declare(strict_types=1);
+-const FIELDS=['document_id','name','group','contact','reviewer','reference'];
+-const SLOTS=['front_left','front_right','back','watermark'];
+-class ApiError extends RuntimeException {
+-    public function __construct(public int $status,public string $kind,string $message='') {parent::__construct($message?:str_replace('_',' ',$kind));}
+-}
+-function fail(int $status,string $code,string $message=''):never {throw new ApiError($status,$code,$message);}
+-function directory():string {return getenv('DOCUMENT_DATA_DIR')?:__DIR__.'/data';}
+-function database():SQLite3 {
+-    $path=directory();if(!is_dir($path)&&!mkdir($path,0700,true))throw new RuntimeException('Cannot create data directory');
+-    $db=new SQLite3($path.'/application.sqlite');$db->enableExceptions(true);$db->busyTimeout(10000);return $db;
+-}
+-function query(SQLite3 $db,string $sql,array $values=[]):SQLite3Result {
+-    $s=$db->prepare($sql);
+-    foreach($values as $name=>$value){$type=is_int($value)?SQLITE3_INTEGER:($value===null?SQLITE3_NULL:SQLITE3_TEXT);$s->bindValue(':'.$name,$value,$type);}
+-    return $s->execute();
+-}
+-function rows(SQLite3 $db,string $sql,array $values=[]):array {$r=query($db,$sql,$values);$out=[];while($v=$r->fetchArray(SQLITE3_ASSOC))$out[]=$v;return $out;}
+-function row(SQLite3 $db,string $sql,array $values=[]):?array {return rows($db,$sql,$values)[0]??null;}
+-function encode(mixed $v):string {return json_encode($v,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);}
+-function defaults():array {return ['color'=>'#000000','background'=>null,'font_size'=>10,'weight'=>'normal','border'=>false,'visible'=>true];}
+-function initDatabase(bool $reset):void {
+-    $path=directory().'/application.sqlite';if($reset&&is_file($path))unlink($path);
+-    $db=database();$db->exec('CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY, role TEXT NOT NULL, password TEXT NOT NULL);
+-        CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, actor_id TEXT NOT NULL);
+-        CREATE TABLE IF NOT EXISTS profiles(id TEXT PRIMARY KEY, data TEXT NOT NULL);
+-        CREATE TABLE IF NOT EXISTS template(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, styles TEXT NOT NULL, placements TEXT NOT NULL);
+-        CREATE TABLE IF NOT EXISTS assets(id TEXT PRIMARY KEY, data BLOB NOT NULL, sha256 TEXT NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL);
+-        CREATE TABLE IF NOT EXISTS documents(filename TEXT PRIMARY KEY, kind TEXT NOT NULL, profile_id TEXT NOT NULL, data BLOB NOT NULL, bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, revision INTEGER NOT NULL);
+-        CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT, actor_id TEXT NOT NULL, type TEXT NOT NULL, target TEXT NOT NULL, revision INTEGER NOT NULL, timestamp INTEGER NOT NULL);');
+-    foreach(['admin-a'=>'admin','admin-b'=>'admin','editor-a'=>'editor'] as $id=>$role)query($db,'INSERT OR IGNORE INTO accounts VALUES(:id,:role,:password)',['id'=>$id,'role'=>$role,'password'=>password_hash('demo-pass',PASSWORD_BCRYPT)]);
+-    $styles=[];foreach(FIELDS as $field)$styles[$field]=defaults();
+-    query($db,'INSERT OR IGNORE INTO template VALUES(1,0,:styles,:placements)',['styles'=>encode($styles),'placements'=>encode(array_fill_keys(SLOTS,null))]);
+-    foreach(json_decode(file_get_contents(__DIR__.'/fixtures/demo.json'),true,flags:JSON_THROW_ON_ERROR) as $profile)query($db,'INSERT OR IGNORE INTO profiles VALUES(:id,:data)',['id'=>$profile['id'],'data'=>encode($profile['values'])]);
+-}
+-function templateState(SQLite3 $db):array {$t=row($db,'SELECT * FROM template WHERE id=1');return ['revision'=>$t['revision'],'styles'=>json_decode($t['styles'],true),'placements'=>json_decode($t['placements'],true)];}
+-function saveTemplate(SQLite3 $db,array $t):void {query($db,'UPDATE template SET revision=:revision,styles=:styles,placements=:placements WHERE id=1',['revision'=>$t['revision'],'styles'=>encode($t['styles']),'placements'=>encode($t['placements'])]);}
+-function transaction(SQLite3 $db,callable $action):mixed {
+-    $db->exec('BEGIN IMMEDIATE');try{$result=$action();$db->exec('COMMIT');return $result;}catch(Throwable $e){$db->exec('ROLLBACK');throw $e;}
+-}
+-function audit(SQLite3 $db,array $actor,string $type,string $target,int $revision):void {
+-    query($db,'INSERT INTO audit(actor_id,type,target,revision,timestamp) VALUES(:actor_id,:type,:target,:revision,:timestamp)',['actor_id'=>$actor['id'],'type'=>$type,'target'=>$target,'revision'=>$revision,'timestamp'=>time()]);
+-}
+-function validatedProfile(mixed $values):array {
+-    if(!is_array($values)||array_diff(FIELDS,array_keys($values))||array_diff(array_keys($values),FIELDS))fail(400,'invalid_profile');
+-    foreach($values as $value)if(!is_string($value)||!mb_check_encoding($value,'UTF-8')||strlen($value)>160||preg_match('/[\x00-\x1F\x7F]/',$value)||preg_match('/^\s*$/u',$value))fail(400,'invalid_profile');
+-    $ranges=json_decode(file_get_contents(__DIR__.'/fixtures/supported_codepoints.json'),true)['ranges'];
+-    foreach($values as $value)foreach(mb_str_split($value) as $character){
+-        $cp=mb_ord($character);$supported=false;
+-        foreach($ranges as [$first,$last])if($cp>=$first&&$cp<=$last){$supported=true;break;}
+-        if(!$supported)fail(400,'invalid_profile','Use characters supported by the supplied bilingual document fonts.');
+-    }
+-    return $values;
++
++const FIELDS = ['document_id', 'name', 'group', 'contact', 'reviewer', 'reference'];
++const SLOTS = ['front_left', 'front_right', 'back', 'watermark'];
++
++final class ApiError extends RuntimeException
++{
++    public function __construct(
++        public int $status,
++        public string $kind,
++        string $message = ''
++    ) {
++        parent::__construct($message !== '' ? $message : str_replace('_', ' ', $kind));
++    }
++}
++
++function fail(int $status, string $code, string $message = ''): never
++{
++    throw new ApiError($status, $code, $message);
++}
++
++function directory(): string
++{
++    $configured = getenv('DOCUMENT_DATA_DIR');
++    return is_string($configured) && $configured !== '' ? $configured : __DIR__ . '/data';
++}
++
++function createSchema(SQLite3 $db): void
++{
++    $statements = [
++        'CREATE TABLE IF NOT EXISTS accounts (
++            id TEXT PRIMARY KEY,
++            role TEXT NOT NULL,
++            password TEXT NOT NULL
++        )',
++        'CREATE TABLE IF NOT EXISTS sessions (
++            token TEXT PRIMARY KEY,
++            actor_id TEXT NOT NULL
++        )',
++        'CREATE TABLE IF NOT EXISTS profiles (
++            id TEXT PRIMARY KEY,
++            data TEXT NOT NULL
++        )',
++        'CREATE TABLE IF NOT EXISTS template (
++            id INTEGER PRIMARY KEY CHECK(id = 1),
++            revision INTEGER NOT NULL,
++            styles TEXT NOT NULL,
++            placements TEXT NOT NULL
++        )',
++        'CREATE TABLE IF NOT EXISTS assets (
++            id TEXT PRIMARY KEY,
++            data BLOB NOT NULL,
++            sha256 TEXT NOT NULL,
++            width INTEGER NOT NULL,
++            height INTEGER NOT NULL
++        )',
++        'CREATE TABLE IF NOT EXISTS documents (
++            filename TEXT PRIMARY KEY,
++            kind TEXT NOT NULL,
++            profile_id TEXT NOT NULL,
++            data BLOB NOT NULL,
++            bytes INTEGER NOT NULL,
++            sha256 TEXT NOT NULL,
++            revision INTEGER NOT NULL
++        )',
++        'CREATE TABLE IF NOT EXISTS audit (
++            id INTEGER PRIMARY KEY AUTOINCREMENT,
++            actor_id TEXT NOT NULL,
++            type TEXT NOT NULL,
++            target TEXT NOT NULL,
++            revision INTEGER NOT NULL,
++            timestamp INTEGER NOT NULL
++        )',
++    ];
++    foreach ($statements as $statement) {
++        $db->exec($statement);
++    }
++}
++
++function database(): SQLite3
++{
++    $path = directory();
++    if (!is_dir($path) && !mkdir($path, 0700, true) && !is_dir($path)) {
++        throw new RuntimeException('Cannot create data directory');
++    }
++    $databaseFile = $path . '/application.sqlite';
++    $needsSchema = !is_file($databaseFile);
++    $db = new SQLite3($databaseFile);
++    $db->enableExceptions(true);
++    $db->busyTimeout(10000);
++    $db->exec('PRAGMA foreign_keys = ON');
++    if ($needsSchema) {
++        createSchema($db);
++    }
++    return $db;
++}
++
++function query(SQLite3 $db, string $sql, array $values = []): SQLite3Result
++{
++    $statement = $db->prepare($sql);
++    foreach ($values as $name => $value) {
++        $type = is_int($value)
++            ? SQLITE3_INTEGER
++            : ($value === null ? SQLITE3_NULL : SQLITE3_TEXT);
++        $statement->bindValue(':' . $name, $value, $type);
++    }
++    return $statement->execute();
++}
++
++function rows(SQLite3 $db, string $sql, array $values = []): array
++{
++    $result = query($db, $sql, $values);
++    $output = [];
++    while (($value = $result->fetchArray(SQLITE3_ASSOC)) !== false) {
++        $output[] = $value;
++    }
++    return $output;
++}
++
++function row(SQLite3 $db, string $sql, array $values = []): ?array
++{
++    $found = rows($db, $sql, $values);
++    return $found[0] ?? null;
++}
++
++function encode(mixed $value): string
++{
++    return json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
++}
++
++function defaults(): array
++{
++    return [
++        'color' => '#000000',
++        'background' => null,
++        'font_size' => 10,
++        'weight' => 'normal',
++        'border' => false,
++        'visible' => true,
++    ];
++}
++
++function initDatabase(bool $reset): void
++{
++    $path = directory() . '/application.sqlite';
++    if ($reset && is_file($path)) {
++        if (!unlink($path)) {
++            throw new RuntimeException('Cannot reset application database');
++        }
++    }
++
++    $db = database();
++    // init.php is also the maintenance entry point for an older selected
++    // database, so make sure all equivalent starter tables exist here.
++    createSchema($db);
++    foreach (['admin-a' => 'admin', 'admin-b' => 'admin', 'editor-a' => 'editor'] as $id => $role) {
++        query($db, 'INSERT OR IGNORE INTO accounts(id, role, password)
++                    VALUES(:id, :role, :password)', [
++            'id' => $id,
++            'role' => $role,
++            'password' => password_hash('demo-pass', PASSWORD_BCRYPT),
++        ]);
++    }
++
++    $styles = [];
++    foreach (FIELDS as $field) {
++        $styles[$field] = defaults();
++    }
++    query($db, 'INSERT OR IGNORE INTO template(id, revision, styles, placements)
++                VALUES(1, 0, :styles, :placements)', [
++        'styles' => encode($styles),
++        'placements' => encode(array_fill_keys(SLOTS, null)),
++    ]);
++
++    $fixture = json_decode(
++        file_get_contents(__DIR__ . '/fixtures/demo.json'),
++        true,
++        flags: JSON_THROW_ON_ERROR
++    );
++    foreach ($fixture as $profile) {
++        query($db, 'INSERT OR IGNORE INTO profiles(id, data) VALUES(:id, :data)', [
++            'id' => $profile['id'],
++            'data' => encode($profile['values']),
++        ]);
++    }
++}
++
++/** Return the persisted template in the public response shape. */
++function templateState(SQLite3 $db): array
++{
++    $template = row($db, 'SELECT revision, styles, placements FROM template WHERE id = 1');
++    if ($template === null) {
++        throw new RuntimeException('Template is not initialized');
++    }
++
++    $storedStyles = json_decode($template['styles'], true);
++    $styles = [];
++    foreach (FIELDS as $field) {
++        $style = defaults();
++        if (is_array($storedStyles) && isset($storedStyles[$field]) && is_array($storedStyles[$field])) {
++            $style = array_replace($style, $storedStyles[$field]);
++        }
++        $styles[$field] = $style;
++    }
++
++    $storedPlacements = json_decode($template['placements'], true);
++    $placements = array_fill_keys(SLOTS, null);
++    if (is_array($storedPlacements)) {
++        foreach (SLOTS as $slot) {
++            if (array_key_exists($slot, $storedPlacements)) {
++                $placements[$slot] = $storedPlacements[$slot];
++            }
++        }
++    }
++
++    return [
++        'revision' => (int) $template['revision'],
++        'styles' => $styles,
++        'placements' => $placements,
++    ];
++}
++
++function saveTemplate(SQLite3 $db, array $template): void
++{
++    query($db, 'UPDATE template
++                SET revision = :revision, styles = :styles, placements = :placements
++                WHERE id = 1', [
++        'revision' => (int) $template['revision'],
++        'styles' => encode($template['styles']),
++        'placements' => encode($template['placements']),
++    ]);
++}
++
++/** BEGIN IMMEDIATE serializes template/document/audit publications. */
++function transaction(SQLite3 $db, callable $action): mixed
++{
++    $db->exec('BEGIN IMMEDIATE');
++    try {
++        $result = $action();
++        $db->exec('COMMIT');
++        return $result;
++    } catch (Throwable $exception) {
++        try {
++            $db->exec('ROLLBACK');
++        } catch (Throwable) {
++            // Preserve the original operation error.
++        }
++        throw $exception;
++    }
++}
++
++function audit(SQLite3 $db, array $actor, string $type, string $target, int $revision): void
++{
++    query($db, 'INSERT INTO audit(actor_id, type, target, revision, timestamp)
++                VALUES(:actor_id, :type, :target, :revision, :timestamp)', [
++        'actor_id' => $actor['id'],
++        'type' => $type,
++        'target' => $target,
++        'revision' => $revision,
++        'timestamp' => time(),
++    ]);
++}
++
++function supportedRanges(): array
++{
++    static $ranges;
++    if ($ranges === null) {
++        $source = file_get_contents(__DIR__ . '/fixtures/supported_codepoints.json');
++        if ($source === false) {
++            throw new RuntimeException('Supported character data is unavailable');
++        }
++        $decoded = json_decode($source, true, flags: JSON_THROW_ON_ERROR);
++        $ranges = is_array($decoded['ranges'] ?? null) ? $decoded['ranges'] : [];
++    }
++    return $ranges;
++}
++
++function validatedProfile(mixed $values): array
++{
++    if (!is_array($values)
++        || array_diff(FIELDS, array_keys($values))
++        || array_diff(array_keys($values), FIELDS)
++        || count($values) !== count(FIELDS)) {
++        fail(400, 'invalid_profile', 'A profile must contain exactly the six required fields.');
++    }
++
++    $ranges = supportedRanges();
++    foreach (FIELDS as $field) {
++        $value = $values[$field];
++        if (!is_string($value)
++            || !mb_check_encoding($value, 'UTF-8')
++            || strlen($value) === 0
++            || strlen($value) > 160
++            || preg_match('/^\s*$/u', $value) === 1) {
++            fail(400, 'invalid_profile', 'Profile values must be nonempty supported text.');
++        }
++
++        foreach (mb_str_split($value) as $character) {
++            // Cc/Cf controls and line separators are not printable document
++            // content, even if a font happens to contain a glyph for them.
++            if (preg_match('/^[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]$/u', $character) === 1) {
++                fail(400, 'invalid_profile', 'Profile values cannot contain control characters.');
++            }
++            $codepoint = mb_ord($character, 'UTF-8');
++            $supported = false;
++            foreach ($ranges as $range) {
++                if (is_array($range) && count($range) >= 2
++                    && $codepoint >= (int) $range[0]
++                    && $codepoint <= (int) $range[1]) {
++                    $supported = true;
++                    break;
++                }
++            }
++            if (!$supported) {
++                fail(400, 'invalid_profile', 'Use characters supported by the supplied bilingual document fonts.');
++            }
++        }
++    }
++
++    // Rebuild in the contract order, retaining every accepted string verbatim.
++    $result = [];
++    foreach (FIELDS as $field) {
++        $result[$field] = $values[$field];
++    }
++    return $result;
+ }

@@ -1,0 +1,1066 @@
+diff --git a/app.js b/app.js
+index f8d96bb8cf2af8ce6b0a8d1d1a00d93c9a68a331..20171df9a06e2a789a142d86265f7e940f8dd9ba 100644
+--- a/app.js
++++ b/app.js
+@@ -1,14 +1,14 @@
+-const el=id=>document.getElementById(id);let selected=null, generation=0;
++const el=id=>document.getElementById(id);let selected=null,generation=0;
+ async function api(path,method='GET',body=null){const headers={'X-Actor':el('actor').value};if(body!==null)headers['Content-Type']='application/json';const r=await fetch('/api/'+path,{method,headers,body:body===null?undefined:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw Error(JSON.stringify(data.errors));return data}
+ async function run(fn){try{el('message').textContent='';await fn()}catch(e){el('message').textContent=e.message}}
+ function clear(){selected=null;el('title').textContent='New draft';el('draft-form').reset();for(const id of ['analysis','offers','notifications'])el(id).replaceChildren()}
+ function paragraph(parent,text){const p=document.createElement('p');p.textContent=text;parent.append(p);return p}
+ async function listingList(){const token=generation;const data=await api('listings');if(token!==generation)return;el('listings').replaceChildren();for(const row of data.listings){const b=document.createElement('button');b.dataset.id=row.id;b.textContent=row.label;b.onclick=()=>run(()=>detail(row.id));el('listings').append(b)}}
+-async function detail(id){const token=generation;const data=await api('listings/'+encodeURIComponent(id));if(token!==generation)return;selected=id;el('title').textContent=data.listing.label;for(const key of ['label','property_type','bedrooms','bathrooms','floor_area','asking_price','features'])el('draft-form').elements[key].value=key==='features'?data.listing[key].join('\n'):data.listing[key];el('analysis').replaceChildren();el('offers').replaceChildren();for(const offer of data.offers){const box=document.createElement('article');box.dataset.id=offer.external_id;paragraph(box,offer.amount+' · '+offer.terms+' · revision '+offer.revision);const button=document.createElement('button');button.textContent='Open offer review';button.onclick=()=>run(async()=>{const r=await api('offers/'+encodeURIComponent(offer.external_id)+'/review','POST',{});if(token!==generation)return;const link=document.createElement('a');link.href=r.url;link.target='_blank';link.rel='noopener';link.textContent='Review in offer service';box.append(link);await notifications(id,token)});box.append(button);el('offers').append(box)}renderNotifications(data.notifications)}
+-function renderNotifications(rows){el('notifications').replaceChildren();for(const row of rows)paragraph(el('notifications'),row.kind+' · '+row.offer_id+' · revision '+row.revision)}
++async function detail(id){const token=generation;const data=await api('listings/'+encodeURIComponent(id));if(token!==generation)return;selected=id;el('title').textContent=data.listing.label;for(const key of ['label','property_type','bedrooms','bathrooms','floor_area','asking_price','features'])el('draft-form').elements[key].value=key==='features'?data.listing[key].join('\n'):data.listing[key];el('analysis').replaceChildren();el('offers').replaceChildren();for(const offer of data.offers){const box=document.createElement('article');box.dataset.id=offer.external_id;paragraph(box,offer.amount+' · '+offer.terms+' · revision '+offer.revision);const button=document.createElement('button');button.textContent='Open offer review';button.onclick=()=>run(async()=>{const r=await api('offers/'+encodeURIComponent(offer.external_id)+'/review','POST',{});if(token!==generation||selected!==id)return;if(!box.querySelector('a')){const link=document.createElement('a');link.href=r.url;link.target='_blank';link.rel='noopener';link.textContent='Review in offer service';box.append(link)}await notifications(id,token)});box.append(button);el('offers').append(box)}renderNotifications(data.notifications)}
++function renderNotifications(rows){el('notifications').replaceChildren();for(const row of rows){const data=row.data||{};paragraph(el('notifications'),row.kind+' · '+row.offer_id+' · revision '+row.revision+(data.amount===undefined?'':' · '+data.amount+' · '+data.terms))}}
+ async function notifications(id,token){const data=await api('listings/'+encodeURIComponent(id));if(token===generation&&selected===id)renderNotifications(data.notifications)}
+-el('actor').onchange=()=>run(async()=>{generation++;clear();el('listings').replaceChildren();await listingList()});el('new').onclick=clear;
++el('actor').onchange=()=>run(async()=>{generation++;clear();el('listings').replaceChildren();await listingList()});el('new').onclick=()=>{generation++;clear()};
+ el('draft-form').onsubmit=e=>{e.preventDefault();run(async()=>{const token=generation;const form=el('draft-form').elements;const body={label:form.label.value,property_type:form.property_type.value,features:form.features.value.trim()?form.features.value.split('\n'):[]};for(const key of ['bedrooms','bathrooms','floor_area','asking_price'])body[key]=Number(form[key].value);const data=await api('listings'+(selected?'/'+encodeURIComponent(selected):''),selected?'PUT':'POST',body);if(token!==generation)return;await listingList();await detail(data.listing.id)})};
+-el('analyze').onclick=()=>run(async()=>{if(!selected)throw Error('Select a listing first');const id=selected,token=generation;const result=await api('listings/'+encodeURIComponent(id)+'/analysis','POST',{comparables:JSON.parse(el('comparables').value),count:Number(el('count').value),tone:el('tone').value});if(token!==generation||selected!==id)return;el('analysis').replaceChildren();if(result.pricing){const p=result.pricing;paragraph(el('analysis'),`Range ${p.minimum} – ${p.maximum}; midpoint ${p.midpoint}; confidence ${p.confidence}`);paragraph(el('analysis'),'Comparables: '+p.comparable_ids.join(', '))}else paragraph(el('analysis'),'No usable comparable estimate');for(const text of result.descriptions)paragraph(el('analysis'),text)});
++el('analyze').onclick=()=>run(async()=>{if(!selected)throw Error('Select a listing first');const id=selected,token=generation;const result=await api('listings/'+encodeURIComponent(id)+'/analysis','POST',{comparables:JSON.parse(el('comparables').value),count:Number(el('count').value),tone:el('tone').value});if(token!==generation||selected!==id)return;el('analysis').replaceChildren();if(result.pricing){const p=result.pricing;paragraph(el('analysis'),`Range ${p.minimum} – ${p.maximum}; midpoint ${p.midpoint}; confidence ${p.confidence}`);paragraph(el('analysis'),'Comparables: '+p.comparable_ids.join(', '));paragraph(el('analysis'),'Adjusted prices: '+p.adjusted_prices.join(', '))}else paragraph(el('analysis'),'No usable comparable estimate');for(const text of result.descriptions)paragraph(el('analysis'),text)});
+ el('sync').onclick=()=>run(async()=>{const token=generation;await api('sync','POST',{now:Number(el('now').value)});if(token===generation&&selected)await detail(selected)});
+ run(async()=>{const data=await (await fetch('/api/actors')).json();for(const actor of data.actors){const option=document.createElement('option');option.value=actor.id;option.textContent=actor.id+' · '+actor.role;el('actor').append(option)}el('actor').value='seller-a';await listingList()});
+diff --git a/control_algorithms.py b/control_algorithms.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..bf399bc567946d5b0bd010fc73393cd8896555d6
+--- /dev/null
++++ b/control_algorithms.py
+@@ -0,0 +1,12 @@
++def stable_order(values, key=None):
++    rows=[((key(value) if key else value), value) for value in values]
++    def merge_sort(items):
++        if len(items)<2: return items
++        middle=len(items)//2
++        left,right=merge_sort(items[:middle]),merge_sort(items[middle:])
++        result=[];i=j=0
++        while i<len(left) and j<len(right):
++            if right[j][0]<left[i][0]: result.append(right[j]);j+=1
++            else: result.append(left[i]);i+=1
++        return result+left[i:]+right[j:]
++    return [row[1] for row in merge_sort(rows)]
+diff --git a/domain.py b/domain.py
+index 964fd470e4309e16c5c9bb03f2edcb204fa73dc0..fa47f4faf6c52de3bc64278fd2e24aaeb247ef70 100644
+--- a/domain.py
++++ b/domain.py
+@@ -1,62 +1,249 @@
+-"""Independent listing validation, access policy and comparable calculations."""
++"""Pure validation, access-policy and analysis rules for the workspace."""
++from fractions import Fraction
++
+ 
+ class AppError(Exception):
++    """An expected API error with an HTTP status and JSON error object."""
++
+     def __init__(self, status, errors):
+         super().__init__(str(errors))
+-        self.status, self.errors = status, errors
++        self.status = status
++        self.errors = errors
+ 
+ 
+ def integer(value, low, high):
++    """Return true only for a real integer in the inclusive range.
++
++    ``bool`` is deliberately excluded: although bool is an int subclass in
++    Python, it is not an integer value in this API.
++    """
+     return type(value) is int and low <= value <= high
+ 
+ 
++EDITABLE_FIELDS = {
++    'label',
++    'property_type',
++    'bedrooms',
++    'bathrooms',
++    'floor_area',
++    'asking_price',
++    'features',
++}
++
++
+ def validate_fields(body, current=None):
+-    fields = {'label', 'property_type', 'bedrooms', 'bathrooms', 'floor_area', 'asking_price', 'features'}
+-    errors = {key: 'not editable' for key in body.keys() - fields}
+-    data = {key: value for key, value in (current or {}).items() if key in fields}
++    """Validate a create or update and return only the editable fields.
++
++    Validation is performed on the merged result for updates.  Nothing in
++    this function mutates ``body`` or ``current``, which lets callers keep a
++    transaction wholly uncommitted when validation fails.
++    """
++    if not isinstance(body, dict):
++        raise AppError(400, {'body': 'JSON object required'})
++
++    errors = {}
++    unknown = set(body) - EDITABLE_FIELDS
++    for key in sorted(unknown, key=str):
++        errors[key] = 'not editable'
++
++    # On creation features have a documented default.  On an update all
++    # omitted editable fields come from the existing row.
++    data = {key: value for key, value in (current or {}).items() if key in EDITABLE_FIELDS}
++    if current is None and 'features' not in data:
++        data['features'] = []
+     data.update(body)
++
+     label = data.get('label')
+     if not isinstance(label, str) or not label.strip() or len(label.strip()) > 120:
+         errors['label'] = 'nonempty string of at most 120 characters required'
+     else:
+         data['label'] = label.strip()
++
+     if data.get('property_type') not in ['house', 'apartment']:
+         errors['property_type'] = 'house or apartment required'
+-    for key, low, high in [('bedrooms', 0, 10), ('bathrooms', 1, 10), ('floor_area', 10, 2000), ('asking_price', 1, 10**12)]:
++
++    for key, low, high in [
++        ('bedrooms', 0, 10),
++        ('bathrooms', 1, 10),
++        ('floor_area', 10, 2000),
++        ('asking_price', 1, 10 ** 12),
++    ]:
+         if not integer(data.get(key), low, high):
+             errors[key] = f'integer in {low}..{high} required'
+-    features = data.get('features', [])
+-    if not isinstance(features, list) or len(features) > 20 or any(not isinstance(x, str) or not x.strip() or len(x.strip()) > 80 for x in features):
++
++    features = data.get('features')
++    if (
++        not isinstance(features, list)
++        or len(features) > 20
++        or any(
++            not isinstance(value, str)
++            or not value.strip()
++            or len(value.strip()) > 80
++            for value in features
++        )
++    ):
+         errors['features'] = 'at most 20 nonempty strings, each at most 80 characters'
+     else:
+-        data['features'] = list(dict.fromkeys(x.strip() for x in features))
++        # dict preserves insertion order, so this is first-occurrence
++        # deduplication after trimming.
++        data['features'] = list(dict.fromkeys(value.strip() for value in features))
++
+     if errors:
+         raise AppError(400, errors)
+-    return data
++
++    return {key: data[key] for key in EDITABLE_FIELDS}
+ 
+ 
+ def may_read(actor, listing):
+-    # Workspace scoping is awaiting the client policy.
+-    return True
++    """Apply the fixture workspace read scope."""
++    role = actor.get('role')
++    if role == 'admin':
++        return True
++    if role == 'seller':
++        return listing.get('owner_id') == actor.get('id')
++    if role == 'agent':
++        return listing.get('agent_id') == actor.get('id')
++    return False
+ 
+ 
+ def may_write(actor, listing):
+-    return True
++    """Apply the fixture workspace update scope."""
++    if actor.get('role') == 'seller':
++        return listing.get('owner_id') == actor.get('id')
++    if actor.get('role') == 'agent':
++        return listing.get('agent_id') == actor.get('id')
++    # Administrators are intentionally read-only.
++    return False
++
++
++def may_create(actor):
++    return actor.get('role') == 'seller'
++
++
++def _valid_comparable(value):
++    """Return a normalized comparable, or None when it is structurally bad."""
++    if not isinstance(value, dict):
++        return None
++    comparable_id = value.get('id')
++    if not isinstance(comparable_id, str) or not comparable_id or len(comparable_id) > 64:
++        return None
++    if value.get('property_type') not in ['house', 'apartment']:
++        return None
++    if not integer(value.get('bedrooms'), 0, 10):
++        return None
++    if not integer(value.get('floor_area'), 10, 2000):
++        return None
++    if not integer(value.get('sale_price'), 1, 10 ** 12):
++        return None
++    if not integer(value.get('age_days'), 0, 36500):
++        return None
++    return {
++        'id': comparable_id,
++        'property_type': value['property_type'],
++        'bedrooms': value['bedrooms'],
++        'floor_area': value['floor_area'],
++        'sale_price': value['sale_price'],
++        'age_days': value['age_days'],
++    }
++
++
++def _round_half_up(value):
++    """Round a non-negative Fraction to an integer, with .5 upward."""
++    return (2 * value.numerator + value.denominator) // (2 * value.denominator)
+ 
+ 
+ def price(listing, comparables):
+-    # Comparable eligibility and arithmetic are awaiting clarification.
+-    return None
++    """Calculate the deterministic comparable estimate for a listing."""
++    # Assignment, rather than filtering while iterating, gives the last
++    # structurally valid duplicate its required precedence.  Assignment to an
++    # existing dict key does not affect the eventual age/id sort.
++    valid_by_id = {}
++    for value in comparables:
++        comparable = _valid_comparable(value)
++        if comparable is not None:
++            valid_by_id[comparable['id']] = comparable
++
++    target_area = listing['floor_area']
++    eligible = []
++    for comparable in valid_by_id.values():
++        if comparable['property_type'] != listing['property_type']:
++            continue
++        if abs(comparable['bedrooms'] - listing['bedrooms']) > 1:
++            continue
++        # Compare the inclusive 3/4 and 5/4 bounds with integers, avoiding
++        # floating point boundary errors.
++        area = comparable['floor_area']
++        if area * 4 < target_area * 3 or area * 4 > target_area * 5:
++            continue
++        if comparable['age_days'] > 180:
++            continue
++        eligible.append(comparable)
++
++    eligible.sort(key=lambda value: (value['age_days'], value['id']))
++    selected = eligible[:5]
++    if not selected:
++        return None
++
++    adjusted = [
++        Fraction(value['sale_price'] * target_area, value['floor_area'])
++        for value in selected
++    ]
++    ordered_prices = __import__('control_algorithms').stable_order(adjusted)
++    minimum = ordered_prices[0]
++    maximum = ordered_prices[-1]
++    middle = len(ordered_prices) // 2
++    if len(ordered_prices) % 2:
++        midpoint = ordered_prices[middle]
++    else:
++        midpoint = (ordered_prices[middle - 1] + ordered_prices[middle]) / 2
++
++    return {
++        'minimum': _round_half_up(minimum),
++        'midpoint': _round_half_up(midpoint),
++        'maximum': _round_half_up(maximum),
++        'confidence': len(selected) / 5,
++        'comparable_ids': [value['id'] for value in selected],
++        'adjusted_prices': [_round_half_up(value) for value in adjusted],
++    }
+ 
+ 
+ def describe(listing, count, tone):
+-    facts = f"{listing['label']}: {listing['property_type']}, {listing['bedrooms']} bedrooms, {listing['bathrooms']} bathrooms, {listing['floor_area']} square units, asking {listing['asking_price']}."
+-    features = ' Listed features: ' + ', '.join(listing['features']) + '.' if listing['features'] else ''
+-    variants = [f"{tone} overview. {facts}{features}", f"{tone} property summary: {facts}{features}", f"{tone} listing details. {facts}{features}"]
++    """Produce grounded, deterministic prose variants from listing facts."""
++    label = listing['label']
++    property_type = listing['property_type']
++    bedrooms = listing['bedrooms']
++    bathrooms = listing['bathrooms']
++    floor_area = listing['floor_area']
++    asking_price = listing['asking_price']
++    features = listing['features']
++
++    facts = (
++        f"{label} is a {property_type} with {bedrooms} bedrooms, "
++        f"{bathrooms} bathrooms, {floor_area} square units of floor area, "
++        f"and an asking price of {asking_price}."
++    )
++    feature_sentence = f" Features include {', '.join(features)}." if features else ''
++    base = f"This {tone} description uses the following listing facts: {facts}{feature_sentence}"
++    variants = [
++        f"{base} It keeps the {tone} presentation focused on the property.",
++        f"{base} The {tone} summary highlights the supplied details without adding claims.",
++        f"{base} This is a {tone} account of the information provided for the listing.",
++    ]
+     return variants[:count]
+ 
+ 
+ def analysis(listing, body):
+-    if type(body.get('count')) is not int or body['count'] not in [2, 3] or body.get('tone') not in ['warm', 'concise'] or not isinstance(body.get('comparables'), list) or len(body['comparables']) > 1000:
++    if not isinstance(body, dict):
++        raise AppError(400, {'analysis': 'analysis options object required'})
++    if (
++        type(body.get('count')) is not int
++        or body['count'] not in [2, 3]
++        or body.get('tone') not in ['warm', 'concise']
++        or not isinstance(body.get('comparables'), list)
++        or len(body['comparables']) > 1000
++    ):
+         raise AppError(400, {'analysis': 'count 2|3, tone warm|concise and at most 1000 comparables required'})
+-    return {'pricing': price(listing, body['comparables']), 'descriptions': describe(listing, body['count'], body['tone'])}
++    return {
++        'pricing': price(listing, body['comparables']),
++        'descriptions': describe(listing, body['count'], body['tone']),
++    }
+diff --git a/integration.py b/integration.py
+index d4e7c380847c8acc2e02e3e541bfe1f6a21765a9..fb4c91f0669644764cb1f7e6c845b947b5fbe86f 100644
+--- a/integration.py
++++ b/integration.py
+@@ -1,29 +1,145 @@
+-"""Read integration with a pre-provisioned synthetic offer service."""
++"""HTTP integration with the prepared loopback offer service."""
+ import json
+ import threading
+-from urllib.error import URLError
++from urllib.error import HTTPError, URLError
+ from urllib.request import Request, urlopen
++
+ from domain import AppError, integer
+ 
+ 
+ class Integration:
+     def __init__(self, store, service_url):
+-        self.store, self.service_url = store, service_url.rstrip('/')
++        self.store = store
++        self.service_url = service_url.rstrip('/')
++        # A sync and a callback in this process must not race their checkpoint
++        # decisions.  SQLite still provides the durable cross-process guard.
+         self.lock = threading.RLock()
+ 
+     def remote(self, path, body=None):
+         data = json.dumps(body).encode() if body is not None else None
++        method = 'POST' if body is not None else 'GET'
+         try:
+-            with urlopen(Request(self.service_url + path, data=data, headers={'Content-Type': 'application/json'}), timeout=3) as response:
+-                return json.loads(response.read())
+-        except (URLError, TimeoutError, ValueError) as error:
++            request = Request(
++                self.service_url + path,
++                data=data,
++                method=method,
++                headers={'Content-Type': 'application/json'} if body is not None else {},
++            )
++            with urlopen(request, timeout=3) as response:
++                if response.status != 200:
++                    raise ValueError('provider status')
++                value = json.loads(response.read())
++                if not isinstance(value, dict):
++                    raise ValueError('provider object required')
++                return value
++        except (HTTPError, URLError, TimeoutError, OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+             raise AppError(502, {'provider': 'unavailable or malformed response'}) from error
+ 
++    @staticmethod
++    def _provider_error():
++        return AppError(502, {'provider': 'unavailable or malformed response'})
++
++    def _subscribe(self, callback_url):
++        response = self.remote('/subscriptions', {'callback_url': callback_url})
++        if response.get('subscribed') is not True:
++            raise self._provider_error()
++
++    @staticmethod
++    def _validate_poll_response(response, previous_cursor):
++        if not isinstance(response, dict):
++            raise Integration._provider_error()
++        events = response.get('events')
++        cursor = response.get('cursor')
++        if not isinstance(events, list) or not integer(cursor, 0, 10 ** 12):
++            raise Integration._provider_error()
++        if not integer(previous_cursor, 0, 10 ** 12) or cursor < previous_cursor:
++            raise Integration._provider_error()
++
++        previous = previous_cursor
++        for event in events:
++            if not isinstance(event, dict):
++                raise Integration._provider_error()
++            event_cursor = event.get('cursor')
++            if (
++                not integer(event_cursor, 1, 10 ** 12)
++                or event_cursor <= previous
++                or event_cursor > cursor
++            ):
++                raise Integration._provider_error()
++            previous = event_cursor
++        return events, cursor
++
+     def receive(self, events):
+-        raise AppError(501, {'events': 'offer event handling is unfinished'})
++        # This route is a simulated provider callback, not a user route, so it
++        # intentionally has no X-Actor requirement.
++        with self.lock:
++            if not isinstance(events, list):
++                raise AppError(400, {'events': 'list required'})
++            updated = self.store.receive_events(events)
++            return {'updated': updated}
+ 
+     def sync(self, now, callback_url):
+-        if not integer(now, 0, 10**12):
++        if not integer(now, 0, 10 ** 12):
+             raise AppError(400, {'now': 'nonnegative integer required'})
+-        self.remote('/health')
+-        return {'mode': 'unconfigured', 'updated': 0, 'polled': False}
++
++        with self.lock:
++            state = self.store.integration_state()
++            mode = state['mode']
++            cursor = state['cursor']
++
++            if mode is None:
++                # Capabilities are consulted exactly for the first successful
++                # setup.  A failed capability read or failed first poll does
++                # not leave a mode checkpoint behind, allowing a retry.
++                capabilities = self.remote('/capabilities')
++                webhook_supported = capabilities.get('webhook_supported')
++                if type(webhook_supported) is not bool:
++                    raise self._provider_error()
++
++                if webhook_supported:
++                    self._subscribe(callback_url)
++                    self.store.set_webhook(callback_url)
++                    return {'mode': 'webhook', 'updated': 0, 'polled': False}
++
++                # The first polling setup always starts at the provider's
++                # beginning, as opposed to relying on a not-yet-established
++                # poll checkpoint.
++                response = self.remote('/offers?after=0')
++                try:
++                    events, response_cursor = self._validate_poll_response(response, 0)
++                    updated = self.store.commit_poll(events, response_cursor, now)
++                except AppError as error:
++                    if error.status == 502:
++                        raise
++                    raise self._provider_error() from error
++                return {'mode': 'poll', 'updated': updated, 'polled': True}
++
++            if mode == 'webhook':
++                # The provider is a single-consumer fixture.  A process
++                # restart on a new ephemeral port must bind its new callback;
++                # a repeated tick on the same URL must not re-register.
++                if state['callback_url'] != callback_url:
++                    self._subscribe(callback_url)
++                    self.store.set_webhook(callback_url)
++                return {'mode': 'webhook', 'updated': 0, 'polled': False}
++
++            if mode != 'poll':
++                # This can only arise from a manually corrupted database, but
++                # treating it like an unavailable integration avoids exposing
++                # internal metadata in an API response.
++                raise self._provider_error()
++
++            last_poll = state['last_poll']
++            due = last_poll is None or now - last_poll >= 120
++            if not due:
++                return {'mode': 'poll', 'updated': 0, 'polled': False}
++
++            response = self.remote('/offers?after=' + str(cursor))
++            try:
++                events, response_cursor = self._validate_poll_response(response, cursor)
++                updated = self.store.commit_poll(events, response_cursor, now)
++            except AppError as error:
++                if error.status == 502:
++                    raise
++                raise self._provider_error() from error
++            return {'mode': 'poll', 'updated': updated, 'polled': True}
+diff --git a/server.py b/server.py
+index 9c379b3a9ad6023827a37d3e19249b0f7fa8890a..fc644c8640387070bb6337e9ea822512e98e2d1e 100644
+--- a/server.py
++++ b/server.py
+@@ -5,6 +5,7 @@ import os
+ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
+ from urllib.parse import unquote, urlsplit
++
+ from domain import AppError, analysis
+ from integration import Integration
+ from store import Store
+@@ -13,9 +14,18 @@ ROOT = Path(__file__).resolve().parent
+ 
+ 
+ def serve(args):
++    if not args.offer_service:
++        raise ValueError('Prepared loopback offer-service URL required')
+     store = Store(args.db, json.loads(Path(args.seed).read_text()))
+     peer = urlsplit(args.offer_service)
+-    if peer.scheme != 'http' or peer.hostname != '127.0.0.1' or not peer.port or peer.path not in ['', '/']:
++    if (
++        peer.scheme != 'http'
++        or peer.hostname != '127.0.0.1'
++        or not peer.port
++        or peer.path not in ['', '/']
++        or peer.query
++        or peer.fragment
++    ):
+         raise ValueError('Prepared loopback offer-service URL required')
+     integration = Integration(store, args.offer_service.rstrip('/'))
+ 
+@@ -23,6 +33,18 @@ def serve(args):
+         def log_message(self, *_):
+             pass
+ 
++        def read_body(self):
++            try:
++                length = int(self.headers.get('Content-Length', '0'))
++                if not 0 < length <= 2_000_000:
++                    raise ValueError('body size')
++                body = json.loads(self.rfile.read(length))
++                if not isinstance(body, dict):
++                    raise ValueError('object body required')
++                return body
++            except (ValueError, TypeError, UnicodeDecodeError):
++                raise AppError(400, {'body': 'JSON object required'})
++
+         def dispatch(self):
+             path = urlsplit(self.path).path
+             if self.command == 'GET' and path in ['/', '/app.js', '/style.css']:
+@@ -33,29 +55,32 @@ def serve(args):
+                 return 200, {'ready': True}, None
+             if self.command == 'GET' and path == '/api/actors':
+                 return 200, {'actors': store.actors()}, None
+-            body = {}
+-            if self.command in ['POST', 'PUT']:
+-                try:
+-                    length = int(self.headers.get('Content-Length', '0'))
+-                    if not 0 < length <= 2_000_000:
+-                        raise ValueError('body size')
+-                    body = json.loads(self.rfile.read(length))
+-                    if not isinstance(body, dict):
+-                        raise ValueError('object body required')
+-                except (ValueError, UnicodeDecodeError):
+-                    raise AppError(400, {'body': 'JSON object required'})
++
++            # These are infrastructure simulation paths.  They deliberately
++            # do not consume or infer an application actor identity.
+             if self.command == 'POST' and path == '/api/offer-events':
++                body = self.read_body()
+                 return 200, integration.receive(body.get('events')), None
+             if self.command == 'POST' and path == '/api/sync':
++                body = self.read_body()
+                 callback = f'http://127.0.0.1:{self.server.server_port}/api/offer-events'
+                 return 200, integration.sync(body.get('now'), callback), None
++
++            # Authenticate user routes before validating their request body.
++            # This keeps an unknown upstream identity from learning anything
++            # about route or field validation.
+             actor = store.actor(self.headers.get('X-Actor'))
++            body = {}
++            if self.command in ['POST', 'PUT']:
++                body = self.read_body()
++
+             parts = path.strip('/').split('/')
+             if path == '/api/listings':
+                 if self.command == 'GET':
+                     return 200, {'listings': store.listings(actor)}, None
+                 if self.command == 'POST':
+                     return 201, {'listing': store.save(actor, body)}, None
++
+             if len(parts) in [3, 4] and parts[:2] == ['api', 'listings']:
+                 key = unquote(parts[2])
+                 if len(parts) == 3 and self.command == 'GET':
+@@ -64,8 +89,14 @@ def serve(args):
+                     return 200, {'listing': store.save(actor, body, key)}, None
+                 if len(parts) == 4 and parts[3] == 'analysis' and self.command == 'POST':
+                     return 200, analysis(store.get(actor, key)['listing'], body), None
+-            if len(parts) == 4 and parts[:2] == ['api', 'offers'] and parts[3] == 'review' and self.command == 'POST':
+-                return 200, store.review(actor, unquote(parts[2]), integration.service_url), None
++
++            if (
++                len(parts) == 4
++                and parts[:2] == ['api', 'offers']
++                and parts[3] == 'review'
++                and self.command == 'POST'
++            ):
++                return 200, {'url': store.review(actor, unquote(parts[2]), integration.service_url)}, None
+             raise AppError(404, {'route': 'not found'})
+ 
+         def handle_request(self):
+@@ -73,6 +104,10 @@ def serve(args):
+                 status, value, mime = self.dispatch()
+             except AppError as error:
+                 status, value, mime = error.status, {'errors': error.errors}, None
++            except Exception:
++                # Keep unexpected internal details (including filesystem
++                # paths) out of the public response.
++                status, value, mime = 500, {'errors': {'server': 'internal error'}}, None
+             data = value if mime else json.dumps(value).encode()
+             self.send_response(status)
+             self.send_header('Content-Type', (mime or 'application/json') + '; charset=utf-8')
+@@ -86,6 +121,7 @@ def serve(args):
+         do_PUT = handle_request
+ 
+     server = ThreadingHTTPServer((args.host, args.port), Handler)
++    server.daemon_threads = True
+     print(json.dumps({'port': server.server_port}), flush=True)
+     try:
+         server.serve_forever()
+diff --git a/store.py b/store.py
+index 393b25d20058dd10772e1a4b9ae2d2ee1c7d71a6..59f2b542dbf82cde2b04db8332a5a4bc2734b52a 100644
+--- a/store.py
++++ b/store.py
+@@ -1,33 +1,104 @@
+-"""SQLite-backed synthetic listing workspace. No customer data is included."""
++"""SQLite persistence, access control and transactional workspace state."""
+ import json
+ import sqlite3
+ from uuid import uuid4
+-from domain import AppError, may_read, may_write, validate_fields
++
++from domain import AppError, may_create, may_read, may_write, validate_fields, integer
+ 
+ 
+ class Store:
++    """The application data store.
++
++    Every operation opens its own SQLite connection.  Writes use an immediate
++    transaction so offer callbacks, polling and user edits cannot observe or
++    commit a half-applied operation.
++    """
++
++    LISTING_FIELDS = (
++        'id',
++        'owner_id',
++        'agent_id',
++        'label',
++        'property_type',
++        'bedrooms',
++        'bathrooms',
++        'floor_area',
++        'asking_price',
++        'features',
++        'state',
++    )
++
++    OFFER_FIELDS = (
++        'external_id',
++        'listing_id',
++        'revision',
++        'amount',
++        'terms',
++    )
++
+     def __init__(self, path, seed):
+         self.path = path
+         with self.connect() as db:
+-            db.executescript('''CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, data TEXT NOT NULL);
+-            CREATE TABLE IF NOT EXISTS listings(id TEXT PRIMARY KEY, data TEXT NOT NULL);
+-            CREATE TABLE IF NOT EXISTS offers(id TEXT PRIMARY KEY, data TEXT NOT NULL);
+-            CREATE TABLE IF NOT EXISTS notices(sequence INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, actor TEXT, offer_id TEXT, revision INTEGER, listing_id TEXT, data TEXT, UNIQUE(kind,actor,offer_id,revision));
+-            CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY, data TEXT NOT NULL);''')
++            db.executescript(
++                '''
++                CREATE TABLE IF NOT EXISTS users(
++                    id TEXT PRIMARY KEY,
++                    data TEXT NOT NULL
++                );
++                CREATE TABLE IF NOT EXISTS listings(
++                    id TEXT PRIMARY KEY,
++                    data TEXT NOT NULL
++                );
++                CREATE TABLE IF NOT EXISTS offers(
++                    id TEXT PRIMARY KEY,
++                    data TEXT NOT NULL
++                );
++                CREATE TABLE IF NOT EXISTS notices(
++                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
++                    kind TEXT,
++                    actor TEXT,
++                    offer_id TEXT,
++                    revision INTEGER,
++                    listing_id TEXT,
++                    data TEXT,
++                    UNIQUE(kind, actor, offer_id, revision)
++                );
++                CREATE TABLE IF NOT EXISTS metadata(
++                    key TEXT PRIMARY KEY,
++                    data TEXT NOT NULL
++                );
++                '''
++            )
++            # The marker and all seed rows are committed together.  A second
++            # process opening the same fresh database waits for this lock and
++            # then observes the marker instead of seeding twice.
+             db.execute('BEGIN IMMEDIATE')
+             if db.execute("SELECT 1 FROM metadata WHERE key='seeded'").fetchone() is None:
+-                for table in ['users', 'listings']:
+-                    db.executemany(f'INSERT INTO {table} VALUES(?,?)', [(row['id'], json.dumps(row)) for row in seed[table]])
++                users = seed.get('users', []) if isinstance(seed, dict) else []
++                listings = seed.get('listings', []) if isinstance(seed, dict) else []
++                db.executemany(
++                    'INSERT INTO users(id, data) VALUES(?, ?)',
++                    [(row['id'], json.dumps(row)) for row in users],
++                )
++                db.executemany(
++                    'INSERT INTO listings(id, data) VALUES(?, ?)',
++                    [(row['id'], json.dumps(row)) for row in listings],
++                )
+                 self.set_meta(db, 'seeded', True)
+ 
+     def connect(self):
+         db = sqlite3.connect(self.path, timeout=10)
+         db.row_factory = sqlite3.Row
++        db.execute('PRAGMA busy_timeout=10000')
+         return db
+ 
+     @staticmethod
+     def set_meta(db, key, value):
+-        db.execute('INSERT INTO metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET data=excluded.data', (key, json.dumps(value)))
++        db.execute(
++            'INSERT INTO metadata(key, data) VALUES(?, ?) '
++            'ON CONFLICT(key) DO UPDATE SET data=excluded.data',
++            (key, json.dumps(value)),
++        )
+ 
+     @staticmethod
+     def meta(db, key, default=None):
+@@ -39,44 +110,326 @@ class Store:
+         row = db.execute(f'SELECT data FROM {table} WHERE id=?', (key,)).fetchone()
+         return json.loads(row['data']) if row else None
+ 
++    @classmethod
++    def listing_view(cls, listing):
++        """Return the public listing shape, excluding seed/source extras."""
++        return {key: listing.get(key) for key in cls.LISTING_FIELDS}
++
++    @classmethod
++    def offer_view(cls, offer):
++        """Return the public current-offer shape.
++
++        The provider cursor is an integration checkpoint rather than an offer
++        field, so it remains internal to synchronization state.
++        """
++        return {key: offer.get(key) for key in cls.OFFER_FIELDS}
++
++    @classmethod
++    def actor_view(cls, actor):
++        result = {'id': actor.get('id'), 'role': actor.get('role')}
++        if 'agent_id' in actor:
++            result['agent_id'] = actor.get('agent_id')
++        return result
++
+     def actors(self):
+         with self.connect() as db:
+-            return [json.loads(row['data']) for row in db.execute('SELECT data FROM users ORDER BY id')]
++            rows = [
++                json.loads(row['data'])
++                for row in db.execute('SELECT data FROM users ORDER BY id')
++            ]
++        return [self.actor_view(row) for row in rows]
+ 
+     def actor(self, key):
+         with self.connect() as db:
+             actor = self.row(db, 'users', key)
+-        if actor is None or actor['role'] not in ['seller', 'agent', 'admin']:
++        if actor is None or actor.get('role') not in ['seller', 'agent', 'admin']:
+             raise AppError(401, {'actor': 'unknown identity'})
+         return actor
+ 
+     def listings(self, actor):
+         with self.connect() as db:
+-            rows = [json.loads(row['data']) for row in db.execute('SELECT data FROM listings ORDER BY id')]
+-        return [row for row in rows if may_read(actor, row)]
++            rows = [
++                json.loads(row['data'])
++                for row in db.execute('SELECT data FROM listings ORDER BY id')
++            ]
++        return [self.listing_view(row) for row in rows if may_read(actor, row)]
+ 
+     def get(self, actor, key):
+         with self.connect() as db:
+             listing = self.row(db, 'listings', key)
+             if listing is None or not may_read(actor, listing):
+                 raise AppError(404, {'listing': 'not found'})
+-            offers = [json.loads(r['data']) for r in db.execute('SELECT data FROM offers ORDER BY id')]
+-            notices = [dict(r) for r in db.execute('SELECT * FROM notices WHERE listing_id=? ORDER BY sequence', (key,))]
+-        return {'listing': listing, 'offers': [r for r in offers if r['listing_id'] == key], 'notifications': [{**r, 'data': json.loads(r['data'])} for r in notices]}
++            offers = [
++                json.loads(row['data'])
++                for row in db.execute('SELECT data FROM offers ORDER BY id')
++            ]
++            notices = [
++                dict(row)
++                for row in db.execute(
++                    'SELECT sequence, kind, actor, offer_id, revision, listing_id, data '
++                    'FROM notices WHERE listing_id=? ORDER BY sequence',
++                    (key,),
++                )
++            ]
++        return {
++            'listing': self.listing_view(listing),
++            'offers': [self.offer_view(row) for row in offers if row.get('listing_id') == key],
++            'notifications': [
++                {**row, 'data': json.loads(row['data'])} for row in notices
++            ],
++        }
++
++    def _new_listing_id(self, db):
++        # UUID collisions are fantastically unlikely, but checking under the
++        # write lock makes uniqueness an actual invariant rather than an
++        # assumption.
++        while True:
++            key = 'parcel-' + uuid4().hex[:12]
++            if db.execute('SELECT 1 FROM listings WHERE id=?', (key,)).fetchone() is None:
++                return key
+ 
+     def save(self, actor, body, key=None):
+         with self.connect() as db:
+             db.execute('BEGIN IMMEDIATE')
+-            old = self.row(db, 'listings', key) if key else None
+-            if key:
++            old = self.row(db, 'listings', key) if key is not None else None
++            if key is not None:
+                 if old is None or not may_read(actor, old):
++                    # A record outside the caller's scope is deliberately
++                    # indistinguishable from an unavailable record.
+                     raise AppError(404, {'listing': 'not found'})
+                 if not may_write(actor, old):
+                     raise AppError(403, {'listing': 'read only'})
++            elif not may_create(actor):
++                raise AppError(403, {'listing': 'read only'})
++
+             values = validate_fields(body, old)
+-            record = {**(old or {'id': 'parcel-' + uuid4().hex[:12], 'owner_id': actor['id'], 'agent_id': actor.get('agent_id')}), **values, 'state': 'draft'}
+-            db.execute('INSERT INTO listings VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data', (record['id'], json.dumps(record)))
+-        return record
++            if old is None:
++                listing_id = self._new_listing_id(db)
++                owner_id = actor['id']
++                agent_id = actor.get('agent_id')
++            else:
++                listing_id = old['id']
++                owner_id = old.get('owner_id')
++                agent_id = old.get('agent_id')
++
++            record = {
++                'id': listing_id,
++                'owner_id': owner_id,
++                'agent_id': agent_id,
++                **values,
++                # There is intentionally no publication operation.
++                'state': 'draft',
++            }
++            if old is None:
++                db.execute(
++                    'INSERT INTO listings(id, data) VALUES(?, ?)',
++                    (record['id'], json.dumps(record)),
++                )
++            else:
++                db.execute(
++                    'UPDATE listings SET data=? WHERE id=?',
++                    (json.dumps(record), record['id']),
++                )
++        return self.listing_view(record)
++
++    def integration_state(self):
++        with self.connect() as db:
++            mode = self.meta(db, 'provider_mode', None)
++            cursor = self.meta(db, 'provider_cursor', 0)
++            last_poll = self.meta(db, 'provider_last_poll', None)
++            callback_url = self.meta(db, 'provider_callback_url', None)
++        return {
++            'mode': mode,
++            'cursor': cursor,
++            'last_poll': last_poll,
++            'callback_url': callback_url,
++        }
++
++    def set_webhook(self, callback_url):
++        with self.connect() as db:
++            db.execute('BEGIN IMMEDIATE')
++            self.set_meta(db, 'provider_mode', 'webhook')
++            self.set_meta(db, 'provider_callback_url', callback_url)
++
++    @staticmethod
++    def _event_error(message='invalid offer event batch'):
++        raise AppError(400, {'events': message})
++
++    @staticmethod
++    def _insert_notice(db, kind, actor, offer_id, revision, listing_id, data):
++        """Insert an idempotent notice without consuming a sequence gap."""
++        exists = db.execute(
++            'SELECT 1 FROM notices WHERE kind=? AND actor=? AND offer_id=? AND revision=?',
++            (kind, actor, offer_id, revision),
++        ).fetchone()
++        if exists is not None:
++            return False
++        db.execute(
++            'INSERT INTO notices(kind, actor, offer_id, revision, listing_id, data) '
++            'VALUES(?, ?, ?, ?, ?, ?)',
++            (kind, actor, offer_id, revision, listing_id, json.dumps(data)),
++        )
++        return True
++
++    def _validated_events(self, db, events):
++        """Validate every event and its listing/external-ID relationships.
++
++        This is intentionally completed before any INSERT or UPDATE.  The
++        caller can therefore safely use the resulting list in one transaction.
++        """
++        if not isinstance(events, list):
++            self._event_error('list required')
++
++        prepared = []
++        seen_listing = {}
++        existing_cache = {}
++        for event in events:
++            if not isinstance(event, dict):
++                self._event_error()
++
++            external_id = event.get('external_id')
++            listing_id = event.get('listing_id')
++            terms = event.get('terms')
++            if (
++                not isinstance(external_id, str)
++                or not external_id
++                or len(external_id) > 64
++            ):
++                self._event_error()
++            if (
++                not isinstance(listing_id, str)
++                or not listing_id
++                or len(listing_id) > 64
++            ):
++                self._event_error()
++            if not integer(event.get('cursor'), 1, 10 ** 12):
++                self._event_error()
++            if not integer(event.get('revision'), 1, 10 ** 9):
++                self._event_error()
++            if not integer(event.get('amount'), 1, 10 ** 12):
++                self._event_error()
++            if not isinstance(terms, str) or not terms or len(terms) > 2000:
++                self._event_error()
++
++            listing = self.row(db, 'listings', listing_id)
++            if listing is None:
++                self._event_error('unknown listing')
++
++            previous_listing = seen_listing.get(external_id)
++            if previous_listing is not None and previous_listing != listing_id:
++                self._event_error('external offer belongs to another listing')
++            seen_listing[external_id] = listing_id
++
++            if external_id not in existing_cache:
++                existing_cache[external_id] = self.row(db, 'offers', external_id)
++            existing = existing_cache[external_id]
++            if existing is not None and existing.get('listing_id') != listing_id:
++                self._event_error('external offer belongs to another listing')
++
++            prepared.append(
++                {
++                    'cursor': event['cursor'],
++                    'external_id': external_id,
++                    'listing_id': listing_id,
++                    'revision': event['revision'],
++                    'amount': event['amount'],
++                    'terms': terms,
++                }
++            )
++        return prepared
++
++    def _apply_events_in_transaction(self, db, events):
++        prepared = self._validated_events(db, events)
++        updated = 0
++        for event in prepared:
++            current = self.row(db, 'offers', event['external_id'])
++            if current is not None and event['revision'] <= current['revision']:
++                # Repeated and older revisions are deliberately no-ops,
++                # including amount/terms changes at the same revision.
++                continue
++
++            new_offer = {
++                'cursor': event['cursor'],
++                'external_id': event['external_id'],
++                'listing_id': event['listing_id'],
++                'revision': event['revision'],
++                'amount': event['amount'],
++                'terms': event['terms'],
++            }
++            if current is None:
++                db.execute(
++                    'INSERT INTO offers(id, data) VALUES(?, ?)',
++                    (event['external_id'], json.dumps(new_offer)),
++                )
++            else:
++                db.execute(
++                    'UPDATE offers SET data=? WHERE id=?',
++                    (json.dumps(new_offer), event['external_id']),
++                )
++
++            listing = self.row(db, 'listings', event['listing_id'])
++            notice_data = {'amount': event['amount'], 'terms': event['terms']}
++            self._insert_notice(
++                db,
++                'offer_update',
++                listing.get('owner_id'),
++                event['external_id'],
++                event['revision'],
++                event['listing_id'],
++                notice_data,
++            )
++            updated += 1
++        return updated
++
++    def receive_events(self, events):
++        """Apply a validated callback batch and return advancing revisions."""
++        with self.connect() as db:
++            db.execute('BEGIN IMMEDIATE')
++            updated = self._apply_events_in_transaction(db, events)
++            if events:
++                highest = max(event['cursor'] for event in events)
++                current_cursor = self.meta(db, 'provider_cursor', 0)
++                if not integer(current_cursor, 0, 10 ** 12):
++                    current_cursor = 0
++                if highest > current_cursor:
++                    self.set_meta(db, 'provider_cursor', highest)
++        return updated
++
++    def commit_poll(self, events, cursor, now):
++        """Apply a complete poll response and its checkpoint atomically."""
++        with self.connect() as db:
++            db.execute('BEGIN IMMEDIATE')
++            current_cursor = self.meta(db, 'provider_cursor', 0)
++            if not integer(current_cursor, 0, 10 ** 12) or cursor < current_cursor:
++                raise AppError(400, {'provider': 'cursor moved backwards'})
++            updated = self._apply_events_in_transaction(db, events)
++            self.set_meta(db, 'provider_mode', 'poll')
++            self.set_meta(db, 'provider_cursor', cursor)
++            self.set_meta(db, 'provider_last_poll', now)
++        return updated
+ 
+     def review(self, actor, key, service_url):
+-        raise AppError(501, {'review': 'offer review workflow is unfinished'})
++        from urllib.parse import quote
++
++        with self.connect() as db:
++            db.execute('BEGIN IMMEDIATE')
++            offer = self.row(db, 'offers', key)
++            if offer is None:
++                raise AppError(404, {'offer': 'not found'})
++            listing = self.row(db, 'listings', offer.get('listing_id'))
++            if listing is None or not may_read(actor, listing):
++                raise AppError(404, {'offer': 'not found'})
++
++            self._insert_notice(
++                db,
++                'offer_review',
++                actor['id'],
++                offer['external_id'],
++                offer['revision'],
++                offer['listing_id'],
++                {
++                    'amount': offer['amount'],
++                    'terms': offer['terms'],
++                },
++            )
++        return service_url.rstrip('/') + '/review/' + quote(key, safe='')

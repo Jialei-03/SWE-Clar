@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "dependencies": {
+    "@tonejs/midi": "2.0.28",
+    "pdf-lib": "1.17.1",
+    "esbuild": "0.25.0"
+  }
+}

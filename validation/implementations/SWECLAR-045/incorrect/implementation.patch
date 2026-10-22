@@ -1,0 +1,642 @@
+--- a/solution.py
++++ b/solution.py
+@@ -1,6 +1,636 @@
+-"""Independent event-credit ledger extension point."""
++"""Reference implementation for the local event-credit ledger.
++
++The public API deliberately keeps all of the ledger state in the value passed to
++``process_cashless_action``.  This module therefore treats an action as a
++small, immutable transaction: it works on a deep copy and only returns that
++copy after all validation for the action has succeeded.
++"""
++
+ from copy import deepcopy
++from decimal import Decimal, InvalidOperation
++import math
++import numbers
++
++import transport
++
++
++class _LedgerError(Exception):
++    """An expected validation or state error.
++
++    Error strings are kept private.  The delivery contract only requires a
++    non-empty ``error.code`` and deliberately does not prescribe its spelling.
++    """
++
++    def __init__(self, code):
++        self.code = str(code) if code else "invalid_action"
++        super().__init__(self.code)
++
++
++def _error_state(state, code):
++    """Return a copy of *state* with the required error object."""
++    try:
++        result = deepcopy(state)
++    except Exception:
++        # ``state`` is specified to be JSON-compatible, so this is only a
++        # defensive fallback for callers that violate the interface.
++        result = dict(state) if isinstance(state, dict) else {}
++    error_code = str(code) if code else "error"
++    if isinstance(result.get("error"), dict):
++        # Preserve any caller-supplied diagnostic metadata while replacing the
++        # stale code with the outcome of this action.
++        result["error"]["code"] = error_code
++    else:
++        result["error"] = {"code": error_code}
++    return result
++
++
++def _is_nonempty_string(value):
++    # Treat whitespace-only identifiers as empty.  This also makes event IDs
++    # acceptable to the supplied HTTP service, which applies the same rule.
++    return isinstance(value, str) and bool(value.strip())
++
++
++def _is_number(value):
++    """Whether value is a finite JSON-style number (but not a boolean)."""
++    if isinstance(value, bool):
++        return False
++    if isinstance(value, int):
++        # Python integers are arbitrary precision and every integer is finite;
++        # converting a very large one through math.isfinite would overflow.
++        return True
++    if isinstance(value, Decimal):
++        return value.is_finite()
++    if not isinstance(value, numbers.Real):
++        return False
++    try:
++        return math.isfinite(value)
++    except (TypeError, ValueError, OverflowError):
++        return False
++
++
++def _as_decimal(value):
++    if not _is_number(value):
++        raise _LedgerError("invalid_amount")
++    try:
++        # str(float) gives the decimal spelling supplied by a normal JSON
++        # decoder and avoids binary-float addition when cents are calculated.
++        decimal_value = Decimal(str(value))
++    except (InvalidOperation, ValueError, TypeError):
++        raise _LedgerError("invalid_amount")
++    if not decimal_value.is_finite():
++        raise _LedgerError("invalid_amount")
++    return decimal_value
++
++
++def _amount_cents(value, positive=True):
++    """Validate a monetary value and return its exact integer cent amount."""
++    decimal_value = _as_decimal(value)
++    if positive and decimal_value <= 0:
++        raise _LedgerError("invalid_amount")
++    if not positive and decimal_value < 0:
++        raise _LedgerError("invalid_balance")
++
++    try:
++        scaled = decimal_value * Decimal(100)
++        integral = scaled.to_integral_value()
++    except (InvalidOperation, ValueError, OverflowError):
++        raise _LedgerError("invalid_amount")
++    # This test rejects values such as .001 while accepting 1.230, whose
++    # monetary value still has only two meaningful decimal places.
++    if scaled != integral:
++        raise _LedgerError("invalid_amount")
++    try:
++        return int(integral)
++    except (ValueError, OverflowError):
++        raise _LedgerError("invalid_amount")
++
++
++def _balance_cents(value):
++    """Validate an existing non-negative card balance."""
++    return _amount_cents(value, positive=False)
++
++
++def _cents_number(cents):
++    """Create a JSON-compatible number from integer cents."""
++    if cents % 100 == 0:
++        return cents // 100
++    return cents / 100.0
++
++
++def _timestamp(action, required=False):
++    if "timestamp" not in action:
++        if required:
++            raise _LedgerError("missing_timestamp")
++        return 0
++    value = action["timestamp"]
++    if isinstance(value, bool):
++        raise _LedgerError("invalid_timestamp")
++    if isinstance(value, str):
++        return value
++    if _is_number(value):
++        return value
++    raise _LedgerError("invalid_timestamp")
++
++
++def _required_string(action, name, identifier=True):
++    if name not in action:
++        raise _LedgerError("missing_" + name)
++    value = action[name]
++    valid = _is_nonempty_string(value) if identifier else isinstance(value, str)
++    if not valid:
++        raise _LedgerError("invalid_" + name)
++    return value
++
++
++def _payment_method(action):
++    if "payment_method" not in action:
++        raise _LedgerError("missing_payment_method")
++    value = action["payment_method"]
++    if value not in ("cash", "card"):
++        raise _LedgerError("invalid_payment_method")
++    return value
++
++
++def _prepare_success_state(state):
++    """Deep-copy state and establish the public collection defaults.
++
++    A malformed collection cannot be safely updated without changing its
++    meaning, so it is treated as an input/state error before any action is
++    applied.
++    """
++    if not isinstance(state, dict):
++        raise _LedgerError("invalid_state")
++    result = deepcopy(state)
++    result.pop("error", None)
++    result.pop("result", None)
++
++    mapping_defaults = ("terminals", "customers", "cards", "events", "pending")
++    for key in mapping_defaults:
++        if key not in result:
++            result[key] = {}
++        elif not isinstance(result[key], dict):
++            raise _LedgerError("invalid_state")
++    if "server_ledger" not in result:
++        result["server_ledger"] = []
++    elif not isinstance(result["server_ledger"], list):
++        raise _LedgerError("invalid_state")
++    return result
++
++
++def _card_record(state, card_id):
++    if card_id not in state["cards"]:
++        raise _LedgerError("unknown_card")
++    card = state["cards"][card_id]
++    if not isinstance(card, dict) or "customer_id" not in card or "balance" not in card:
++        raise _LedgerError("invalid_state")
++    return card
++
++
++def _pending_list(state, terminal_imei):
++    if terminal_imei not in state["pending"]:
++        return []
++    pending = state["pending"][terminal_imei]
++    if not isinstance(pending, list):
++        raise _LedgerError("invalid_state")
++    return pending
++
++
++def _records_with_id(state, event_id):
++    """Collect all records that claim an event ID in the supplied state."""
++    records = []
++    events = state["events"]
++    if event_id in events:
++        records.append(events[event_id])
++
++    for pending in state["pending"].values():
++        if not isinstance(pending, list):
++            continue
++        for record in pending:
++            if isinstance(record, dict) and record.get("event_id") == event_id:
++                records.append(record)
++
++    for record in state["server_ledger"]:
++        if isinstance(record, dict) and record.get("event_id") == event_id:
++            records.append(record)
++    return records
++
++
++def _all_ledger_records(state):
++    """Yield local, pending, and synchronized records without assumptions."""
++    for record in state["events"].values():
++        yield record
++    for pending in state["pending"].values():
++        if isinstance(pending, list):
++            for record in pending:
++                yield record
++    for record in state["server_ledger"]:
++        yield record
++
++
++def _event_signature(record):
++    """Return the public, monetary identity of an event for replay checks."""
++    if not isinstance(record, dict):
++        return None
++    kind = record.get("kind")
++    if kind not in ("topup", "sale", "refund"):
++        return None
++    try:
++        amount = _amount_cents(record.get("amount"))
++    except _LedgerError:
++        return None
++
++    event_id = record.get("event_id")
++    card_id = record.get("card_id")
++    terminal = record.get("terminal_imei")
++    timestamp = record.get("timestamp", 0)
++    if not _is_nonempty_string(event_id) or not _is_nonempty_string(card_id):
++        return None
++    if not _is_nonempty_string(terminal):
++        return None
++
++    if kind == "topup":
++        return (
++            event_id,
++            kind,
++            card_id,
++            terminal,
++            amount,
++            timestamp,
++            record.get("payment_method"),
++        )
++    if kind == "sale":
++        return (
++            event_id,
++            kind,
++            card_id,
++            terminal,
++            amount,
++            timestamp,
++            record.get("product"),
++        )
++    return (
++        event_id,
++        kind,
++        card_id,
++        terminal,
++        amount,
++        timestamp,
++        record.get("payment_method"),
++        record.get("sale_event_id"),
++    )
++
++
++def _replay_result(state, event_id, event):
++    """Return True for an identical replay, False for a new event.
++
++    ``None`` means that the ID was present but its payload conflicted.  The
++    distinction is useful because a replay must not reapply a balance change.
++    """
++    existing = _records_with_id(state, event_id)
++    if not existing:
++        return False
++    wanted = _event_signature(event)
++    if wanted is not None and all(_event_signature(record) == wanted for record in existing):
++        return True
++    return None
++
++
++def _find_event(state, event_id):
++    if event_id in state["events"]:
++        record = state["events"][event_id]
++        if isinstance(record, dict):
++            return record
++    for pending in state["pending"].values():
++        if isinstance(pending, list):
++            for record in pending:
++                if isinstance(record, dict) and record.get("event_id") == event_id:
++                    return record
++    for record in state["server_ledger"]:
++        if isinstance(record, dict) and record.get("event_id") == event_id:
++            return record
++    return None
++
++
++def _refund_already_recorded(state, sale_event_id):
++    for record in _all_ledger_records(state):
++        if isinstance(record, dict) and record.get("kind") == "refund" and record.get("sale_event_id") == sale_event_id:
++            return True
++    return False
++
++
++def _validate_base_action(action):
++    if not isinstance(action, dict):
++        raise _LedgerError("invalid_action")
++    action_type = action.get("type")
++    if not isinstance(action_type, str) or not action_type:
++        raise _LedgerError("missing_type")
++    return action_type
++
++
++def _handle_register_terminal(state, action):
++    imei = _required_string(action, "imei")
++    if "name" not in action or not isinstance(action["name"], str):
++        raise _LedgerError("invalid_name")
++    if imei in state["terminals"]:
++        raise _LedgerError("duplicate_terminal")
++    state["terminals"][imei] = {"name": action["name"]}
++    return state
++
++
++def _handle_create_customer(state, action):
++    customer_id = _required_string(action, "customer_id")
++    if "name" not in action or not isinstance(action["name"], str):
++        raise _LedgerError("invalid_name")
++    if customer_id in state["customers"]:
++        raise _LedgerError("duplicate_customer")
++    state["customers"][customer_id] = {"name": action["name"]}
++    return state
++
++
++def _handle_activate_card(state, action):
++    card_id = _required_string(action, "card_id")
++    customer_id = _required_string(action, "customer_id")
++    if card_id in state["cards"]:
++        raise _LedgerError("duplicate_card")
++    if customer_id not in state["customers"]:
++        raise _LedgerError("unknown_customer")
++    for card in state["cards"].values():
++        if isinstance(card, dict) and card.get("customer_id") == customer_id:
++            raise _LedgerError("customer_already_has_card")
++    state["cards"][card_id] = {"customer_id": customer_id, "balance": 0}
++    return state
++
++
++def _event_common(action, require_sale_timestamp=False):
++    card_id = _required_string(action, "card_id")
++    terminal = _required_string(action, "terminal_imei")
++    event_id = _required_string(action, "event_id")
++    if "amount" not in action:
++        raise _LedgerError("missing_amount")
++    amount_cents = _amount_cents(action["amount"])
++    timestamp = _timestamp(action, required=require_sale_timestamp)
++    return card_id, terminal, event_id, amount_cents, timestamp
++
++
++def _handle_topup(state, action):
++    card_id, terminal, event_id, amount, timestamp = _event_common(action)
++    payment_method = _payment_method(action)
++    event = {
++        "event_id": event_id,
++        "kind": "topup",
++        "card_id": card_id,
++        "terminal_imei": terminal,
++        "amount": _cents_number(amount),
++        "timestamp": timestamp,
++        "payment_method": payment_method,
++    }
++    replay = _replay_result(state, event_id, event)
++    if replay is True:
++        return state
++    if replay is None:
++        raise _LedgerError("event_id_conflict")
++
++    if terminal not in state["terminals"]:
++        raise _LedgerError("unknown_terminal")
++    card = _card_record(state, card_id)
++    balance = _balance_cents(card["balance"])
++    pending = _pending_list(state, terminal)
++    # All potentially failing validation is complete before state is changed.
++    card["balance"] = _cents_number(balance + amount)
++    # Avoid re-fetching a pending list after mutation; the helper only mutates
++    # after its validation has succeeded.
++    state["events"][event_id] = deepcopy(event)
++    if terminal not in state["pending"]:
++        state["pending"][terminal] = []
++    state["pending"][terminal] = pending
++    state["pending"][terminal].append(deepcopy(event))
++    return state
++
++
++def _handle_sale(state, action):
++    card_id, terminal, event_id, amount, timestamp = _event_common(action, require_sale_timestamp=False)
++    if "product" not in action or not isinstance(action["product"], str) or not action["product"]:
++        raise _LedgerError("invalid_product")
++    product = action["product"]
++    event = {
++        "event_id": event_id,
++        "kind": "sale",
++        "card_id": card_id,
++        "terminal_imei": terminal,
++        "amount": _cents_number(amount),
++        "timestamp": timestamp,
++        "product": product,
++    }
++    replay = _replay_result(state, event_id, event)
++    if replay is True:
++        return state
++    if replay is None:
++        raise _LedgerError("event_id_conflict")
++
++    if terminal not in state["terminals"]:
++        raise _LedgerError("unknown_terminal")
++    card = _card_record(state, card_id)
++    balance = _balance_cents(card["balance"])
++    pending = _pending_list(state, terminal)
++    if balance < amount:
++        raise _LedgerError("insufficient_balance")
++    card["balance"] = _cents_number(balance)
++    state["events"][event_id] = deepcopy(event)
++    if terminal not in state["pending"]:
++        state["pending"][terminal] = []
++    state["pending"][terminal] = pending
++    state["pending"][terminal].append(deepcopy(event))
++    return state
++
++
++def _handle_refund(state, action):
++    card_id, terminal, event_id, amount, timestamp = _event_common(action)
++    sale_event_id = _required_string(action, "sale_event_id")
++    payment_method = _payment_method(action)
++    event = {
++        "event_id": event_id,
++        "kind": "refund",
++        "card_id": card_id,
++        "terminal_imei": terminal,
++        "amount": _cents_number(amount),
++        "timestamp": timestamp,
++        "payment_method": payment_method,
++        "sale_event_id": sale_event_id,
++    }
++    replay = _replay_result(state, event_id, event)
++    if replay is True:
++        return state
++    if replay is None:
++        raise _LedgerError("event_id_conflict")
++
++    if terminal not in state["terminals"]:
++        raise _LedgerError("unknown_terminal")
++    card = _card_record(state, card_id)
++    balance = _balance_cents(card["balance"])
++    pending = _pending_list(state, terminal)
++    sale = _find_event(state, sale_event_id)
++    if not isinstance(sale, dict) or sale.get("kind") != "sale":
++        raise _LedgerError("unknown_sale")
++    try:
++        sale_amount = _amount_cents(sale.get("amount"))
++    except _LedgerError:
++        raise _LedgerError("invalid_state")
++    if sale.get("card_id") != card_id or sale_amount != amount:
++        raise _LedgerError("refund_mismatch")
++    if _refund_already_recorded(state, sale_event_id):
++        raise _LedgerError("sale_already_refunded")
++
++    card["balance"] = _cents_number(balance + amount)
++    state["events"][event_id] = deepcopy(event)
++    if terminal not in state["pending"]:
++        state["pending"][terminal] = []
++    state["pending"][terminal] = pending
++    state["pending"][terminal].append(deepcopy(event))
++    return state
++
++
++def _handle_sync(state, action, upload_events):
++    terminal = _required_string(action, "terminal_imei")
++    pending = _pending_list(state, terminal)
++    if not pending:
++        # In particular, do not demand sync_url or call a callback for an
++        # empty batch.
++        return state
++
++    batch_ids = []
++    seen = set()
++    for record in pending:
++        if not isinstance(record, dict) or not _is_nonempty_string(record.get("event_id")):
++            raise _LedgerError("invalid_state")
++        event_id = record["event_id"]
++        if event_id in seen:
++            raise _LedgerError("invalid_state")
++        seen.add(event_id)
++        batch_ids.append(event_id)
++
++    batch_for_upload = deepcopy(pending)
++    try:
++        if upload_events is not None:
++            if not callable(upload_events):
++                raise TypeError("upload_events is not callable")
++            response = upload_events(batch_for_upload)
++        else:
++            if "sync_url" not in action or not _is_nonempty_string(action["sync_url"]):
++                raise _LedgerError("missing_sync_url")
++            response = transport.upload_events(action["sync_url"], batch_for_upload)
++    except _LedgerError:
++        raise
++    except Exception:
++        raise _LedgerError("sync_failed")
++
++    if not isinstance(response, dict) or not isinstance(response.get("accepted_ids"), list):
++        raise _LedgerError("invalid_sync_response")
++
++    # Unknown IDs are deliberately ignored.  Only an ID in this terminal's
++    # just-uploaded batch is allowed to affect either local collection.
++    accepted = {
++        event_id
++        for event_id in response["accepted_ids"]
++        if isinstance(event_id, str) and event_id in seen
++    }
++    if not accepted:
++        return state
++
++    server_ids = set()
++    for record in state["server_ledger"]:
++        if isinstance(record, dict) and isinstance(record.get("event_id"), str):
++            server_ids.add(record["event_id"])
++
++    remaining = []
++    for record in pending:
++        event_id = record["event_id"]
++        if event_id in accepted:
++            if event_id not in server_ids:
++                state["server_ledger"].append(deepcopy(record))
++                server_ids.add(event_id)
++        else:
++            remaining.append(record)
++    state["pending"][terminal] = remaining
++    return state
++
++
++def _handle_report(state):
++    purchased = 0
++    sales_total = 0
++    refunds = {"cash": 0, "card": 0}
++    product_sales = []
++
++    for record in state["server_ledger"]:
++        if not isinstance(record, dict):
++            raise _LedgerError("invalid_state")
++        kind = record.get("kind")
++        if kind not in ("topup", "sale", "refund"):
++            continue
++        try:
++            amount = _amount_cents(record.get("amount"))
++        except _LedgerError:
++            raise _LedgerError("invalid_state")
++
++        if kind == "topup":
++            purchased += amount
++        elif kind == "sale":
++            sales_total += amount
++            if "product" not in record or not isinstance(record["product"], str):
++                raise _LedgerError("invalid_state")
++            product_sales.append(
++                {
++                    "product": record["product"],
++                    "terminal_imei": record.get("terminal_imei"),
++                    "timestamp": record.get("timestamp", 0),
++                    "amount": _cents_number(amount),
++                }
++            )
++        else:
++            payment_method = record.get("payment_method")
++            if payment_method in refunds:
++                refunds[payment_method] += amount
++
++    state["result"] = {
++        "credit_purchased": _cents_number(purchased),
++        "total_sales": _cents_number(sales_total),
++        "refunds_by_payment_method": {
++            "cash": _cents_number(refunds["cash"]),
++            "card": _cents_number(refunds["card"]),
++        },
++        "product_sales": product_sales,
++    }
++    return state
++
+ 
+ def process_cashless_action(state: dict, action: dict, upload_events=None) -> dict:
+-    """Complete the ledger; preserve provided transports and console."""
+-    return deepcopy(state)
++    """Apply one cashless-ledger action without mutating caller-owned values."""
++    try:
++        action_type = _validate_base_action(action)
++        state_copy = _prepare_success_state(state)
++
++        if action_type == "register_terminal":
++            return _handle_register_terminal(state_copy, action)
++        if action_type == "create_customer":
++            return _handle_create_customer(state_copy, action)
++        if action_type == "activate_card":
++            return _handle_activate_card(state_copy, action)
++        if action_type == "topup":
++            return _handle_topup(state_copy, action)
++        if action_type == "sale":
++            return _handle_sale(state_copy, action)
++        if action_type == "refund":
++            return _handle_refund(state_copy, action)
++        if action_type == "sync":
++            return _handle_sync(state_copy, action, upload_events)
++        if action_type == "report":
++            return _handle_report(state_copy)
++        raise _LedgerError("unknown_action")
++    except _LedgerError as error:
++        return _error_state(state, error.code)
++    except Exception:
++        # Do not leak implementation exceptions or partially changed copies
++        # through the public workflow boundary.
++        return _error_state(state, "invalid_state")
++
++
++__all__ = ["process_cashless_action"]

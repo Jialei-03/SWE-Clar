@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Delivery workbench</title>
+<style>body{font:16px system-ui;max-width:760px;margin:40px auto;padding:16px}label{display:block;margin:12px 0}button,input,select{font:inherit;padding:8px}pre{white-space:pre-wrap;background:#eef2f4;padding:16px}button{cursor:pointer}</style>
+<h1>Delivery workbench</h1><p>Local synthetic order and proof storage.</p>
+<pre id="order" aria-label="Current order"></pre>
+<form id="event-form">
+<label for="type">Action</label><select id="type"><option>assign</option><option>pickup</option><option>deliver</option><option>reject</option></select>
+<label>Receiver <input id="receiver"></label>
+<label>Rejection reason <input id="reason"></label>
+<label>Photo file <input id="photo" type="file" accept="image/*"></label>
+<label>Signature file <input id="signature" type="file" accept="image/*"></label>
+<button>Apply event</button></form><pre id="result" aria-live="polite"></pre>
+<script>
+const byId=id=>document.getElementById(id);
+async function readOrder(){byId('order').textContent=JSON.stringify(await (await fetch('/api/order')).json(),null,2)}
+async function upload(file){
+ const bytes=new Uint8Array(await file.arrayBuffer());let binary='';
+ for(const b of bytes)binary+=String.fromCharCode(b);
+ const response=await fetch('/api/proofs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:btoa(binary)})});
+ const result=await response.json();if(!response.ok)throw Error(JSON.stringify(result));return result.ref;
+}
+byId('event-form').addEventListener('submit',async e=>{
+ e.preventDefault();try{
+  const action={type:byId('type').value};
+  for(const key of ['receiver','reason'])if(byId(key).value)action[key]=byId(key).value;
+  for(const key of ['photo','signature'])if(byId(key).files[0])action[key]=await upload(byId(key).files[0]);
+  const response=await fetch('/api/event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(action)});
+  byId('result').textContent=JSON.stringify(await response.json(),null,2);await readOrder();
+ }catch(error){byId('result').textContent=String(error)}
+});readOrder();
+</script></html>

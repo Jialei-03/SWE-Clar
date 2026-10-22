@@ -1,0 +1,4 @@
+#!/bin/sh
+exec /opt/php-runtime/lib/ld-linux-x86-64.so.2 --library-path /opt/php-runtime/lib \
+  /opt/php-runtime/php -n -d extension_dir=/opt/php-runtime/extensions \
+  -d extension=bcmath -d extension=gd "$@"

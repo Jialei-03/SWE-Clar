@@ -1,0 +1,192 @@
+schema_version: 1
+task_id: SWECLAR-040
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual AWS SDK S3/Rekognition protocol integration, persisted groups and image-preview
+  web UI
+requirement_units:
+- ru_id: RU-001
+  name: Face catalog entry point
+  content: Complete the supplied Node web/SDK integration component. Read a configured private loopback
+    S3/Rekognition fixture, preserve caller events, serialize mutations, commit successful local state
+    atomically and restore it on restart. Serve only explicit page/data routes. Private credentials and
+    incidental provider FaceDetail metadata must never enter stored catalogue state or public responses.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for face catalog entry point.
+  test_interface:
+    type: function
+    entry:
+      language: javascript
+      file: catalog.cjs
+      function: Catalog.ingest
+      signature: async ingest(key)
+    inputs:
+      key: synthetic S3 object key
+    output:
+      type: dict
+      meaning: committed indexing result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/catalogue_contract.py
+  notes: Independent Node/AWS SDK integration using local synthetic S3/Rekognition protocol fixtures.
+    No real face-recognition accuracy, cloud deployment or customer assets are claimed. Matches and image
+    bytes come through the actual SDK transport. Exact merging, naming and search policies are independent
+    reconstruction decisions. Required environment configuration and SDK schemas are public; no original
+    service account is needed.
+- ru_id: RU-002
+  name: Automatic image ingestion
+  content: Scan every page of ListObjectsV2 and ingest each unique object key once. Fetch actual GetObject
+    image bytes and send them in IndexFaces with the configured CollectionId, a deterministic ExternalImageId
+    and DEFAULT attributes. Require valid unique returned FaceIds and SearchFaces each returned face;
+    ignore caller-supplied face/signature data. Repeated known keys perform no duplicate indexing. Empty/malformed/provider
+    failures leave no partial local image or group state. Automatically repeat scanning at the configured
+    poll_interval_ms without a user action; objects added after startup are discovered on a later successful
+    polling cycle. Polls and manual mutations share the same serialized queue. A failed poll must not
+    prevent later polls. The benchmark supplies the interval and running provider before coding begins.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for automatic image ingestion.
+  test_interface:
+    type: function
+    entry:
+      language: javascript
+      file: catalog.cjs
+      function: Catalog.ingest
+      signature: async ingest(key)
+    inputs:
+      key: synthetic S3 object key
+    output:
+      type: dict
+      meaning: committed indexing result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/catalogue_contract.py
+  notes: Independent Node/AWS SDK integration using local synthetic S3/Rekognition protocol fixtures.
+    No real face-recognition accuracy, cloud deployment or customer assets are claimed. Matches and image
+    bytes come through the actual SDK transport. Exact merging, naming and search policies are independent
+    reconstruction decisions. Required environment configuration and SDK schemas are public; no original
+    service account is needed.
+- ru_id: RU-003
+  name: Deterministic face grouping
+  content: Group provider-matched face IDs only for finite SearchFaces similarities >=90; unknown matching
+    IDs and lower similarities do not merge groups. Matching known groups merge into the earliest stable
+    group, update all face/image associations and retain a compatible assigned name. Conflicting different
+    assigned names reject the local merge. Different unmatched faces stay separate; the 90 threshold is
+    a synthetic policy available through clarification, not an accuracy claim.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for deterministic face grouping.
+  test_interface:
+    type: function
+    entry:
+      language: javascript
+      file: catalog.cjs
+      function: Catalog.ingest
+      signature: async ingest(key)
+    inputs:
+      key: synthetic S3 object key
+    output:
+      type: dict
+      meaning: committed indexing result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/catalogue_contract.py
+  notes: Independent Node/AWS SDK integration using local synthetic S3/Rekognition protocol fixtures.
+    No real face-recognition accuracy, cloud deployment or customer assets are claimed. Matches and image
+    bytes come through the actual SDK transport. Exact merging, naming and search policies are independent
+    reconstruction decisions. Required environment configuration and SDK schemas are public; no original
+    service account is needed.
+- ru_id: RU-004
+  name: Manual labeling
+  content: Assign or replace a trimmed nonempty name for a known group, persist it and reject unknown
+    groups/empty labels without changing state. Render assigned names as text in the actual web page,
+    with working save controls.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for manual labeling.
+  test_interface:
+    type: function
+    entry:
+      language: javascript
+      file: catalog.cjs
+      function: Catalog.ingest
+      signature: async ingest(key)
+    inputs:
+      key: synthetic S3 object key
+    output:
+      type: dict
+      meaning: committed indexing result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/catalogue_contract.py
+  notes: Independent Node/AWS SDK integration using local synthetic S3/Rekognition protocol fixtures.
+    No real face-recognition accuracy, cloud deployment or customer assets are claimed. Matches and image
+    bytes come through the actual SDK transport. Exact merging, naming and search policies are independent
+    reconstruction decisions. Required environment configuration and SDK schemas are public; no original
+    service account is needed.
+- ru_id: RU-005
+  name: Browse and search
+  content: Browse every group with named status and all associated image keys; search assigned names case-insensitively
+    and show actual stored image previews. Refresh/restart retains labels and memberships. Unnamed groups
+    do not appear in a nonempty name search. Fixture images contain only synthetic geometry, never customer
+    or personal photographs.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for browse and search.
+  test_interface:
+    type: function
+    entry:
+      language: javascript
+      file: catalog.cjs
+      function: Catalog.ingest
+      signature: async ingest(key)
+    inputs:
+      key: synthetic S3 object key
+    output:
+      type: dict
+      meaning: committed indexing result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/catalogue_contract.py
+  notes: Independent Node/AWS SDK integration using local synthetic S3/Rekognition protocol fixtures.
+    No real face-recognition accuracy, cloud deployment or customer assets are claimed. Matches and image
+    bytes come through the actual SDK transport. Exact merging, naming and search policies are independent
+    reconstruction decisions. Required environment configuration and SDK schemas are public; no original
+    service account is needed.

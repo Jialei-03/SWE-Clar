@@ -1,0 +1,192 @@
+schema_version: 1
+task_id: SWECLAR-061
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Local web account, subscription and content-report repair with real HTTP/SQLite images
+  and PDF export
+requirement_units:
+- ru_id: RU-001
+  name: Release workflow entry point
+  content: Repair the actual web SaaS service and browser workflow. Retain authenticated accounts, room/content
+    relationships and stored images/receipts across restart; render actual content and assets rather than
+    reporting feature-state flags. No real customer data, identity, cloud account or payment credentials
+    are required.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for release workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: server.py
+      function: Store.act
+      signature: Store.act(authenticated_user,path,action) -> record
+    inputs:
+      path: documented HTTP action
+      action: synthetic request data
+      authenticated_user: server-owned account
+    output:
+      type: dict
+      meaning: persisted SaaS action result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Authentication, receipt processing, image normalization, completed-report edits and browser controls
+    are supplied regression context. Local protocols are reconstruction conventions; original-platform
+    release is outside scope.
+- ru_id: RU-002
+  name: Cross-platform account access
+  content: Normalize account email by trimming whitespace and lowercasing. Registration rejects duplicates;
+    login verifies salted scrypt credentials. Sessions identify the account on the server and logout revokes
+    access. A user may only read or modify their own rooms, content, reports and binary assets. The exact
+    local auth protocol is a disclosed reconstruction choice.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for cross-platform account access.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: server.py
+      function: Store.act
+      signature: Store.act(authenticated_user,path,action) -> record
+    inputs:
+      path: documented HTTP action
+      action: synthetic request data
+      authenticated_user: server-owned account
+    output:
+      type: dict
+      meaning: persisted SaaS action result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Authentication, receipt processing, image normalization, completed-report edits and browser controls
+    are supplied regression context. Local protocols are reconstruction conventions; original-platform
+    release is outside scope.
+- ru_id: RU-003
+  name: Plan and trial rules
+  content: Allow one free trial per account. Trial accounts can create/edit/view reports but cannot use
+    application share or printable-export endpoints. Activate a known paid plan only from a correctly
+    signed local-provider receipt matching payment ID, account, plan, amount, currency and paid status;
+    replay must not duplicate payment records. Concrete receipt/idempotency mechanics are benchmark choices.
+    The UI suggests the intended restriction, but the service currently conflicts; clarify that trial
+    users may view/edit and must not share or print.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for plan and trial rules.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: server.py
+      function: Store.act
+      signature: Store.act(authenticated_user,path,action) -> record
+    inputs:
+      path: documented HTTP action
+      action: synthetic request data
+      authenticated_user: server-owned account
+    output:
+      type: dict
+      meaning: persisted SaaS action result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Authentication, receipt processing, image normalization, completed-report edits and browser controls
+    are supplied regression context. Local protocols are reconstruction conventions; original-platform
+    release is outside scope.
+- ru_id: RU-004
+  name: Organized content and receipts
+  content: Create a room before its content, then attach one or more real image/receipt files to existing
+    owned content. Require title/details and valid image bytes; decode, respect orientation, re-encode
+    as JPEG and omit metadata. Preserve image pixels and their content association. Completed reports
+    remain editable and accept new images. The detailed capture chain is a reconstruction convention informed
+    by a source proposal; its mechanics are not claimed as client-confirmed.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for organized content and receipts.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: server.py
+      function: Store.act
+      signature: Store.act(authenticated_user,path,action) -> record
+    inputs:
+      path: documented HTTP action
+      action: synthetic request data
+      authenticated_user: server-owned account
+    output:
+      type: dict
+      meaning: persisted SaaS action result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Authentication, receipt processing, image normalization, completed-report edits and browser controls
+    are supplied regression context. Local protocols are reconstruction conventions; original-platform
+    release is outside scope.
+- ru_id: RU-005
+  name: Release readiness
+  content: Run the actual browser account/trial/content/image/report workflow at desktop and mobile viewport
+    sizes. Show uploaded image pixels and persisted edited details; provide a real printable PDF and local
+    share copy to a paid account, and enforce trial restrictions at the service even if caller bypasses
+    the UI. This verifies the web component, not iOS/Android apps, signed releases, external publication
+    or AWS deployment.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for release readiness.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: server.py
+      function: Store.act
+      signature: Store.act(authenticated_user,path,action) -> record
+    inputs:
+      path: documented HTTP action
+      action: synthetic request data
+      authenticated_user: server-owned account
+    output:
+      type: dict
+      meaning: persisted SaaS action result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Authentication, receipt processing, image normalization, completed-report edits and browser controls
+    are supplied regression context. Local protocols are reconstruction conventions; original-platform
+    release is outside scope.

@@ -1,0 +1,330 @@
+const audio = document.querySelector('#audio');
+const selectedLabel = document.querySelector('#selected');
+const errorLabel = document.querySelector('#error');
+const remainingLabel = document.querySelector('#remaining');
+
+let selected = null;
+let deadline = null;
+let playbackOperation = 0;
+let cancelPendingLoad = null;
+let preparedLivePlay = null;
+const pageRequestVersions = {schedule: 0, recent: 0};
+
+function isCurrentOperation(operation) {
+  return operation === playbackOperation;
+}
+
+function beginPlaybackOperation() {
+  if (cancelPendingLoad) {
+    const cancel = cancelPendingLoad;
+    cancelPendingLoad = null;
+    cancel();
+  }
+  preparedLivePlay = null;
+  return ++playbackOperation;
+}
+
+function programmeIsLive(programme) {
+  return programme && (
+    programme.live === true ||
+    programme.live === 'true' ||
+    programme.live === 1
+  );
+}
+
+function programmeId(programme) {
+  return programme == null ? '' : String(programme.id);
+}
+
+function audioIsPlaying() {
+  return !!selected && !audio.paused && !audio.ended;
+}
+
+function renderSelection() {
+  selectedLabel.textContent = selected ? String(selected.title ?? '') : 'No selection';
+  const id = programmeId(selected);
+  const playing = audioIsPlaying();
+  document.querySelectorAll('[data-id]').forEach(button => {
+    button.classList.toggle('playing', playing && button.dataset.id === id);
+  });
+}
+
+function publishMetadata() {
+  if (!('mediaSession' in navigator) || !navigator.mediaSession) return;
+
+  const session = navigator.mediaSession;
+  try {
+    if (!selected) {
+      session.metadata = null;
+    } else if (typeof window.MediaMetadata === 'function') {
+      session.metadata = new window.MediaMetadata({
+        title: String(selected.title ?? ''),
+        artist: String(selected.artist ?? ''),
+        album: String(selected.album ?? ''),
+      });
+    }
+  } catch (error) {
+    // Media Session is an optional browser feature. Playback must still work
+    // when a browser exposes it only partially.
+  }
+
+  try {
+    session.playbackState = audio.paused ? 'paused' : 'playing';
+  } catch (error) {
+    // Some test and older browser implementations expose this as read-only.
+  }
+}
+
+function syncPlaybackUi() {
+  renderSelection();
+  publishMetadata();
+}
+
+function showError(error) {
+  if (!errorLabel) return;
+  errorLabel.textContent = error && error.message ? error.message : String(error);
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url);
+  if (response && response.ok === false) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+function waitForMetadata(operation) {
+  if (!isCurrentOperation(operation)) return Promise.resolve(false);
+  if (audio.readyState >= 1) return Promise.resolve(true);
+
+  return new Promise((resolve, reject) => {
+    let finished = false;
+
+    const finish = (success, error) => {
+      if (finished) return;
+      finished = true;
+      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+      audio.removeEventListener('error', onError);
+      if (cancelPendingLoad === cancel) cancelPendingLoad = null;
+      if (error) reject(error);
+      else resolve(success);
+    };
+    const onLoadedMetadata = () => finish(true);
+    const onError = () => finish(false, new Error('Cannot load audio'));
+    const cancel = () => finish(false);
+
+    cancelPendingLoad = cancel;
+    audio.addEventListener('loadedmetadata', onLoadedMetadata);
+    audio.addEventListener('error', onError);
+
+    // A cached resource can become ready between the check above and listener
+    // registration. Do not wait for an event which has already happened.
+    if (audio.readyState >= 1) finish(true);
+  });
+}
+
+async function fetchLiveOffset() {
+  const data = await fetchJson('/api/live');
+  const offset = Number(data && data.offset);
+  if (!Number.isFinite(offset) || offset < 0) {
+    throw new Error('Invalid live programme offset');
+  }
+  return offset;
+}
+
+async function seekLive(operation) {
+  const offset = await fetchLiveOffset();
+  if (!isCurrentOperation(operation)) return false;
+  audio.currentTime = offset;
+  return true;
+}
+
+async function startAudio(programme, operation) {
+  if (!isCurrentOperation(operation)) return false;
+
+  // The play event is used for native audio controls too. Mark application
+  // initiated live playback so that it is not fetched a second time there.
+  preparedLivePlay = programmeIsLive(programme) ? operation : null;
+  try {
+    await audio.play();
+  } catch (error) {
+    if (preparedLivePlay === operation) preparedLivePlay = null;
+    if (isCurrentOperation(operation)) throw error;
+    return false;
+  }
+
+  if (isCurrentOperation(operation)) syncPlaybackUi();
+  return isCurrentOperation(operation);
+}
+
+async function play(programme) {
+  const operation = beginPlaybackOperation();
+
+  try {
+    // Stop the old source before replacing it. The selected programme is kept
+    // separately, so a pause never loses the user's selection.
+    audio.pause();
+    selected = programme;
+    renderSelection();
+    publishMetadata();
+
+    audio.src = programme.url;
+    audio.load();
+    if (!await waitForMetadata(operation) || !isCurrentOperation(operation)) return;
+
+    if (programmeIsLive(programme)) {
+      if (!await seekLive(operation)) return;
+    } else {
+      if (!isCurrentOperation(operation)) return;
+      // A source replacement normally resets this already; make the recent
+      // programme's zero origin explicit, including when the URL is reused.
+      audio.currentTime = 0;
+    }
+
+    await startAudio(programme, operation);
+  } catch (error) {
+    if (isCurrentOperation(operation)) throw error;
+  }
+}
+
+async function resume() {
+  if (!selected) return;
+  const programme = selected;
+  const operation = beginPlaybackOperation();
+
+  try {
+    if (audio.readyState < 1) {
+      audio.load();
+      if (!await waitForMetadata(operation) || !isCurrentOperation(operation)) return;
+    }
+
+    if (programmeIsLive(programme)) {
+      if (!await seekLive(operation)) return;
+    }
+
+    await startAudio(programme, operation);
+  } catch (error) {
+    if (isCurrentOperation(operation)) throw error;
+  }
+}
+
+function pause() {
+  beginPlaybackOperation();
+  audio.pause();
+  syncPlaybackUi();
+}
+
+async function syncNativeLivePlayback() {
+  if (!selected || !programmeIsLive(selected) || audio.paused) return;
+  const programme = selected;
+  const operation = beginPlaybackOperation();
+  try {
+    const offset = await fetchLiveOffset();
+    if (!isCurrentOperation(operation) || selected !== programme || audio.paused) return;
+    audio.currentTime = offset;
+    syncPlaybackUi();
+  } catch (error) {
+    if (isCurrentOperation(operation)) showError(error);
+  }
+}
+
+function handleAudioPlay() {
+  const wasPrepared = preparedLivePlay !== null;
+  preparedLivePlay = null;
+  syncPlaybackUi();
+  // Built-in audio controls can start a selected live programme without going
+  // through #resume. Catch that path while avoiding a duplicate request for
+  // the application-controlled path above.
+  if (!wasPrepared) void syncNativeLivePlayback();
+}
+
+function handleAudioPause() {
+  preparedLivePlay = null;
+  syncPlaybackUi();
+}
+
+audio.addEventListener('play', handleAudioPlay);
+audio.addEventListener('playing', syncPlaybackUi);
+audio.addEventListener('pause', handleAudioPause);
+audio.addEventListener('ended', syncPlaybackUi);
+
+document.querySelector('#pause').addEventListener('click', pause);
+document.querySelector('#resume').addEventListener('click', () => {
+  resume().catch(showError);
+});
+
+for (const page of ['schedule', 'recent']) {
+  document.querySelector(`#refresh-${page}`).addEventListener('click', () => {
+    refresh(page).catch(showError);
+  });
+}
+
+async function refresh(page) {
+  const version = ++pageRequestVersions[page];
+  const rows = await fetchJson(`/api/${page}`);
+  if (version !== pageRequestVersions[page]) return;
+  if (!Array.isArray(rows)) throw new Error(`Invalid ${page} response`);
+
+  const target = document.querySelector(`#${page}`);
+  target.replaceChildren();
+  rows.forEach(row => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.id = programmeId(row);
+    button.textContent = String(row.title ?? '');
+    button.addEventListener('click', () => play(row).catch(showError));
+    target.append(button);
+  });
+  renderSelection();
+}
+
+function showRemaining() {
+  if (deadline === null) {
+    remainingLabel.textContent = '';
+    return;
+  }
+  const seconds = Math.max(0, deadline - performance.now()) / 1000;
+  remainingLabel.textContent = seconds.toFixed(1);
+}
+
+document.querySelector('#set-timer').addEventListener('click', () => {
+  const seconds = Number(document.querySelector('#seconds').value);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    deadline = performance.now() + seconds * 1000;
+  }
+  showRemaining();
+});
+
+document.querySelector('#cancel-timer').addEventListener('click', () => {
+  deadline = null;
+  showRemaining();
+});
+
+document.querySelector('#show-timer').addEventListener('click', showRemaining);
+
+setInterval(() => {
+  if (deadline !== null && performance.now() >= deadline) {
+    deadline = null;
+    pause();
+  }
+  showRemaining();
+}, 50);
+
+function installMediaSessionActions() {
+  if (!('mediaSession' in navigator) || !navigator.mediaSession ||
+      typeof navigator.mediaSession.setActionHandler !== 'function') return;
+  try {
+    navigator.mediaSession.setActionHandler('play', () => resume().catch(showError));
+  } catch (error) {
+    // Action handlers are optional and vary between browser versions.
+  }
+  try {
+    navigator.mediaSession.setActionHandler('pause', pause);
+  } catch (error) {
+    // Action handlers are optional and vary between browser versions.
+  }
+}
+
+installMediaSessionActions();
+publishMetadata();
+Promise.all(['schedule', 'recent'].map(refresh)).catch(showError);

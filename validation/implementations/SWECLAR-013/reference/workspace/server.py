@@ -1,0 +1,408 @@
+import argparse
+import csv
+import io
+import json
+import re
+import sqlite3
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+
+ACCOUNT_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,40}\Z")
+INTEGER_RE = re.compile(r"-?\d+\Z")
+STATUSES = {"open", "contacted", "disputed", "resolved"}
+MAX_REQUEST_BYTES = 2_000_000
+MAX_NOTE_LENGTH = 2_000
+
+
+class Store:
+    """Persistent account and follow-up storage backed by SQLite."""
+
+    def __init__(self, path):
+        self.path = path
+        # The command-line interface normally receives a path whose parent already
+        # exists.  Creating it here also makes an arbitrary isolated database path
+        # safe to use without changing the persistence model.
+        if path != ":memory:":
+            parent = Path(path).expanduser().parent
+            parent.mkdir(parents=True, exist_ok=True)
+        with self.connect() as db:
+            db.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS accounts (
+                    account_id TEXT PRIMARY KEY,
+                    balance_cents INTEGER NOT NULL,
+                    age_days INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'open',
+                    note TEXT NOT NULL DEFAULT ''
+                );
+                CREATE TABLE IF NOT EXISTS audit (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id TEXT NOT NULL,
+                    before_status TEXT NOT NULL,
+                    after_status TEXT NOT NULL,
+                    before_note TEXT NOT NULL,
+                    after_note TEXT NOT NULL
+                );
+                """
+            )
+
+    def connect(self):
+        db = sqlite3.connect(self.path, timeout=30)
+        db.row_factory = sqlite3.Row
+        # This applies to each connection, including connections created by
+        # request threads.  It lets concurrent writers wait briefly for the
+        # transaction which owns SQLite's write lock.
+        db.execute("PRAGMA busy_timeout = 30000")
+        return db
+
+    @staticmethod
+    def _account_from_row(row):
+        return {
+            "account_id": row["account_id"],
+            "balance_cents": row["balance_cents"],
+            "age_days": row["age_days"],
+            "status": row["status"],
+            "note": row["note"],
+        }
+
+    def accounts(self):
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT account_id, balance_cents, age_days, status, note
+                FROM accounts
+                ORDER BY account_id ASC
+                """
+            ).fetchall()
+            return [self._account_from_row(row) for row in rows]
+
+    def import_csv(self, text):
+        """Validate an entire upload, then atomically upsert its data fields."""
+        if not isinstance(text, str):
+            raise ValueError("CSV text is required")
+
+        # Reading rows rather than relying on DictReader makes extra or missing
+        # columns unambiguous, including rows with an empty final field.
+        reader = csv.reader(io.StringIO(text, newline=""), strict=True)
+        try:
+            header = next(reader)
+        except StopIteration:
+            raise ValueError("At least one data row is required")
+
+        if header != ["account_id", "balance_cents", "age_days"]:
+            raise ValueError("Expected account_id,balance_cents,age_days columns")
+
+        parsed = []
+        seen = set()
+        try:
+            for row in reader:
+                if len(row) != 3:
+                    raise ValueError("Each row must have exactly three columns")
+
+                account_id, balance_text, age_text = row
+                if not ACCOUNT_ID_RE.fullmatch(account_id):
+                    raise ValueError("Invalid account_id")
+                if account_id in seen:
+                    raise ValueError("Duplicate account_id")
+                if not INTEGER_RE.fullmatch(balance_text) or not INTEGER_RE.fullmatch(
+                    age_text
+                ):
+                    raise ValueError("Integer fields required")
+
+                balance_cents = int(balance_text)
+                age_days = int(age_text)
+                if not -1_000_000_000_000 <= balance_cents <= 1_000_000_000_000:
+                    raise ValueError("balance_cents outside documented limits")
+                if not 0 <= age_days <= 36_500:
+                    raise ValueError("age_days outside documented limits")
+
+                seen.add(account_id)
+                parsed.append((account_id, balance_cents, age_days))
+        except csv.Error as error:
+            raise ValueError(f"Invalid CSV: {error}") from error
+
+        if not parsed:
+            raise ValueError("At least one data row is required")
+
+        # No database work occurs until every row has passed validation.  The
+        # immediate transaction also prevents a concurrent follow-up from
+        # observing a partially applied import.
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.executemany(
+                """
+                INSERT INTO accounts(account_id, balance_cents, age_days)
+                VALUES (?, ?, ?)
+                ON CONFLICT(account_id) DO UPDATE SET
+                    balance_cents = excluded.balance_cents,
+                    age_days = excluded.age_days
+                """,
+                parsed,
+            )
+
+        return {"imported": len(parsed)}
+
+    def queue(self):
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT account_id, balance_cents, age_days, status, note
+                FROM accounts
+                WHERE age_days > 60
+                  AND balance_cents > 0
+                  AND status <> 'resolved'
+                ORDER BY age_days DESC, account_id ASC
+                """
+            ).fetchall()
+            return [self._account_from_row(row) for row in rows]
+
+    def follow_up(self, body):
+        if not isinstance(body, dict):
+            raise ValueError("JSON object required")
+
+        if "account_ids" not in body or not isinstance(body["account_ids"], list):
+            raise ValueError("account_ids must be a nonempty list")
+        account_ids = body["account_ids"]
+        if not account_ids:
+            raise ValueError("Select at least one account")
+        if any(not isinstance(account_id, str) for account_id in account_ids):
+            raise ValueError("account_ids must contain strings")
+        if len(set(account_ids)) != len(account_ids):
+            raise ValueError("Duplicate account_id")
+
+        if "status" not in body or not isinstance(body["status"], str):
+            raise ValueError("String status required")
+        status = body["status"]
+        if status not in STATUSES:
+            raise ValueError("Invalid status")
+
+        # Presence is checked separately so that a missing note is not treated
+        # as the same thing as an explicitly supplied empty note.
+        if "note" not in body or not isinstance(body["note"], str):
+            raise ValueError("String note required")
+        note = body["note"].strip()
+        if len(note) > MAX_NOTE_LENGTH:
+            raise ValueError("Note is too long")
+        if status != "open" and not note:
+            raise ValueError("A non-open status requires a note")
+
+        # All reads and writes for this operation share one write transaction.
+        # Thus validation of every ID occurs before any account is changed, and
+        # a retry sees the committed state and cannot create a duplicate event.
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            current = []
+            for account_id in account_ids:
+                row = db.execute(
+                    """
+                    SELECT account_id, balance_cents, age_days, status, note
+                    FROM accounts
+                    WHERE account_id = ?
+                    """,
+                    (account_id,),
+                ).fetchone()
+                if row is None:
+                    raise ValueError("Unknown account")
+                current.append(row)
+
+            changes = []
+            for row in current:
+                before_status = row["status"]
+                before_note = row["note"]
+                if before_status != status or before_note != note:
+                    changes.append(
+                        (
+                            row["account_id"],
+                            before_status,
+                            status,
+                            before_note,
+                            note,
+                        )
+                    )
+
+            for account_id, before_status, after_status, before_note, after_note in changes:
+                db.execute(
+                    "UPDATE accounts SET status = ?, note = ? WHERE account_id = ?",
+                    (after_status, after_note, account_id),
+                )
+                db.execute(
+                    """
+                    INSERT INTO audit(
+                        account_id, before_status, after_status,
+                        before_note, after_note
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        account_id,
+                        before_status,
+                        after_status,
+                        before_note,
+                        after_note,
+                    ),
+                )
+
+        return {"updated": len(changes)}
+
+    def account_detail(self, account_id):
+        with self.connect() as db:
+            row = db.execute(
+                """
+                SELECT account_id, balance_cents, age_days, status, note
+                FROM accounts
+                WHERE account_id = ?
+                """,
+                (account_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(account_id)
+            history = [
+                dict(history_row)
+                for history_row in db.execute(
+                    """
+                    SELECT sequence, account_id, before_status, after_status,
+                           before_note, after_note
+                    FROM audit
+                    WHERE account_id = ?
+                    ORDER BY sequence ASC
+                    """,
+                    (account_id,),
+                )
+            ]
+            return {
+                "account": self._account_from_row(row),
+                "history": history,
+            }
+
+    def export_csv(self):
+        output = io.StringIO(newline="")
+        writer = csv.writer(output, lineterminator="\r\n")
+        writer.writerow(["account_id", "balance_cents", "age_days", "status", "note"])
+
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT account_id, balance_cents, age_days, status, note
+                FROM accounts
+                WHERE age_days > 60
+                  AND balance_cents > 0
+                  AND status <> 'resolved'
+                ORDER BY age_days DESC, account_id ASC
+                """
+            ).fetchall()
+            for row in rows:
+                note = row["note"]
+                # Follow-up writes already trim notes.  The additional strip is
+                # defensive for databases created by an older implementation;
+                # it does not change the stored value.
+                trimmed_note = note.strip()
+                if trimmed_note.startswith(("=", "+", "-", "@")):
+                    trimmed_note = "'" + trimmed_note
+                writer.writerow(
+                    [
+                        row["account_id"],
+                        row["balance_cents"],
+                        row["age_days"],
+                        row["status"],
+                        trimmed_note,
+                    ]
+                )
+        return output.getvalue()
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *_):
+        # The service's stdout is also the --port 0 discovery channel.
+        pass
+
+    def reply(self, status, body, content_type="application/json", headers=None):
+        if content_type == "application/json":
+            raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        elif isinstance(body, bytes):
+            raw = body
+        else:
+            raw = body.encode("utf-8")
+
+        self.send_response(status)
+        self.send_header("Content-Type", content_type + "; charset=utf-8")
+        self.send_header("Content-Length", str(len(raw)))
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def do_GET(self):
+        path = urlparse(self.path).path
+        store = self.server.store
+        try:
+            if path == "/":
+                return self.reply(
+                    200,
+                    (Path(__file__).parent / "index.html").read_text(encoding="utf-8"),
+                    "text/html",
+                )
+            if path == "/health":
+                return self.reply(200, {"service": "receivables"})
+            if path == "/api/accounts":
+                return self.reply(200, {"accounts": store.accounts()})
+            if path == "/api/queue":
+                return self.reply(200, {"accounts": store.queue()})
+            if path == "/api/export":
+                return self.reply(
+                    200,
+                    store.export_csv(),
+                    "text/csv",
+                    {"Content-Disposition": 'attachment; filename="follow-ups.csv"'},
+                )
+            if path.startswith("/api/accounts/"):
+                account_id = unquote(path[len("/api/accounts/") :])
+                return self.reply(200, store.account_detail(account_id))
+            return self.reply(404, {"error": "Not found"})
+        except KeyError:
+            self.reply(404, {"error": "Unknown account"})
+        except (OSError, sqlite3.Error):
+            self.reply(500, {"error": "Storage error"})
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        if path not in {"/api/import", "/api/follow-ups"}:
+            return self.reply(404, {"error": "Not found"})
+
+        try:
+            length_header = self.headers.get("Content-Length")
+            if length_header is None:
+                raise ValueError("Content-Length is required")
+            length = int(length_header)
+            if not 0 < length <= MAX_REQUEST_BYTES:
+                raise ValueError("Invalid request size")
+            raw = self.rfile.read(length).decode("utf-8")
+
+            if path == "/api/import":
+                result = self.server.store.import_csv(raw)
+            else:
+                body = json.loads(raw)
+                if not isinstance(body, dict):
+                    raise ValueError("JSON object required")
+                result = self.server.store.follow_up(body)
+            self.reply(200, result)
+        except (ValueError, UnicodeError, csv.Error) as error:
+            self.reply(400, {"error": str(error) or "Invalid input"})
+        except (OSError, sqlite3.Error):
+            self.reply(500, {"error": "Storage error"})
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--db", default="state.sqlite")
+    args = parser.parse_args()
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    server.store = Store(args.db)
+    print(json.dumps({"port": server.server_port}), flush=True)
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

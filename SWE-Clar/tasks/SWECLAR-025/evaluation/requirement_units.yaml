@@ -1,0 +1,183 @@
+schema_version: 1
+task_id: SWECLAR-025
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual PHP inspection form, SQLite persistence, permission checks and community report
+  module
+requirement_units:
+- ru_id: RU-001
+  name: Community and street context
+  content: In the actual inspection form, choosing a community updates the street dropdown to exactly
+    that community’s streets. Creation is allowed only for a street belonging to the selected community,
+    and the server must independently reject mismatched addresses. Provide the supplied PHP web interface
+    and JSON API with authenticated access-code roles.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for community and street context.
+  test_interface:
+    type: command
+    entry:
+      language: PHP and JavaScript
+      file: router.php
+      command: php -S 127.0.0.1:8000 -t web router.php
+    inputs:
+      transport: Authenticated HTTP JSON and actual browser form
+      contract: README.md
+    output:
+      type: inspection_records
+      meaning: Community and street context
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/inspection_contract.py
+  notes: Independent inspection-record component. Private source supports community/street selection,
+    inspection creation and accidental deletion; exact roles, status policies, JSON errors and summary
+    reports are retained benchmark conventions. Original documents, screenshots and source identifiers
+    excluded.
+- ru_id: RU-002
+  name: Inspection creation
+  content: A valid create command from admin or inspector writes one open inspection with a unique supplied
+    nonempty string ID, residence, community and street into SQLite. The browser displays the new record
+    after submission. Preserve records across service restart and prevent duplicate insertion, including
+    competing requests. Caller objects and supplied fixture files remain unchanged.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for inspection creation.
+  test_interface:
+    type: command
+    entry:
+      language: PHP and JavaScript
+      file: router.php
+      command: php -S 127.0.0.1:8000 -t web router.php
+    inputs:
+      transport: Authenticated HTTP JSON and actual browser form
+      contract: README.md
+    output:
+      type: inspection_records
+      meaning: Inspection creation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/inspection_contract.py
+  notes: Independent inspection-record component. Private source supports community/street selection,
+    inspection creation and accidental deletion; exact roles, status policies, JSON errors and summary
+    reports are retained benchmark conventions. Original documents, screenshots and source identifiers
+    excluded.
+- ru_id: RU-003
+  name: Accidental inspection deletion
+  content: Only an authenticated admin may delete an open inspection entered by mistake; action-supplied
+    role is ignored. Inspectors and office users cannot delete. Closed inspections cannot be deleted by
+    any role. Preserve all other records. Successful deletion must change the actual database and browser
+    listing.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for accidental inspection deletion.
+  test_interface:
+    type: command
+    entry:
+      language: PHP and JavaScript
+      file: router.php
+      command: php -S 127.0.0.1:8000 -t web router.php
+    inputs:
+      transport: Authenticated HTTP JSON and actual browser form
+      contract: README.md
+    output:
+      type: inspection_records
+      meaning: Accidental inspection deletion
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/inspection_contract.py
+  notes: Independent inspection-record component. Private source supports community/street selection,
+    inspection creation and accidental deletion; exact roles, status policies, JSON errors and summary
+    reports are retained benchmark conventions. Original documents, screenshots and source identifiers
+    excluded.
+- ru_id: RU-004
+  name: Inspection report
+  content: A report command returns total and open/closed counts for only the selected existing community,
+    directly from stored inspections, without modifying those records. The browser Generate report action
+    displays the summary for its selected community.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for inspection report.
+  test_interface:
+    type: command
+    entry:
+      language: PHP and JavaScript
+      file: router.php
+      command: php -S 127.0.0.1:8000 -t web router.php
+    inputs:
+      transport: Authenticated HTTP JSON and actual browser form
+      contract: README.md
+    output:
+      type: inspection_records
+      meaning: Inspection report
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/inspection_contract.py
+  notes: Independent inspection-record component. Private source supports community/street selection,
+    inspection creation and accidental deletion; exact roles, status policies, JSON errors and summary
+    reports are retained benchmark conventions. Original documents, screenshots and source identifiers
+    excluded.
+- ru_id: RU-005
+  name: Atomic command failures
+  content: Reject duplicate IDs, empty/whitespace ID or residence, unknown community, street/community
+    mismatch, missing inspections, unauthorized commands and invalid authentication with structured error
+    codes and no partial database changes. Unknown commands return unknown_command. Authentication failures
+    return HTTP 401; operation errors return error.code. The API must not return configured access codes
+    or trust a caller-supplied role.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for atomic command failures.
+  test_interface:
+    type: command
+    entry:
+      language: PHP and JavaScript
+      file: router.php
+      command: php -S 127.0.0.1:8000 -t web router.php
+    inputs:
+      transport: Authenticated HTTP JSON and actual browser form
+      contract: README.md
+    output:
+      type: inspection_records
+      meaning: Atomic command failures
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/inspection_contract.py
+  notes: Independent inspection-record component. Private source supports community/street selection,
+    inspection creation and accidental deletion; exact roles, status policies, JSON errors and summary
+    reports are retained benchmark conventions. Original documents, screenshots and source identifiers
+    excluded.

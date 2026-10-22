@@ -1,0 +1,48 @@
+# Optical target replay
+
+Extend this existing offline web application for deterministic measurement of synthetic calibration targets. It already hosts a browser interface, parses grayscale PGM images, renders previews, accepts capture JSON and stores/downloads the latest report in SQLite. The starter's provisional measurement and decision logic needs completing. This application makes no biometric or diagnostic inference.
+
+## Prepared environment
+
+The benchmark provides Python 3.12, SQLite and Playwright/Chromium before the attempt, with no external network. Do not install dependencies. Work in `/workspace`; use Python standard library and the installed browser. Resources: 2 CPUs, 2 GiB memory, 512 MiB workspace, 256 processes. Tests start isolated loopback services and a new database; no fixed port or existing account is needed.
+
+Start: `python server.py --host 0.0.0.0 --port 8000 --db /tmp/optical.sqlite`.
+Use `--port 0` for an automatically assigned port: the first stdout line is `{"port": <integer>}`. Reset by stopping the service and choosing a fresh database path. Public tests: `python -I /public_tests/test_public.py`. Syntax check: `python -m py_compile server.py vision.py analysis.py`. There is no build step.
+
+## Public interfaces
+
+- `GET /`: functioning browser workflow. Keep file inputs `#preview-file` and `#capture-file`, button `#analyze`, canvas `#frame`, status `#message`, result `#verdict`, table body `#measurements` and download link `#download` for accessible automation. Other markup and styling can change.
+- `POST /api/preview`, JSON `{"pgm": "P2 ..."}`: return `{width, height, pixels}`. Render these actual pixels in the canvas when a preview file is chosen.
+- `POST /api/analyze`: accept the capture object below; return the report schema below and replace the latest stored report atomically after successful validation. Show the returned verdict and one table row per measurement, and preview the capture's first image.
+- `GET /api/report`: download the latest report as UTF-8 JSON (`Content-Disposition: attachment; filename="measurement.json"`); 404 before any analysis. The report survives service restart. Invalid analysis must not replace it. The download must equal the analysis result.
+- Invalid inputs return 400 JSON `{error: <explanation>}`; unknown routes return 404. Report details are deterministic; no timestamps or identifiers are added by the service. Different database paths isolate sessions.
+
+PGM support is the plain ASCII P2 format with `#` line comments and arbitrary ASCII whitespace. Width/height are integers 1..128, maximum is exactly 255, followed by exactly width×height integer samples 0..255 in row-major order. Reject other magic values, negative/fractional samples, incorrect counts or extra samples. Each PGM string is at most 150000 characters. Capture images must match the declared dimensions. Coordinates use pixel indices: `(0,0)` is top-left; a pixel's coordinate is its integer column and row. Preview never requires capture capability approval.
+
+Capture JSON contains:
+
+```json
+{
+  "capabilities": {"fps":20,"width":32,"height":24},
+  "config": {"phase_ms":1000,"threshold":60,"min_area":4,"max_area":80,
+    "max_gap_ms":300,"max_motion_px":3,"max_lighting_delta":20,
+    "max_area_change":0.2,"max_gaze_px":3},
+  "frames": [{"t_ms":0,"pgm":"P2 32 24 255 ...","target":[16,12]}]
+}
+```
+
+The abbreviated PGM above is schematic; `samples/capture.json` is a complete runnable example. All supplied samples are independently generated rectangles, with no customer images or metadata.
+
+Input contract (these are interface constraints, not hidden requirements):
+
+- Capability fields are integers: fps 1..240, width/height 1..128. Capture support requires fps ≥ 10 and both dimensions ≥ 16. Otherwise return `{verdict:"not_measurable",reason:"capability",measurements:[]}` without decoding images, after validating JSON field types, config and frame headers.
+- Config integer fields: phase_ms 100..10000; threshold 0..255; min_area and max_area 1..16384 with min_area ≤ max_area; max_gap_ms 1..20000. Numeric fields: max_motion_px and max_gaze_px 0..256; max_lighting_delta 0..255; max_area_change 0..100. Booleans and nonfinite numbers are invalid. All fields are required.
+- There must be 1..100 frames. Each has strictly increasing integer `t_ms` in `[0, 2*phase_ms)`, a string `pgm`, and numeric target `[x,y]` inside the declared image. Total HTTP body limit is 8000000 bytes. No wall-clock waiting is required: replay uses the supplied times.
+- Report: `{verdict, reason, measurements}`. Verdict is `stable`, `deviation` or `not_measurable`. Reason is `within_limits`, `threshold`, `quality` or `capability`. Each measurement has `{t_ms, phase, area, cx, cy, gaze_error}`. Phase is `light` or `gaze`. Target measurements may be null when a target cannot be measured; otherwise area is an integer and center/error are numeric pixels. Preserve floating-point precision; tests allow 1e-6 absolute numeric error.
+
+Ask the synthetic client about target extraction, phase assignment, quality rejection, uncertainty precedence and decision thresholds. These business choices are available through clarification. The configuration field names alone do not define their semantics. Keep parsing, browser operation, persistence and interface regression intact while implementing them. The private evaluator uses the same input/API and environment and never requires a real camera, cloud service or physical stimulus.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

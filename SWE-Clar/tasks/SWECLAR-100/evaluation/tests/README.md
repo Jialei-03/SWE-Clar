@@ -1,0 +1,1 @@
+Prepared Python standard-library HTTP/SQLite plus Python Playwright/Chromium. Candidate service and browser run as UID 1000 with explicit environments; expected results remain in protected Python tests. Synthetic SVG art and a local HTTP settings bridge do not change host Wi-Fi or Android settings.

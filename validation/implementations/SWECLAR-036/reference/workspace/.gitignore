@@ -1,0 +1,5 @@
+/runtime/
+/.build/
+/.dotnet-home/
+/bin/
+/obj/

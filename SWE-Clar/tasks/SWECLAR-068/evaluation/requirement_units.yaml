@@ -1,0 +1,295 @@
+schema_version: 1
+task_id: SWECLAR-068
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Local supplied-signal evaluator with CLI and small SVG presentation
+requirement_units:
+- ru_id: RU-001
+  name: Indicator entry point
+  content: Evaluate the current supplied context into deterministic business fields without mutating configuration
+    or context. Additional result metadata is allowed. Retain the CLI and local display adapter.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for indicator entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: evaluate_indicator
+      signature: 'evaluate_indicator(config: dict, context: dict) -> dict'
+    inputs:
+      arguments:
+      - config
+      - context
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - active_signals
+      field_schemas:
+        active_signals:
+          type: array
+          items:
+            type: string
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Original grade logic was sequence-sensitive. This two-trend mapping and exact-string blackout
+    are simplified reconstruction conventions, not the source algorithm. Context signals are supplied;
+    no proprietary indicator calculation or live trading is claimed.
+- ru_id: RU-002
+  name: Independent trigger controls
+  content: Config.triggers is an object mapping signal name to its independent enabled boolean, while
+    context.trigger_states maps the same names to the current firing boolean. active_signals contains,
+    in context.trigger_states order, exactly the names whose configured and current values are both true.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for independent trigger controls.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: evaluate_indicator
+      signature: 'evaluate_indicator(config: dict, context: dict) -> dict'
+    inputs:
+      arguments:
+      - config
+      - context
+      protocol_fields:
+      - htf1
+      - trigger_states
+      - triggers
+      field_schemas:
+        triggers:
+          type: object
+        trigger_states:
+          type: object
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - active_signals
+      field_schemas:
+        active_signals:
+          type: array
+          items:
+            type: string
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Original grade logic was sequence-sensitive. This two-trend mapping and exact-string blackout
+    are simplified reconstruction conventions, not the source algorithm. Context signals are supplied;
+    no proprietary indicator calculation or live trading is claimed.
+- ru_id: RU-003
+  name: Timeframe and grade behavior
+  content: TF1 is active by default and TF2 is optional. Two agreeing active trends map to grade_a, opposing
+    active trends map to grade_b, and when only one higher-timeframe trend is available the result is
+    bull or bear instead.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for timeframe and grade behavior.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: evaluate_indicator
+      signature: 'evaluate_indicator(config: dict, context: dict) -> dict'
+    inputs:
+      arguments:
+      - config
+      - context
+      protocol_fields:
+      - htf1
+      - htf2
+      - tf2_enabled
+      - trigger_states
+      - triggers
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - classification
+      - tf1_active
+      required_tokens:
+        classification:
+        - grade_a
+        - grade_b
+        tf1_active:
+        - true
+      field_schemas:
+        classification:
+          type: string
+        tf1_active:
+          type: boolean
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Original grade logic was sequence-sensitive. This two-trend mapping and exact-string blackout
+    are simplified reconstruction conventions, not the source algorithm. Context signals are supplied;
+    no proprietary indicator calculation or live trading is claimed.
+- ru_id: RU-004
+  name: Optional exact-time blackout
+  content: Config.blackout_times is an array of exact time strings and config.blackout_enabled controls
+    it. Suppress signals when context.time equals a listed value only while blackout_enabled is true;
+    disabling the option must not apply the list.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for blackout range semantics.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: evaluate_indicator
+      signature: 'evaluate_indicator(config: dict, context: dict) -> dict'
+    inputs:
+      arguments:
+      - config
+      - context
+      protocol_fields:
+      - blackout_enabled
+      - blackout_times
+      - time
+      - trigger_states
+      - triggers
+      field_schemas:
+        blackout_enabled:
+          type: boolean
+        blackout_times:
+          type: array
+          items:
+            type: string
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - active_signals
+      exact_lengths:
+        active_signals: 0
+      field_schemas:
+        active_signals:
+          type: array
+          items:
+            type: string
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Original grade logic was sequence-sensitive. This two-trend mapping and exact-string blackout
+    are simplified reconstruction conventions, not the source algorithm. Context signals are supplied;
+    no proprietary indicator calculation or live trading is claimed.
+- ru_id: RU-005
+  name: Visible labels, line colors and menu
+  content: 'Return visible signal labels, HTF1 green and HTF2 red line colors, regression color #ff00e7,
+    and an optional mobile-sized information menu. The local SVG display must actually show active signal
+    labels, these three colored lines, and the optional information menu; at a 390px viewport it must
+    fit without horizontal page overflow. Inputs are synthetic supplied observations, not live indicators.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for presentation metadata.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: evaluate_indicator
+      signature: 'evaluate_indicator(config: dict, context: dict) -> dict'
+    inputs:
+      arguments:
+      - config
+      - context
+      protocol_fields:
+      - htf1
+      - menu_visible
+      - trigger_states
+      - triggers
+      - viewport_width
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - labels_visible
+      - menu
+      - menu.size
+      - menu.visible
+      - styles
+      - styles.htf1
+      - styles.htf2
+      - styles.regression
+      required_tokens:
+        labels_visible:
+        - true
+        menu.visible:
+        - true
+      exact_values:
+        styles.htf1: green
+        styles.htf2: red
+        styles.regression: '#ff00e7'
+        menu.size: mobile
+      field_schemas:
+        labels_visible:
+          type: boolean
+        menu:
+          type: object
+          required_fields:
+          - size
+          - visible
+          properties:
+            size:
+              type: string
+            visible:
+              type: boolean
+        menu.size:
+          type: string
+        menu.visible:
+          type: boolean
+        styles.htf1:
+          type: string
+        styles.htf2:
+          type: string
+        styles.regression:
+          type: string
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Original grade logic was sequence-sensitive. This two-trend mapping and exact-string blackout
+    are simplified reconstruction conventions, not the source algorithm. Context signals are supplied;
+    no proprietary indicator calculation or live trading is claimed.

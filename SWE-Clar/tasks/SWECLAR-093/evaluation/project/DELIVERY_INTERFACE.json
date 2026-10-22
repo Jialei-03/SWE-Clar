@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-093",
+  "readme": "# Realtime mobile notifications and cart\n\nRepair this Flutter mobile UI and Node.js realtime backend. The Flutter project contains a notification inbox, channel controls, product list and cart. HttpShopApi uses actual HTTP and WebSocket connections. Start the backend with SHOP_CONFIG pointing to an external synthetic JSON fixture (users,sessions,products) and run `node server/server.cjs`; it prints its loopback port. Products use integer price_cents. Configure Flutter with API_BASE and ACCESS_TOKEN via dart-define.\n\nThe backend supports GET /catalog, /inbox and /cart; POST /actions; and an authenticated WebSocket at /events. Actions are subscribe/unsubscribe(channel), publish(id,channel,title), add/remove(product_id,quantity). Bearer sessions determine the user; caller user IDs are not trusted. The initial project already loads records over HTTP but its push display and cart behavior need repair. Clarify delivery, replay, validation and pricing requirements as needed.\n\nUse Flutter 3.47.2/Dart 3.13.2 and Node.js with ws 8.19.0. This independently reconstructed Flutter and realtime-service component uses a normalized Node backend instead of the private Laravel/Vue services. It does not claim OS push delivery, Android/iOS device testing, the original screens or production persistence. All identities, products and messages are synthetic.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "dart",
+        "file": "lib/controller.dart",
+        "function": "ShopController",
+        "signature": "ShopController(ShopApi api)"
+      },
+      "inputs": {
+        "api": "HttpShopApi(base,token)",
+        "actions": "load/channel/change and realtime stream events"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Actual HTTP/WebSocket effects and rendered Flutter inbox/cart state."
+      },
+      "operations": []
+    }
+  ]
+}

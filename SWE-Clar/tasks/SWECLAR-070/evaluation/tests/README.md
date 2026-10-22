@@ -1,0 +1,1 @@
+Protected five-RU verifier. Actual synthetic HTTP providers, SQLite persistence, owned sessions and independent decimal examples are exercised. Browser and submitted service execute UID1000 with zero capabilities and explicit environment allowlists. Additional metadata and nondeterministic quote IDs are accepted. No external provider or imagery is required.

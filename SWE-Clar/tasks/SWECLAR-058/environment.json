@@ -1,0 +1,28 @@
+{
+  "profile": "python-web",
+  "workdir": "/workspace",
+  "platform": "linux/amd64",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "workspace_mb": 256,
+    "evaluation_wall_seconds": 240
+  },
+  "dependencies": "Python3.12.3 standard library; protected evaluator uses prepared Playwright/Chromium",
+  "start": [
+    "python",
+    "server.py",
+    "--port",
+    "8080"
+  ],
+  "health": "GET http://127.0.0.1:8080/health",
+  "public_test": [
+    "python",
+    "/public_tests/smoke.py"
+  ],
+  "preflight": [
+    "python",
+    "/opt/sweclar/preflight.py"
+  ]
+}

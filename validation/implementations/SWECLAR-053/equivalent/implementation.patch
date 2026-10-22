@@ -1,0 +1,337 @@
+diff --git a/levels.py b/levels.py
+index 1d425d90446b874d1aeb7b0c4b1f37804d0a56be..82163f80faec858327eede5610445e1a65e2ca99 100644
+--- a/levels.py
++++ b/levels.py
+@@ -1,4 +1,196 @@
+-"""Starter for the rolling price-level task."""
++"""Deterministic rolling price-level analysis.
++
++The analyzer in this module deliberately works only on the bars supplied by the
++caller.  It does not keep state between calls and does not use any external
++services.
++"""
++
++from collections import deque
++from collections.abc import Iterator, Mapping
++from decimal import Decimal, InvalidOperation
++from fractions import Fraction
++from typing import Any
++
++
++_PRICE_FIELDS = ("open", "high", "low", "close")
++
++
++def _as_decimal_number(value: Any, name: str) -> Decimal:
++    """Return the decimal representation used for numeric comparisons.
++
++    JSON numbers arrive here as ``int`` or ``float`` values.  Constructing a
++    Decimal from ``str`` rather than from a float's binary value is important:
++    for example, a distance of 0.3 must compare equal to a three-tenths tick
++    buffer.  Decimal is also accepted for callers using the Python API
++    directly; other objects (including strings and booleans) are not JSON
++    numeric values and are rejected.
++    """
++
++    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
++        raise ValueError(f"{name} must be a finite number")
++
++    try:
++        if isinstance(value, Decimal):
++            result = value
++        elif isinstance(value, float):
++            # str gives the decimal spelling of the JSON/Python number rather
++            # than exposing the float's binary implementation detail.
++            result = Decimal(str(value))
++        else:
++            result = Decimal(value)
++    except (InvalidOperation, ValueError, TypeError, OverflowError):
++        raise ValueError(f"{name} must be a finite number") from None
++
++    if not result.is_finite():
++        raise ValueError(f"{name} must be a finite number")
++    return result
++
++
++def _require_boolean(value: Any, name: str) -> bool:
++    if not isinstance(value, bool):
++        raise ValueError(f"{name} must be a boolean")
++    return value
++
++
++def _require_integer(value: Any, name: str, *, positive: bool = False) -> int:
++    # bool is an int subclass, but is not an integer option in this API.
++    if isinstance(value, bool) or not isinstance(value, int):
++        raise ValueError(f"{name} must be an integer")
++    if positive and value <= 0:
++        raise ValueError(f"{name} must be positive")
++    if not positive and value < 0:
++        raise ValueError(f"{name} must be non-negative")
++    return int(value)
++
++
++def _parse_bars(bars: Any) -> list[dict[str, Any]]:
++    """Validate bars and retain both their original and comparison values."""
++
++    if not isinstance(bars, list):
++        raise ValueError("bars must be a list of OHLC dictionaries")
++
++    parsed: list[dict[str, Any]] = []
++    for index, bar in enumerate(bars):
++        if not isinstance(bar, Mapping):
++            raise ValueError(f"bar {index} must be an OHLC dictionary")
++
++        originals: dict[str, Any] = {}
++        decimals: dict[str, Decimal] = {}
++        for field in _PRICE_FIELDS:
++            if field not in bar:
++                raise ValueError(f"bar {index} is missing {field}")
++            value = bar[field]
++            originals[field] = value
++            decimals[field] = _as_decimal_number(value, f"bar {index} {field}")
++
++        # Validate the complete OHLC shape, not just the two values used by a
++        # particular level source.  This also enforces high >= low and that
++        # both open and close lie inside the wick.
++        low = decimals["low"]
++        high = decimals["high"]
++        if low > high or not (low <= decimals["open"] <= high) or not (
++            low <= decimals["close"] <= high
++        ):
++            raise ValueError(f"bar {index} has inconsistent OHLC prices")
++
++        parsed.append(
++            {
++                "original": originals,
++                "decimal": decimals,
++                "high_decimal": high,
++                "low_decimal": low,
++            }
++        )
++    return parsed
++
++
++def _push_extreme(
++    queue: deque[int],
++    parsed: list[dict[str, Any]],
++    index: int,
++    field: str,
++    *,
++    maximum: bool,
++) -> None:
++    """Add an index to a monotonic queue without discarding equal values.
++
++    Keeping equal-valued indices is intentional: the front then remains the
++    earliest occurrence, matching a left-to-right scan of a rolling window and
++    preserving the input's numeric spelling in the selected result.
++    """
++
++    value = parsed[index]["decimal"][field]
++    while queue:
++        tail = queue[-1]
++        tail_value = parsed[tail]["decimal"][field]
++        worse = tail_value < value if maximum else tail_value > value
++        if not worse:
++            break
++        queue.pop()
++    queue.append(index)
++
++
++def _rolling_candidates(
++    parsed: list[dict[str, Any]],
++    lookback: int,
++    *,
++    use_close_instead_of_wick: bool,
++) -> Iterator[
++    tuple[int, tuple[Any, Decimal], tuple[Any, Decimal]]
++]:
++    """Yield rolling high/low candidates using each preceding window once.
++
++    The queues contain indices, rather than copied prices.  A stale index is
++    removed only when it leaves the window, while the monotonic invariant makes
++    the front the same first winning value that a complete window scan would
++    select.  The current bar is inserted only after its candidate is yielded,
++    so the yielded pair is based on exactly ``parsed[index-lookback:index]``.
++    """
++
++    if len(parsed) <= lookback:
++        return
++
++    high_field = low_field = "close" if use_close_instead_of_wick else "high"
++    if not use_close_instead_of_wick:
++        low_field = "low"
++
++    high_queue: deque[int] = deque()
++    low_queue: deque[int] = deque()
++    for prior_index in range(lookback):
++        _push_extreme(high_queue, parsed, prior_index, high_field, maximum=True)
++        _push_extreme(low_queue, parsed, prior_index, low_field, maximum=False)
++
++    for index in range(lookback, len(parsed)):
++        first_in_window = index - lookback
++        while high_queue and high_queue[0] < first_in_window:
++            high_queue.popleft()
++        while low_queue and low_queue[0] < first_in_window:
++            low_queue.popleft()
++
++        high_bar = parsed[high_queue[0]]
++        low_bar = parsed[low_queue[0]]
++        high_decimal = high_bar["decimal"][high_field]
++        low_decimal = low_bar["decimal"][low_field]
++        yield (
++            index,
++            (high_bar["original"][high_field], high_decimal),
++            (low_bar["original"][low_field], low_decimal),
++        )
++
++        _push_extreme(high_queue, parsed, index, high_field, maximum=True)
++        _push_extreme(low_queue, parsed, index, low_field, maximum=False)
++
++
++def _public_level(level: dict[str, Any]) -> dict[str, Any]:
++    """Remove implementation-only comparison data from a level record."""
++
++    return {
++        "side": level["side"],
++        "price": level["price"],
++        "created_at": level["created_at"],
++        "status": level["status"],
++        "extends_to": level["extends_to"],
++    }
+ 
+ 
+ def analyze_levels(
+@@ -11,5 +203,133 @@ def analyze_levels(
+     tick_size=1.0,
+     hide_broken_levels=True,
+     extend_points=5,
++    **unknown_options,
+ ):
+-    return {"active_levels": [], "display_levels": [], "break_events": []}
++    """Analyze rolling high and low price levels from completed OHLC bars.
++
++    At index ``i`` the candidate window is ``bars[i-lookback:i]``.  Existing
++    levels are tested against the current bar before those candidates are
++    admitted, so a level cannot break on the bar on which it is created.
++    """
++
++    if unknown_options:
++        names = ", ".join(sorted(unknown_options))
++        raise ValueError(f"unknown option(s): {names}")
++
++    use_close_instead_of_wick = _require_boolean(
++        use_close_instead_of_wick, "use_close_instead_of_wick"
++    )
++    keep_past_levels = _require_boolean(keep_past_levels, "keep_past_levels")
++    hide_broken_levels = _require_boolean(hide_broken_levels, "hide_broken_levels")
++    lookback = _require_integer(lookback, "lookback", positive=True)
++    min_distance_ticks = _require_integer(
++        min_distance_ticks, "min_distance_ticks", positive=False
++    )
++    extend_points = _require_integer(extend_points, "extend_points", positive=False)
++    tick_size_decimal = _as_decimal_number(tick_size, "tick_size")
++    if tick_size_decimal <= 0:
++        raise ValueError("tick_size must be positive")
++
++    parsed_bars = _parse_bars(bars)
++    # Fraction(Decimal) retains the exact base-10 value, avoiding context
++    # rounding for unusually long JSON decimals while preserving the required
++    # inclusive boundary comparison.
++    separation = Fraction(min_distance_ticks) * Fraction(tick_size_decimal)
++
++    # Every internal record is kept until the end so that status transitions
++    # and creation ordering are both explicit.  _price_decimal is never
++    # exposed in the returned records.
++    levels: list[dict[str, Any]] = []
++    active: list[dict[str, Any]] = []
++    break_events: list[dict[str, Any]] = []
++    candidate_stream = _rolling_candidates(
++        parsed_bars,
++        lookback,
++        use_close_instead_of_wick=use_close_instead_of_wick,
++    )
++
++    for index in range(lookback, len(parsed_bars)):
++        current_bar = parsed_bars[index]
++
++        # Breaks happen before candidate creation.  The active list is kept in
++        # creation order, which also gives the required order for events at a
++        # shared breaking index.
++        still_active: list[dict[str, Any]] = []
++        for level in active:
++            if level["side"] == "high":
++                is_broken = current_bar["high_decimal"] > level["price_decimal"]
++            else:
++                is_broken = current_bar["low_decimal"] < level["price_decimal"]
++
++            if is_broken:
++                level["status"] = "broken"
++                break_events.append(
++                    {
++                        "side": level["side"],
++                        "price": level["price"],
++                        "index": index,
++                    }
++                )
++            else:
++                still_active.append(level)
++        active = still_active
++
++        candidate_index, high_candidate, low_candidate = next(candidate_stream)
++        # The stream follows the same index range as this loop.  Keeping the
++        # assertion local makes accidental changes to either traversal fail
++        # loudly instead of admitting a shifted window.
++        if candidate_index != index:
++            raise RuntimeError("rolling candidate stream lost synchronization")
++
++        # Candidates are deliberately handled high then low.  Suppression is
++        # checked against the pre-admission active set, before replacement.
++        for side, (price, price_decimal) in (
++            ("high", high_candidate),
++            ("low", low_candidate),
++        ):
++            if min_distance_ticks > 0:
++                suppressed = any(
++                    level["side"] == side
++                    and level["status"] == "active"
++                    and abs(
++                        Fraction(price_decimal) - level["price_fraction"]
++                    ) <= separation
++                    for level in active
++                )
++                if suppressed:
++                    continue
++
++            if not keep_past_levels:
++                still_active = []
++                for level in active:
++                    if level["side"] == side:
++                        level["status"] = "replaced"
++                    else:
++                        still_active.append(level)
++                active = still_active
++
++            new_level = {
++                "side": side,
++                "price": price,
++                "price_decimal": price_decimal,
++                "price_fraction": Fraction(price_decimal),
++                "created_at": index,
++                "status": "active",
++                "extends_to": index + extend_points,
++            }
++            levels.append(new_level)
++            active.append(new_level)
++
++    active_levels = [_public_level(level) for level in active]
++    display_levels = [
++        _public_level(level)
++        for level in levels
++        if level["status"] == "active"
++        or (level["status"] == "broken" and not hide_broken_levels)
++    ]
++
++    return {
++        "active_levels": active_levels,
++        "display_levels": display_levels,
++        "break_events": break_events,
++    }

@@ -1,0 +1,168 @@
+schema_version: 1
+task_id: SWECLAR-085
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: 'Linux Chromium radio component: real HTML audio, Media Session, monotonic timer and HTTP
+  programme pages'
+requirement_units:
+- ru_id: RU-001
+  name: Linear programme playback
+  content: Play the synthetic linear programme through the real HTML audio element. On first play and
+    resume, fetch /api/live and seek within 1 second of its current offset. Recent programmes start at
+    zero. Only one audio player may advance at a time.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact behavior required for linear programme playback.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: app.js
+      function: browser UI
+      signature: HTTP and documented DOM
+    inputs:
+      programme: synthetic HTTP record
+    output:
+      type: object
+      meaning: actual audio, browser metadata and rendered DOM
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent Linux browser adaptation of the existing radio-component scope. Synthetic media only;
+    browser APIs replace native system integration.
+- ru_id: RU-002
+  name: Pause and selection highlight
+  content: Pausing must stop actual audio advancement and remove the playing CSS highlight while preserving
+    the selected item. Selecting another programme replaces its audio source and highlight.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact behavior required for pause and selection highlight.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: app.js
+      function: browser UI
+      signature: HTTP and documented DOM
+    inputs:
+      programme: synthetic HTTP record
+    output:
+      type: object
+      meaning: actual audio, browser metadata and rendered DOM
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent Linux browser adaptation of the existing radio-component scope. Synthetic media only;
+    browser APIs replace native system integration.
+- ru_id: RU-003
+  name: Browser Media Session metadata
+  content: Publish title, artist and album of the current programme through navigator.mediaSession.metadata
+    using MediaMetadata. Replace stale fields on every selection change. Publish playing or paused through
+    navigator.mediaSession.playbackState according to actual audio playback. The browser playback panel
+    and metadata share the selected programme. No native CarPlay behavior is required.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact behavior required for browser media session metadata.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: app.js
+      function: browser UI
+      signature: HTTP and documented DOM
+    inputs:
+      programme: synthetic HTTP record
+    output:
+      type: object
+      meaning: actual audio, browser metadata and rendered DOM
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent Linux browser adaptation of the existing radio-component scope. Synthetic media only;
+    browser APIs replace native system integration.
+- ru_id: RU-004
+  name: Sleep timer
+  content: A positive finite sleep interval uses a monotonic elapsed-time deadline. Showing remaining
+    time does not restart the deadline; expiry actually pauses audio. Cancellation removes the deadline.
+    Remaining time decreases during real execution.
+  requirement_category: refinement
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact behavior required for sleep timer.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: app.js
+      function: browser UI
+      signature: HTTP and documented DOM
+    inputs:
+      programme: synthetic HTTP record
+    output:
+      type: object
+      meaning: actual audio, browser metadata and rendered DOM
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent Linux browser adaptation of the existing radio-component scope. Synthetic media only;
+    browser APIs replace native system integration.
+- ru_id: RU-005
+  name: Programme pages
+  content: Fetch schedule and recent broadcasts through HTTP on initial loading. Refreshing either page
+    replaces that page from its current response while preserving the other page. Render returned programme
+    titles as selectable buttons.
+  requirement_category: refinement
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact behavior required for programme pages.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: app.js
+      function: browser UI
+      signature: HTTP and documented DOM
+    inputs:
+      programme: synthetic HTTP record
+    output:
+      type: object
+      meaning: actual audio, browser metadata and rendered DOM
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent Linux browser adaptation of the existing radio-component scope. Synthetic media only;
+    browser APIs replace native system integration.

@@ -1,0 +1,243 @@
+diff --git a/itinerary_generator.py b/itinerary_generator.py
+index 706be7bda07e5c505f2c8f7e176e8f215b2f403a..9f0f6f3677b46cd4cd28759fc98a8138c74c4351 100644
+--- a/itinerary_generator.py
++++ b/itinerary_generator.py
+@@ -1,12 +1,127 @@
+ """Incremental itinerary processing."""
+ 
++import json
++
++from place_service import resolve_activity
++
++
++_JSON_WHITESPACE = frozenset(" \t\r\n")
++
++
++def _reject_json_constant(value):
++    """Reject JavaScript numeric extensions accepted by ``json``."""
++    raise ValueError(f"invalid JSON constant: {value}")
++
++
++_JSON_DECODER = json.JSONDecoder(parse_constant=_reject_json_constant)
++
++
++def _decode_object(text):
++    """Decode one already-delimited object and normalize parser failures."""
++    try:
++        value, end = _JSON_DECODER.raw_decode(text)
++    except (TypeError, ValueError) as exc:
++        raise ValueError("malformed JSON object") from exc
++
++    # The scanner normally hands us exactly one value.  Keeping this check
++    # here makes that boundary an explicit invariant rather than relying on
++    # the decoder's stop position.
++    if end != len(text) or not isinstance(value, dict):
++        raise ValueError("malformed JSON object")
++    return value
++
++
++class _ObjectRecordScanner:
++    """Incrementally separate object records without reading the next chunk."""
++
++    def __init__(self):
++        self._record = []
++        self._containers = []
++        self._in_string = False
++        self._escaped = False
++
++    def _start_record(self, character):
++        if character in _JSON_WHITESPACE:
++            return False
++        if character != "{":
++            raise ValueError("expected a JSON object")
++        self._record.append(character)
++        self._containers.append(character)
++        return True
++
++    def _reset(self):
++        self._record = []
++        self._containers = []
++        self._in_string = False
++        self._escaped = False
++
++    def consume(self, chunk):
++        """Yield complete objects found in one text chunk."""
++        for character in chunk:
++            if not self._record:
++                self._start_record(character)
++                continue
++
++            self._record.append(character)
++
++            if self._in_string:
++                if self._escaped:
++                    self._escaped = False
++                elif character == "\\":
++                    self._escaped = True
++                elif character == '"':
++                    self._in_string = False
++                continue
++
++            if character == '"':
++                self._in_string = True
++            elif character in "{[":
++                self._containers.append(character)
++            elif character in "}]":
++                if not self._containers:
++                    raise ValueError("malformed JSON object")
++                opening = self._containers[-1]
++                expected = "}" if opening == "{" else "]"
++                if character != expected:
++                    raise ValueError("malformed JSON object")
++                self._containers.pop()
++
++                if not self._containers:
++                    value = _decode_object("".join(self._record))
++                    # Reset before yielding so resuming this generator can
++                    # continue with an adjacent record in the same chunk.
++                    self._reset()
++                    yield value
++
+ 
+ def iter_json_objects(chunks):
+-    """Yield each complete JSON object found in text chunks."""
+-    raise NotImplementedError
++    """Yield complete JSON object records from an iterable of text chunks.
++
++    Only the object currently being assembled is retained.  A scanner tracks
++    strings and container nesting, while the standard decoder validates the
++    completed record.  Since ``consume`` is itself a generator, a completed
++    object is yielded before the outer iterable is asked for another chunk.
++    """
++    scanner = _ObjectRecordScanner()
++
++    for chunk in chunks:
++        if not isinstance(chunk, str):
++            raise ValueError("JSON chunks must be strings")
++        yield from scanner.consume(chunk)
++
++
++def _sse_data(value):
++    """Serialize one resolved activity as an SSE data record."""
++    # Compact JSON is the same payload with less transport whitespace; the
++    # event framing remains exactly one data line followed by a blank line.
++    return f"data: {json.dumps(value, separators=(',', ':'))}\n\n"
+ 
+ 
+ def stream_itinerary(chunks, location, find_place, find_replacement):
+     """Yield one SSE data record per acceptable resolved activity."""
+-    raise NotImplementedError
+-
++    for activity in iter_json_objects(chunks):
++        resolved = resolve_activity(
++            activity, location, find_place, find_replacement
++        )
++        if resolved is not None:
++            yield _sse_data(resolved)
+diff --git a/place_service.py b/place_service.py
+index 758d52eaef6e657ea3d4187a460bd3e3ff27b06a..a74ce360b3de76fbf7904fd3f43b357482d3d1c2 100644
+--- a/place_service.py
++++ b/place_service.py
+@@ -1,7 +1,100 @@
+ """Place lookup orchestration for the itinerary backend."""
+ 
++import math
++import numbers
++from collections.abc import Mapping
++
++
++_EXEMPT_TYPES = frozenset(
++    {
++        "neighborhood",
++        "natural_feature",
++        "route",
++        "tourist_attraction",
++        "point_of_interest",
++        "park",
++    }
++)
++
++
++def _valid_rating(value):
++    """Return whether value is a finite, non-boolean number at least three."""
++    if isinstance(value, bool) or not isinstance(value, numbers.Number):
++        return False
++    try:
++        # Integral values do not need conversion through float, so arbitrarily
++        # large (but still finite) Python integers remain valid numbers.
++        if isinstance(value, numbers.Integral):
++            return value >= 3
++        return bool(math.isfinite(value) and value >= 3)
++    except (TypeError, ValueError, OverflowError):
++        return False
++
++
++def _valid_user_rating_count(value):
++    """Return whether value is a non-negative integer count of at least 50."""
++    return (
++        not isinstance(value, bool)
++        and isinstance(value, numbers.Integral)
++        and value >= 0
++        and value >= 50
++    )
++
++
++def _has_exempt_type(types):
++    """Return whether a well-formed type list contains a policy exemption."""
++    return any(place_type in _EXEMPT_TYPES for place_type in types)
++
++
++def is_valid_place(place):
++    """Return whether a normalized place satisfies the acceptance policy."""
++    if not isinstance(place, Mapping):
++        return False
++
++    # Closed status is checked before the type exemptions, as required by the
++    # policy.  Other statuses (including a missing status) are not restrictions.
++    status = place.get("businessStatus")
++    if status == "CLOSED_TEMPORARILY" or status == "CLOSED_PERMANENTLY":
++        return False
++
++    types = place.get("types")
++    if not isinstance(types, list) or not all(
++        isinstance(place_type, str) for place_type in types
++    ):
++        return False
++
++    if _has_exempt_type(types):
++        return True
++
++    return _valid_rating(place.get("rating")) and _valid_user_rating_count(
++        place.get("userRatingCount")
++    )
++
++
++def _merge_activity_and_place(activity, place):
++    """Copy activity metadata and let all place metadata override collisions."""
++    enriched = dict(activity)
++    for key, value in place.items():
++        enriched[key] = value
++    return enriched
++
++
++def _accepted_enrichment(activity, place):
++    """Merge a place only when it meets the complete acceptance policy."""
++    if not is_valid_place(place):
++        return None
++    return _merge_activity_and_place(activity, place)
++
+ 
+ def resolve_activity(activity, location, find_place, find_replacement):
+-    """Return enriched acceptable activity data, or None."""
+-    raise NotImplementedError
++    """Return enriched acceptable activity data, or ``None``."""
++    business_name = activity["business_name"]
++    description = activity["description"]
++
++    primary = find_place(business_name, location)
++    enriched = _accepted_enrichment(activity, primary)
++    if enriched is not None:
++        return enriched
+ 
++    replacement = find_replacement(description, location)
++    return _accepted_enrichment(activity, replacement)

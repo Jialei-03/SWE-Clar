@@ -1,0 +1,1 @@
+Independent HTTP/PNG/post/feed/save/map requirement checks. Browser checks decode image pixels and inspect actual Leaflet SVG geometry, with public regression semantics for feed/save/session isolation. Candidate service and Chromium run UID1000 with explicit environment allowlists; hidden assertions stay outside their filesystem boundary.

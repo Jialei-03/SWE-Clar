@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Receivables Desk</title>
+<style>
+body{font:16px system-ui,sans-serif;background:#f4f6f8;color:#172331;margin:0}main{max-width:1000px;margin:32px auto;padding:20px}section{background:white;border:1px solid #d5dde5;border-radius:8px;padding:20px;margin:18px 0}h1{margin-bottom:4px}p{color:#43556b}button,input,select,textarea{font:inherit;padding:8px;border:1px solid #a7b6c4;border-radius:4px}button{cursor:pointer;background:#124e67;color:white}button:disabled{opacity:.5}label{display:block;margin:12px 0}textarea{width:90%;height:70px}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px;border-bottom:1px solid #d5dde5}.scroll{overflow:auto}#message{min-height:24px}pre{white-space:pre-wrap}nav{display:flex;gap:8px;flex-wrap:wrap}
+</style>
+<main><h1>Receivables Desk</h1><p>Import balances, review accounts and record follow-ups.</p>
+<section><h2>Import accounts</h2><label>CSV file <input id="file" type="file" accept=".csv,text/csv"></label><button id="import">Import CSV</button></section>
+<p id="message" role="status"></p>
+<section><nav><button id="all">All accounts</button><button id="queue">Follow-up queue</button><a href="/api/export" download="follow-ups.csv">Export queue</a></nav>
+<div class="scroll"><table><thead><tr><th>Select</th><th>Account</th><th>Balance (cents)</th><th>Age (days)</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table></div>
+<label>Status <select id="status"><option>open</option><option>contacted</option><option>disputed</option><option>resolved</option></select></label>
+<label>Note <textarea id="note" maxlength="2000"></textarea></label><button id="save">Save follow-up</button></section>
+<section><h2>Account details</h2><div id="detail">Select an account to view its history.</div></section></main>
+<script>
+let mode='accounts', selected=new Set(), detailId=null;
+const el=id=>document.getElementById(id);
+async function api(path, options){const r=await fetch('/api/'+path,options);const data=await r.json();if(!r.ok)throw Error(data.error||'Request failed');return data}
+async function detail(id){detailId=id;const data=await api('accounts/'+encodeURIComponent(id));el('detail').replaceChildren();const title=document.createElement('h3');title.textContent=data.account.account_id;el('detail').append(title);const note=document.createElement('p');note.textContent=data.account.note;el('detail').append(note);for(const row of data.history){const p=document.createElement('p');p.textContent=row.before_status+' → '+row.after_status+': '+row.after_note;el('detail').append(p)}}
+async function refresh(){const data=await api(mode);selected.clear();el('rows').replaceChildren();for(const row of data.accounts){const tr=document.createElement('tr');const td=document.createElement('td');const check=document.createElement('input');check.type='checkbox';check.setAttribute('aria-label','Select '+row.account_id);check.onchange=()=>check.checked?selected.add(row.account_id):selected.delete(row.account_id);td.append(check);tr.append(td);const key=document.createElement('td'),button=document.createElement('button');button.textContent=row.account_id;button.onclick=()=>run(()=>detail(row.account_id));key.append(button);tr.append(key);for(const k of ['balance_cents','age_days','status']){const cell=document.createElement('td');cell.textContent=row[k];tr.append(cell)}el('rows').append(tr)}if(detailId)await detail(detailId)}
+async function run(fn){try{await fn();el('message').textContent='Done'}catch(e){el('message').textContent=e.message}}
+el('import').onclick=()=>run(async()=>{const file=el('file').files[0];if(!file)throw Error('Choose a CSV file');await api('import',{method:'POST',headers:{'Content-Type':'text/csv'},body:await file.text()});await refresh()});
+el('all').onclick=()=>run(async()=>{mode='accounts';await refresh()});el('queue').onclick=()=>run(async()=>{mode='queue';await refresh()});
+el('save').onclick=()=>run(async()=>{await api('follow-ups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({account_ids:[...selected],status:el('status').value,note:el('note').value})});await refresh()});run(refresh);
+</script></html>

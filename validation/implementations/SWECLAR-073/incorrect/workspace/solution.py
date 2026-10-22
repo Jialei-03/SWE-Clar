@@ -1,0 +1,733 @@
+"""Local, filesystem-backed asset migration reference implementation.
+
+The public entry point deliberately does not talk to AEM or Dynamic Media.  It
+copies files into a local representation of the mapped content path and writes
+an adjacent JSON description for each file.
+"""
+
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+import ntpath
+import os
+import stat
+import tempfile
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+
+_REQUIRED_FIELDS = (
+    "id",
+    "filename",
+    "title",
+    "metadata",
+    "aem_path",
+    "taxonomy",
+    "dynamic_media",
+    "sha256",
+)
+
+
+class _MigrationIssue(Exception):
+    """An expected per-record failure, carrying the public error code."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+_MISSING = object()
+
+
+def _is_empty_required(value: Any) -> bool:
+    """Return whether a required descriptor value is absent or empty.
+
+    Normal requests contain strings.  The extra cases make malformed direct
+    Python calls fail as a record validation error rather than raising from a
+    truth-value or length operation.
+    """
+
+    if value is _MISSING or value is None or value is False:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return len(value) == 0
+    if isinstance(value, (int, float, complex)):
+        return value == 0
+    try:
+        return len(value) == 0
+    except (TypeError, AttributeError):
+        return False
+
+
+def _record_value(record: Any, key: str, default: Any = _MISSING) -> Any:
+    if not isinstance(record, Mapping):
+        return default
+    try:
+        return record[key] if key in record else default
+    except Exception:
+        # A hostile/custom Mapping is malformed input.  Treat the value as
+        # absent; the outer per-record guard prevents it from aborting a batch.
+        return default
+
+
+def _error(index: int, code: str, record: Any) -> dict[str, Any]:
+    result: dict[str, Any] = {"index": index, "code": str(code) or "error"}
+    if isinstance(record, Mapping):
+        try:
+            if "id" in record and not _is_empty_required(record["id"]):
+                # A copy keeps the returned report independent of an input
+                # object that happens to be mutable.  Empty ids are the
+                # missing-fields case and are not considered available.
+                result["id"] = copy.deepcopy(record["id"])
+        except Exception:
+            # The id is optional on an error.  A broken custom mapping should
+            # not prevent the remaining records from being processed.
+            pass
+    return result
+
+
+def _absolute_root(value: Any) -> tuple[Path, Path] | None:
+    """Return (lexical absolute root, resolved root), or None for bad input."""
+
+    try:
+        raw = os.fspath(value)
+        if isinstance(raw, bytes):
+            raw = os.fsdecode(raw)
+        if not isinstance(raw, str) or "\x00" in raw:
+            return None
+        lexical = Path(os.path.abspath(raw))
+        # realpath also resolves existing parents when the final directory has
+        # not been created yet, which is important for the overlap check.
+        resolved = Path(os.path.realpath(os.fspath(lexical)))
+        return lexical, resolved
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _contains(root: Path, candidate: Path) -> bool:
+    try:
+        return candidate == root or candidate.is_relative_to(root)
+    except (AttributeError, ValueError):
+        try:
+            root_text = os.path.normcase(os.fspath(root))
+            candidate_text = os.path.normcase(os.fspath(candidate))
+            return candidate_text == root_text or candidate_text.startswith(
+                root_text.rstrip(os.sep) + os.sep
+            )
+        except Exception:
+            return False
+
+
+def _has_symlink_component(path: Path) -> bool:
+    """Check existing components of a path without following them."""
+
+    try:
+        current = Path(path.anchor) if path.anchor else Path()
+        parts = path.parts
+        start = 1 if path.anchor and parts and parts[0] == path.anchor else 0
+        for part in parts[start:]:
+            current = current / part
+            try:
+                info = os.lstat(os.fspath(current))
+            except FileNotFoundError:
+                # Nothing below a missing component exists yet.
+                break
+            except OSError:
+                # The caller will report a normal I/O error where useful.  A
+                # permission error is not evidence of a symlink.
+                continue
+            if stat.S_ISLNK(info.st_mode):
+                return True
+        return False
+    except (OSError, ValueError):
+        return False
+
+
+def _valid_relative_folder(folder: Any) -> tuple[str, ...] | None:
+    """Validate a source folder and return its literal POSIX components."""
+
+    if not isinstance(folder, str) or "\x00" in folder:
+        return None
+    # ntpath catches drive-qualified, UNC, and backslash-rooted paths even on
+    # the POSIX runner used by the component.
+    if os.path.isabs(folder) or ntpath.isabs(folder) or ntpath.splitdrive(folder)[0]:
+        return None
+    if "\\" in folder:
+        return None
+    parts = folder.split("/")
+    # Empty components are harmless redundant separators; traversal components
+    # are not.  Keeping the literal key is important because taxonomy lookup
+    # is by the descriptor's folder string.
+    if not parts or any(part in (".", "..") for part in parts):
+        return None
+    return tuple(parts)
+
+
+def _valid_basename(filename: Any) -> bool:
+    if not isinstance(filename, str) or "\x00" in filename:
+        return False
+    if filename in ("", ".", "..") or "/" in filename or "\\" in filename:
+        return False
+    # The drive check matters for direct calls on POSIX with a Windows-shaped
+    # basename.  It also documents that a basename cannot hide a path.
+    if ntpath.splitdrive(filename)[0]:
+        return False
+    return True
+
+
+def _valid_aem_path(value: Any) -> tuple[str, ...] | None:
+    """Validate a taxonomy destination and return destination components."""
+
+    if not isinstance(value, str) or "\x00" in value:
+        return None
+    if "\\" in value or not value.startswith("/"):
+        return None
+    parts = value.split("/")
+    # The first component is empty because this is an absolute POSIX path.
+    if len(parts) < 3 or parts[0] != "":
+        return None
+    components = parts[1:]
+    if any(part in (".", "..") for part in components):
+        return None
+    if len(components) < 2 or components[0] != "content" or components[1] != "dam":
+        return None
+    return tuple(components)
+
+
+def _lstat(path: Path) -> os.stat_result | None:
+    try:
+        return os.lstat(os.fspath(path))
+    except FileNotFoundError:
+        return None
+
+
+def _source_status(root: Path, relative_parts: tuple[str, ...]) -> str:
+    """Return ok, missing_asset, invalid_path, or io_error for a source."""
+
+    current = root
+    for position, part in enumerate(relative_parts):
+        try:
+            info = os.lstat(os.fspath(current))
+        except FileNotFoundError:
+            return "missing_asset"
+        except OSError:
+            return "io_error"
+        if stat.S_ISLNK(info.st_mode):
+            return "invalid_path"
+        if position < len(relative_parts) - 1 and not stat.S_ISDIR(info.st_mode):
+            return "missing_asset"
+        current = current / part
+
+    try:
+        info = os.lstat(os.fspath(current))
+    except FileNotFoundError:
+        return "missing_asset"
+    except OSError:
+        return "io_error"
+    if stat.S_ISLNK(info.st_mode):
+        return "invalid_path"
+    if not stat.S_ISREG(info.st_mode):
+        return "missing_asset"
+    return "ok"
+
+
+def _destination_parent_status(root: Path, relative_parent: tuple[str, ...]) -> str:
+    """Inspect a destination directory without following symlinks.
+
+    ``missing`` means the directory (or an ancestor) can be created.  A
+    non-directory existing component is an I/O/configuration failure, while a
+    symlink is specifically an invalid path.
+    """
+
+    current = root
+    for part in relative_parent:
+        try:
+            info = os.lstat(os.fspath(current))
+        except FileNotFoundError:
+            return "missing"
+        except OSError:
+            return "io_error"
+        if stat.S_ISLNK(info.st_mode):
+            return "invalid_path"
+        if not stat.S_ISDIR(info.st_mode):
+            return "io_error"
+        current = current / part
+
+    try:
+        info = os.lstat(os.fspath(current))
+    except FileNotFoundError:
+        return "missing"
+    except OSError:
+        return "io_error"
+    if stat.S_ISLNK(info.st_mode):
+        return "invalid_path"
+    if not stat.S_ISDIR(info.st_mode):
+        return "io_error"
+    return "ok"
+
+
+def _target_state(root: Path, aem_parts: tuple[str, ...], filename: str) -> tuple[str, Path, Path]:
+    """Inspect both final paths and return state plus their concrete paths."""
+
+    parent_parts = aem_parts
+    parent = root.joinpath(*parent_parts)
+    asset_path = parent / filename
+    sidecar_path = parent / (filename + ".metadata.json")
+
+    parent_state = _destination_parent_status(root, parent_parts)
+    if parent_state == "missing":
+        # Neither final path can exist below a missing parent.  The caller can
+        # safely create the directory tree as part of a new pair.
+        return "absent", asset_path, sidecar_path
+    if parent_state != "ok":
+        return parent_state, asset_path, sidecar_path
+
+    states: list[os.stat_result | None] = []
+    for path in (asset_path, sidecar_path):
+        try:
+            info = os.lstat(os.fspath(path))
+        except FileNotFoundError:
+            info = None
+        except OSError:
+            return "io_error", asset_path, sidecar_path
+        if info is not None and stat.S_ISLNK(info.st_mode):
+            return "invalid_path", asset_path, sidecar_path
+        states.append(info)
+
+    if states[0] is None and states[1] is None:
+        return "absent", asset_path, sidecar_path
+    if states[0] is not None and states[1] is not None:
+        return "complete", asset_path, sidecar_path
+    # One half of a pair is enough to make the target unsafe to reuse.
+    return "incomplete", asset_path, sidecar_path
+
+
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        while True:
+            block = stream.read(1024 * 1024)
+            if not block:
+                break
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _files_identical(first: Path, second: Path) -> bool:
+    try:
+        first_size = os.stat(os.fspath(first)).st_size
+        second_size = os.stat(os.fspath(second)).st_size
+        if first_size != second_size:
+            return False
+        with open(first, "rb") as left, open(second, "rb") as right:
+            while True:
+                left_block = left.read(1024 * 1024)
+                right_block = right.read(1024 * 1024)
+                if left_block != right_block:
+                    return False
+                if not left_block:
+                    return True
+    except OSError as exc:
+        raise _MigrationIssue("io_error") from exc
+
+
+def _json_equal(first: Any, second: Any) -> bool:
+    """Compare JSON values without treating booleans as numbers."""
+
+    if isinstance(first, bool) or isinstance(second, bool):
+        return type(first) is type(second) and first == second
+    if isinstance(first, Mapping) and isinstance(second, Mapping):
+        if set(first.keys()) != set(second.keys()):
+            return False
+        return all(_json_equal(first[key], second[key]) for key in first)
+    if isinstance(first, (list, tuple)) or isinstance(second, (list, tuple)):
+        if not isinstance(first, (list, tuple)) or not isinstance(second, (list, tuple)):
+            return False
+        return len(first) == len(second) and all(
+            _json_equal(left, right) for left, right in zip(first, second)
+        )
+    return first == second
+
+
+def _sidecar_matches(path: Path, expected: Mapping[str, Any]) -> bool:
+    try:
+        with open(path, "rb") as stream:
+            raw = stream.read()
+        decoded = json.loads(raw.decode("utf-8"))
+    except OSError as exc:
+        raise _MigrationIssue("io_error") from exc
+    except UnicodeDecodeError:
+        # The named sidecar exists but is not a valid JSON sidecar, so it is a
+        # target conflict rather than a failure to access the filesystem.
+        return False
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+    if not isinstance(decoded, Mapping):
+        return False
+    for key in _REQUIRED_FIELDS:
+        if key not in decoded or not _json_equal(decoded[key], expected[key]):
+            return False
+    return True
+
+
+def _serialize_sidecar(payload: Mapping[str, Any]) -> bytes:
+    try:
+        # Strict JSON avoids silently writing NaN/Infinity, which are not
+        # JSON-compatible metadata and would make the sidecar ambiguous.
+        text = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False)
+        return text.encode("utf-8")
+    except (TypeError, ValueError, OverflowError, UnicodeError) as exc:
+        raise _MigrationIssue("serialization_error") from exc
+
+
+def _write_pair(
+    source_path: Path,
+    destination_root: Path,
+    aem_parts: tuple[str, ...],
+    filename: str,
+    expected_hash: str,
+    sidecar_bytes: bytes,
+    asset_path: Path,
+    sidecar_path: Path,
+) -> None:
+    """Publish a new pair, removing all newly-created files on failure."""
+
+    parent = destination_root.joinpath(*aem_parts)
+    try:
+        os.makedirs(os.fspath(parent), exist_ok=True)
+    except OSError as exc:
+        raise _MigrationIssue("io_error") from exc
+
+    # Recheck after mkdir.  This also catches a symlink or a target created by
+    # an unusual filesystem observer before publication.  Crash/concurrency
+    # atomicity is outside the contract, but never overwriting a pre-existing
+    # pair here is still a useful safety property.
+    state, checked_asset, checked_sidecar = _target_state(
+        destination_root, aem_parts, filename
+    )
+    if state == "complete" or state == "incomplete":
+        raise _MigrationIssue("target_conflict")
+    if state == "invalid_path":
+        raise _MigrationIssue("invalid_path")
+    if state != "absent":
+        raise _MigrationIssue("io_error")
+    # Use the paths from the recheck, which are equivalent but keeps the
+    # operation local to one well-defined inspection.
+    asset_path = checked_asset
+    sidecar_path = checked_sidecar
+
+    temporary_asset: str | None = None
+    temporary_sidecar: str | None = None
+    published_asset = False
+    published_sidecar = False
+
+    def cleanup() -> None:
+        for temporary in (temporary_asset, temporary_sidecar):
+            if temporary is not None:
+                try:
+                    os.unlink(temporary)
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    pass
+        if published_sidecar:
+            try:
+                os.unlink(os.fspath(sidecar_path))
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+        if published_asset:
+            try:
+                os.unlink(os.fspath(asset_path))
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+
+    try:
+        asset_fd, temporary_asset = tempfile.mkstemp(
+            prefix=".migration-", suffix=".asset.tmp", dir=os.fspath(parent)
+        )
+        try:
+            with os.fdopen(asset_fd, "wb") as output, open(source_path, "rb") as source:
+                copied_digest = hashlib.sha256()
+                while True:
+                    block = source.read(1024 * 1024)
+                    if not block:
+                        break
+                    copied_digest.update(block)
+                    output.write(block)
+                output.flush()
+                if copied_digest.hexdigest() != expected_hash:
+                    raise _MigrationIssue("io_error")
+        except Exception:
+            # fdopen owns the descriptor once entered; if open() failed before
+            # that point, close the original descriptor.
+            try:
+                os.close(asset_fd)
+            except OSError:
+                pass
+            raise
+
+        sidecar_fd, temporary_sidecar = tempfile.mkstemp(
+            prefix=".migration-", suffix=".metadata.tmp", dir=os.fspath(parent)
+        )
+        try:
+            with os.fdopen(sidecar_fd, "wb") as output:
+                output.write(sidecar_bytes)
+                output.flush()
+        except Exception:
+            try:
+                os.close(sidecar_fd)
+            except OSError:
+                pass
+            raise
+
+        try:
+            os.replace(temporary_asset, asset_path)
+            temporary_asset = None
+            published_asset = True
+            os.replace(temporary_sidecar, sidecar_path)
+            temporary_sidecar = None
+            published_sidecar = True
+        except OSError as exc:
+            raise _MigrationIssue("io_error") from exc
+    except _MigrationIssue:
+        cleanup()
+        raise
+    except FileNotFoundError as exc:
+        # A source that disappeared between validation and copying is reported
+        # as a missing asset; all other newly-created files are still removed.
+        cleanup()
+        raise _MigrationIssue("missing_asset") from exc
+    except OSError as exc:
+        cleanup()
+        raise _MigrationIssue("io_error") from exc
+    except Exception as exc:
+        cleanup()
+        raise _MigrationIssue("io_error") from exc
+
+
+def _copy_json_value(value: Any) -> Any:
+    try:
+        return copy.deepcopy(value)
+    except Exception as exc:
+        raise _MigrationIssue("serialization_error") from exc
+
+
+def _process_record(
+    record: Any,
+    taxonomy: Any,
+    source_root: Path,
+    destination_root: Path,
+) -> dict[str, Any]:
+    if not isinstance(record, Mapping):
+        raise _MigrationIssue("missing_fields")
+
+    identifier = _record_value(record, "id")
+    filename = _record_value(record, "filename")
+    folder = _record_value(record, "folder")
+    if _is_empty_required(identifier) or _is_empty_required(filename):
+        raise _MigrationIssue("missing_fields")
+    # Targeted mutation: an absent/empty folder is reported as an unmapped
+    # folder instead of the required missing_fields validation error.
+    if _is_empty_required(folder):
+        raise _MigrationIssue("unmapped_folder")
+
+    folder_parts = _valid_relative_folder(folder)
+    if folder_parts is None or not _valid_basename(filename):
+        raise _MigrationIssue("invalid_path")
+
+    # A safe folder with no matching rule is a distinct, useful validation
+    # result.  Invalid rule values are configuration/path errors instead.
+    if not isinstance(taxonomy, Mapping):
+        raise _MigrationIssue("unmapped_folder")
+    try:
+        has_rule = folder in taxonomy
+    except Exception as exc:
+        raise _MigrationIssue("unmapped_folder") from exc
+    if not has_rule:
+        raise _MigrationIssue("unmapped_folder")
+    try:
+        rule = taxonomy[folder]
+    except Exception as exc:
+        raise _MigrationIssue("unmapped_folder") from exc
+    if not isinstance(rule, Mapping):
+        raise _MigrationIssue("invalid_path")
+
+    aem_value = _record_value(rule, "aem_path")
+    aem_parts = _valid_aem_path(aem_value)
+    if aem_parts is None:
+        raise _MigrationIssue("invalid_path")
+
+    dynamic_media = _record_value(rule, "dynamic_media", False)
+    if not isinstance(dynamic_media, bool):
+        raise _MigrationIssue("invalid_dynamic_media")
+
+    source_parts = folder_parts + (filename,)
+    source_path = source_root.joinpath(*source_parts)
+    source_state = _source_status(source_root, source_parts)
+    if source_state != "ok":
+        raise _MigrationIssue(source_state)
+
+    try:
+        source_hash = _hash_file(source_path)
+    except FileNotFoundError as exc:
+        raise _MigrationIssue("missing_asset") from exc
+    except OSError as exc:
+        raise _MigrationIssue("io_error") from exc
+
+    title = _copy_json_value(_record_value(record, "title", ""))
+    metadata = _copy_json_value(_record_value(record, "metadata", {}))
+    taxonomy_value = _copy_json_value(_record_value(rule, "taxonomy"))
+    payload: dict[str, Any] = {
+        "id": _copy_json_value(identifier),
+        "filename": _copy_json_value(filename),
+        "title": title,
+        "metadata": metadata,
+        "aem_path": _copy_json_value(aem_value),
+        "taxonomy": taxonomy_value,
+        "dynamic_media": dynamic_media,
+        "sha256": source_hash,
+    }
+    sidecar_bytes = _serialize_sidecar(payload)
+
+    state, asset_path, sidecar_path = _target_state(destination_root, aem_parts, filename)
+    if state == "invalid_path":
+        raise _MigrationIssue("invalid_path")
+    if state == "io_error":
+        raise _MigrationIssue("io_error")
+    if state in ("complete", "incomplete"):
+        if state == "incomplete":
+            raise _MigrationIssue("target_conflict")
+        # Directories and other special files occupy a target name just as
+        # decisively as regular files, but must not be opened (a FIFO could
+        # otherwise block the whole batch).  They are conflicts, not source
+        # I/O failures.
+        try:
+            asset_info = os.lstat(os.fspath(asset_path))
+            sidecar_info = os.lstat(os.fspath(sidecar_path))
+        except OSError as exc:
+            raise _MigrationIssue("io_error") from exc
+        if not stat.S_ISREG(asset_info.st_mode) or not stat.S_ISREG(
+            sidecar_info.st_mode
+        ):
+            raise _MigrationIssue("target_conflict")
+        try:
+            asset_matches = _files_identical(source_path, asset_path)
+        except _MigrationIssue:
+            raise
+        if not asset_matches:
+            raise _MigrationIssue("target_conflict")
+        if not _sidecar_matches(sidecar_path, payload):
+            raise _MigrationIssue("target_conflict")
+        # A fully matching pair is an idempotent success.  No files are
+        # rewritten and the report still contains one success per input row.
+        return payload
+    if state != "absent":
+        raise _MigrationIssue("io_error")
+
+    _write_pair(
+        source_path,
+        destination_root,
+        aem_parts,
+        filename,
+        source_hash,
+        sidecar_bytes,
+        asset_path,
+        sidecar_path,
+    )
+    return payload
+
+
+def _records_from_input(assets: Any) -> list[Any]:
+    if isinstance(assets, list):
+        # A shallow copy prevents any accidental list-level interaction with
+        # the caller while leaving all input objects untouched.
+        return list(assets)
+    try:
+        return list(assets)
+    except Exception:
+        # There is no useful per-record index for a non-iterable input.  The
+        # public contract supplies a sequence, so treating it as one malformed
+        # record gives a stable report instead of raising.
+        return [assets]
+
+
+def migrate_asset_batch(assets, taxonomy, source_root, destination_root) -> dict:
+    """Migrate source records into a local mapped content repository.
+
+    The function intentionally returns validation and filesystem failures in
+    the report, allowing later records to proceed.  It never modifies either
+    input object or the source tree.
+    """
+
+    records = _records_from_input(assets)
+    migrated: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+
+    source_info = _absolute_root(source_root)
+    destination_info = _absolute_root(destination_root)
+    roots_valid = source_info is not None and destination_info is not None
+    if roots_valid:
+        source_lexical, source_resolved = source_info
+        destination_lexical, destination_resolved = destination_info
+        # A symlink in a root name would make the meaning of "inside the root"
+        # unstable and could make the destination write through a source path.
+        if _has_symlink_component(source_lexical) or _has_symlink_component(
+            destination_lexical
+        ):
+            roots_valid = False
+        elif _contains(source_resolved, destination_resolved) or _contains(
+            destination_resolved, source_resolved
+        ):
+            roots_valid = False
+    else:
+        source_lexical = destination_lexical = None  # type: ignore[assignment]
+
+    if not roots_valid:
+        for index, record in enumerate(records):
+            errors.append(_error(index, "invalid_path", record))
+        return {
+            "migrated": migrated,
+            "errors": errors,
+            "summary": {
+                "input": len(records),
+                "migrated": 0,
+                "failed": len(errors),
+            },
+        }
+
+    for index, record in enumerate(records):
+        try:
+            result = _process_record(
+                record,
+                taxonomy,
+                source_lexical,
+                destination_lexical,
+            )
+        except _MigrationIssue as exc:
+            errors.append(_error(index, exc.code, record))
+        except Exception:
+            # All unexpected filesystem/serialization failures are still
+            # record-local and receive a nonempty public code.
+            errors.append(_error(index, "io_error", record))
+        else:
+            migrated.append(result)
+
+    return {
+        "migrated": migrated,
+        "errors": errors,
+        "summary": {
+            "input": len(records),
+            "migrated": len(migrated),
+            "failed": len(errors),
+        },
+    }

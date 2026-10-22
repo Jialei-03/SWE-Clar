@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-056",
+  "public": {
+    "readme": "# Device WebSocket router\n\nWork directory `/workspace`. Node.js 22 and ws 8.19.0 are preinstalled in the benchmark shared environment; no npm install or external accounts required. Only Node built-ins and ws are needed. Build/check: `node --check server.cjs && node --check auth.cjs && node --check broker.cjs`. Start: `JWT_SECRET=local-development-key PORT=8080 node server.cjs`. HTTP health: `http://127.0.0.1:8080/health`; WebSocket: `ws://127.0.0.1:8080/socket`. Public regression: `node /public_tests/smoke.cjs`. Logs use stdout/stderr. Reset: stop and restart with a fresh workspace/session. CPU2, RAM2GiB, process limit256, loopback-only networking. A fresh synthetic secret is supplied separately to each evaluation.\n\nPreserve the HTTP health endpoint and actual WebSocket flow; finish auth.cjs and broker.cjs. Other source files can be changed while retaining the interface. `startServer({secret,clock,port,host})` returns `{port,sweep(timeout),snapshot(),close()}` (async startup/close). clock returns Unix seconds and defaults to wall time; evaluation injects deterministic time. `sweep` takes a positive finite number of seconds; report an error for invalid timeouts. Connect with `Authorization: Bearer <JWT>` using HS256 claims `sub`, `device_id`, `exp`. Successful ready JSON contains type=ready, connection_id and device_id. Malformed JSON or a non-object JSON value receives error.code=invalid_message. Invalid JWT upgrades are HTTP401; duplicate active device in ordinary connect mode is HTTP409.\n\nJSON frame shapes: heartbeat `{type:\"heartbeat\"}` receives `{type:\"heartbeat\"}` acknowledgment; publish `{type:\"publish\",target_device,payload}` receives `{type:\"published\",sequence}` and routes `{type:\"message\",sequence,source_device,target_device,payload}`; status `{type:\"status\"}` returns `{type:\"status\",active,disconnected,routed_messages,reconnects}`. `snapshot()` returns the same counters without requiring type. Extra metadata is allowed; these fields must keep their meanings. `sweep(timeout)` returns connection IDs. Query `mode=reconnect` requests reconnection handling. Clarify replacement, timing, routing and monitoring rules before implementing them. No user-to-device ownership policy is implied beyond authenticated device sessions; all test identities are synthetic. This independently rebuilt protocol component does not certify production capacity, original device compatibility or full business backend behavior.",
+    "interfaces": [
+      {
+        "type": "api",
+        "entry": {
+          "language": "javascript",
+          "file": "server.cjs",
+          "function": "startServer"
+        },
+        "inputs": {
+          "transport": "loopback HTTP and WebSocket",
+          "configuration": "secret, clock callback, port, host"
+        },
+        "output": {
+          "type": "network_behavior",
+          "meaning": "Observed handshake, socket frames, connection closure and metrics"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "api",
+      "entry": {
+        "language": "javascript",
+        "file": "server.cjs",
+        "function": "startServer"
+      },
+      "inputs": {
+        "transport": "loopback HTTP and WebSocket",
+        "configuration": "secret, clock callback, port, host"
+      },
+      "output": {
+        "type": "network_behavior",
+        "meaning": "Observed handshake, socket frames, connection closure and metrics"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "api",
+      "entry": {
+        "language": "javascript",
+        "file": "server.cjs",
+        "function": "startServer"
+      },
+      "inputs": {
+        "transport": "loopback HTTP and WebSocket",
+        "configuration": "secret, clock callback, port, host"
+      },
+      "output": {
+        "type": "network_behavior",
+        "meaning": "Observed handshake, socket frames, connection closure and metrics"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "api",
+      "entry": {
+        "language": "javascript",
+        "file": "server.cjs",
+        "function": "startServer"
+      },
+      "inputs": {
+        "transport": "loopback HTTP and WebSocket",
+        "configuration": "secret, clock callback, port, host"
+      },
+      "output": {
+        "type": "network_behavior",
+        "meaning": "Observed handshake, socket frames, connection closure and metrics"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "api",
+      "entry": {
+        "language": "javascript",
+        "file": "server.cjs",
+        "function": "startServer"
+      },
+      "inputs": {
+        "transport": "loopback HTTP and WebSocket",
+        "configuration": "secret, clock callback, port, host"
+      },
+      "output": {
+        "type": "network_behavior",
+        "meaning": "Observed handshake, socket frames, connection closure and metrics"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "api",
+      "entry": {
+        "language": "javascript",
+        "file": "server.cjs",
+        "function": "startServer"
+      },
+      "inputs": {
+        "transport": "loopback HTTP and WebSocket",
+        "configuration": "secret, clock callback, port, host"
+      },
+      "output": {
+        "type": "network_behavior",
+        "meaning": "Observed handshake, socket frames, connection closure and metrics"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "58919bff013ba4572454270d79a5c1d538c8aed2cabbf07f77185e32f1ec8f4c",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "348d1f7bf2673ce6d536a9325d9257da7c7f1f2b50c003150e9a821a8e19e549",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "db54b5d6bbc5bc2158fc00e14024ec577641f5ddc6080f393d4e35eae05aea82",
+    "evaluation/tests/server_proxy.cjs": "25874352981dd01eb250780bcaba12c249e191245e662d9988a2d3d311dfdf82",
+    "evaluation/tests/socket_contract.cjs": "fb795bde3937007d8f77c971c4e2d4449b8bc66ef03f2dd81323a4c75439f1a7",
+    "evaluation/tests/source_test.sh": "4e3a1493824b7515869f52ece5e02232fb08e64fe18b70f7e12237e92d6b85b0",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867"
+  },
+  "public_environment_sha256": "1862aba91f1d6c028eb16ebb9ecca5d28fab494ea8fef60202f7cab3787fc2f8",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

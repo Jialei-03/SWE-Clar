@@ -1,0 +1,261 @@
+schema_version: 1
+task_id: SWECLAR-009
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent hiring web marketplace with actual profiles, jobs, private resume files, application/interview
+  workflow and view analytics
+requirement_units:
+- ru_id: RU-001
+  name: Working web application and trusted sessions
+  content: Maintain a real local hiring web application using the public Python server command, SQLite
+    database, fixture schema, HTTP endpoints and browser controls. The benchmark preinstalls Python, SQLite
+    and Chromium; there are no production accounts, remote APIs or original customer materials. Initialize
+    fixtures only for a new database, preserve existing data on restart and use database transactions
+    for atomic changes. Login validates a seeded password and creates an opaque server-stored session;
+    wrong credentials, missing/forged/revoked tokens return 401. Logout revokes only that session. Actor
+    identity and role come from the session, never from supplied user/owner/role claims. Expose only documented
+    public user fields, never passwords/hashes or any other session token. Reject malformed JSON, extra/missing
+    request fields and invalid public formats with 400; errors are real HTTP error statuses with JSON
+    error.code. All successful JSON objects may contain harmless extra metadata. Preserve actual browser
+    login/logout, profile browsing/editing and relationship controls, plus the published integration controls
+    for job, application, interview and analytics work. Render names, biographies, descriptions and feedback
+    as literal text, keep controls usable at 390x844 and 1280x900 without horizontal overflow or script
+    errors, and distinguish empty data from visible errors with a retry path. Logout/account changes clear
+    old DOM and pending responses; late successful responses from an earlier account must never restore
+    previous account content. Keep all business state in the actual SQLite database, not self-reported
+    persistence flags. These foundation obligations are initially public.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What behavior is required for working web application and trusted sessions?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --port 8000 --db hiring.sqlite --fixtures fixtures/demo.json
+      runtime: Prepared Python/SQLite/Chromium local application
+    inputs:
+      http: Published session-authenticated HTTP/JSON endpoints and base64 file upload
+      browser: Published profile, relationship, job/application, interview/agenda and analytics controls
+    output:
+      application: Real browser UI, HTTP responses, SQLite rows/blobs and downloaded files
+      evaluation: Independent hidden checks mapped to five RUs
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: The original job privately supports a hiring web marketplace with authentication and database
+    work. All exact workflows, identities, schemas, code, files and policies are independently constructed,
+    not customer quotations.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/hiring_contract.py
+- ru_id: RU-002
+  name: Public profiles and role-aware relationships
+  content: Authenticated users may list and read all synthetic profiles, exposing only id, name, role
+    and bio, sorted by ID. A user may edit only their own display name and biography through the session-bound
+    profile endpoint; name is trimmed nonempty text of at most 120 characters and bio is literal text
+    of at most 2000 characters. Roles and user IDs are immutable through this endpoint. Display edited
+    content immediately and preserve it after restart. For a relationship target, missing users return
+    404, self-relations return 400, and invalid role combinations return 403 without changing existing
+    data. Follow is directional and allowed from either employer or employee to another employer. Connect
+    is symmetric and allowed only between two employees; this synthetic contact-list operation takes effect
+    immediately, with no invitation workflow. enabled=true creates the relation once and enabled=false
+    removes it idempotently. Follow and connect records are distinct. Return only relations involving
+    the current actor, with actor_id,target_id,kind; serialize connect with the lexicographically smaller
+    ID as actor_id, then sort rows by kind,actor_id,target_id. Relationship and profile edits operate
+    through actual authenticated HTTP and browser forms. The relationship matrix and immediate-contact
+    convention are public baseline behavior, not undisclosed requirements.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What behavior is required for public profiles and role-aware relationships?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --port 8000 --db hiring.sqlite --fixtures fixtures/demo.json
+      runtime: Prepared Python/SQLite/Chromium local application
+    inputs:
+      http: Published session-authenticated HTTP/JSON endpoints and base64 file upload
+      browser: Published profile, relationship, job/application, interview/agenda and analytics controls
+    output:
+      application: Real browser UI, HTTP responses, SQLite rows/blobs and downloaded files
+      evaluation: Independent hidden checks mapped to five RUs
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: The original job privately supports a hiring web marketplace with authentication and database
+    work. All exact workflows, identities, schemas, code, files and policies are independently constructed,
+    not customer quotations.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/hiring_contract.py
+- ru_id: RU-003
+  name: Owned jobs, discovery, applications and private resume files
+  content: Only employers create jobs. A new job receives the session actor as employer_id and active=true;
+    duplicate job_id returns 409 and never overwrites a job. An employer may update only its own job,
+    including closing or reopening it; unauthorized updates return 403 and missing jobs return 404. Required
+    job title, description, category and location are trimmed nonempty Unicode strings with the public
+    length bounds; active is an actual boolean. GET jobs returns employees only active jobs and employers
+    only their own jobs, including closed ones. Optional q matches a casefolded substring of title or
+    description; category and location use casefolded exact comparison after trimming. Combine filters
+    with AND, blank filters mean no restriction, and sort by job_id. A job-detail read allows its owner
+    or any employee when active; other access returns 403, and a missing job returns 404. Employee bookmarks
+    may be enabled only on active jobs, with duplicates idempotent; disabling an existing bookmark is
+    allowed after closure. Bookmark lists contain only that employee's saved jobs, including closed ones,
+    sorted by job_id. Employers may not bookmark or apply. Each employee may apply only once to an active
+    job; application_id is globally unique and the job/employee pair is unique even after rejection. The
+    identical application_id/job/employee/resume_id replay succeeds with duplicate=true without adding
+    rows; a conflicting reuse or a second ID for that pair returns 409. A previously accepted identical
+    replay still succeeds after the job closes. A new application starts applied. An optional resume_id
+    must belong to the applying employee, otherwise return 403 (including nonexistent references) without
+    creating an application. Only employees upload resumes, using the public base64 UTF-8 .txt file format
+    and limits. Persist and return the exact decoded bytes on download. A resume ID is globally unique;
+    identical owner/filename/bytes replay is idempotent, and conflicting reuse returns 409 without replacing
+    bytes. Resume download is allowed only to its uploader and employers owning an application that references
+    it, including a rejected application; all other or nonexistent resume IDs return 403. A resume uploaded
+    but never attached to an application is private to its uploader. Download retains its safe basename
+    and text/plain media type. Application lists reveal only the current employee's applications or current
+    employer's owned-job applications, sorted by application_id. Provide real job forms/filter results,
+    bookmark actions, file upload, application submission and authorized resume download; show server
+    rejection, preserve saved data and permit retry. Simultaneous duplicate operations must remain atomic.
+    All account, ownership, lifecycle and attachment decisions here are independent benchmark conventions.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What behavior is required for owned jobs, discovery, applications and private resume
+    files?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --port 8000 --db hiring.sqlite --fixtures fixtures/demo.json
+      runtime: Prepared Python/SQLite/Chromium local application
+    inputs:
+      http: Published session-authenticated HTTP/JSON endpoints and base64 file upload
+      browser: Published profile, relationship, job/application, interview/agenda and analytics controls
+    output:
+      application: Real browser UI, HTTP responses, SQLite rows/blobs and downloaded files
+      evaluation: Independent hidden checks mapped to five RUs
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: The original job privately supports a hiring web marketplace with authentication and database
+    work. All exact workflows, identities, schemas, code, files and policies are independently constructed,
+    not customer quotations.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/hiring_contract.py
+- ru_id: RU-004
+  name: Atomic interview scheduling, rejection and participant agendas
+  content: 'Only the owning employer may reject or schedule an application; forbidden access, including
+    unknown application IDs, returns 403 without exposing its contents. Scheduling supplies interview_id,
+    application_id, start_ms and end_ms in the public timestamp format. Require start_ms at or after the
+    fixed fixture clock_ms, end_ms strictly later, and duration at most eight hours; invalid slots return
+    400. An application can have at most one scheduled interview. An identical interview ID/application/start/end
+    replay succeeds with duplicate=true; conflicting interview ID reuse or another interview for an already
+    scheduled application returns 409. A rejected application cannot be scheduled (409). Appointment intervals
+    are half-open: end equal to another start is allowed. Reject a slot with 409 if it overlaps an existing
+    interview involving either the owning employer or the applicant, even on a different job or across
+    different employers for that applicant. Perform the interview insert, application status change to
+    scheduled and conflict decision in one transaction so concurrent conflicts cannot both succeed. Rejection
+    sets status=rejected and removes any scheduled interview atomically, freeing its slot and removing
+    it from both agendas; repeated rejection is idempotent. Closing a job does not invalidate its existing
+    applications or prevent an authorized interview. GET calendar returns only interviews involving the
+    current actor, sorted by start_ms then interview_id, with real participant IDs, job/application IDs
+    and start/end times. Participants are [employer_id,employee_id]. Both participants see the same persisted
+    event and a nonparticipant sees none. The browser must provide scheduling/rejection controls and an
+    actual chronological agenda showing job, participants and UTC start/end times. Show pending/failure
+    feedback, preserve a prior event on a rejected scheduling attempt, allow retry, and remove cancelled
+    events after refresh. Role-ineligible controls are hidden or disabled and permissions also hold on
+    the server. Rescheduling and external calendar services are outside this independently designed local
+    agenda workflow.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What behavior is required for atomic interview scheduling, rejection and participant
+    agendas?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --port 8000 --db hiring.sqlite --fixtures fixtures/demo.json
+      runtime: Prepared Python/SQLite/Chromium local application
+    inputs:
+      http: Published session-authenticated HTTP/JSON endpoints and base64 file upload
+      browser: Published profile, relationship, job/application, interview/agenda and analytics controls
+    output:
+      application: Real browser UI, HTTP responses, SQLite rows/blobs and downloaded files
+      evaluation: Independent hidden checks mapped to five RUs
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: The original job privately supports a hiring web marketplace with authentication and database
+    work. All exact workflows, identities, schemas, code, files and policies are independently constructed,
+    not customer quotations.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/hiring_contract.py
+- ru_id: RU-005
+  name: Idempotent view events, period analytics and rendered charts
+  content: Only an employee may POST a job view event. Derive viewer_id from the session; event_id is
+    unique per viewer, not globally. A new event requires an active existing job (missing or inactive
+    returns 404); an employer receives 403. Each event stores its provided integer timestamp_ms, permitting
+    out-of-order and future events within the public range. An identical event_id/job/timestamp replay
+    by that viewer is accepted with duplicate=true, including after job closure; conflicting reuse returns
+    409 without altering the earlier event. Another employee using the same event_id is independent. Only
+    the owning employer may read a job's analytics, including closed jobs; others or nonexistent jobs
+    return 403. With neither start_ms nor end_ms, aggregate all stored views. Otherwise require both valid
+    timestamps with start_ms<=end_ms and include both period endpoints; malformed or partial periods return
+    400. Return total views, total distinct viewer IDs and by_day rows sorted by UTC date, including only
+    dates with matching events. Each by_day row has day (YYYY-MM-DD), views and unique_viewers. The sum
+    of daily views equals the period total; period unique viewers is a union across days, not the sum
+    of daily distinct counts. Replaying events never inflates counts and data survive restart. Browser
+    opening a job as an employee submits a real view event, preserving its event ID on an explicit retry
+    after failure; a new opening is a new event. Use the fixture clock_ms for ordinary UI view timestamps
+    so runs do not depend on wall time. An employer can select a job, choose all-time or an inclusive
+    period, and render an actual SVG column chart from returned by_day counts plus readable day/count
+    labels. Positive column heights are proportional to views on one common scale; equal counts have equal
+    heights, and an empty result has a visible empty state. Include one rect with data-day per nonempty
+    day in svg#view-chart; styling, colors and dimensions are free. The CSV download uses the same authorized
+    query and exactly day,views,unique_viewers columns in the same order as by_day, with real counts and
+    CSV escaping. Failed reads/downloads show an error and allow retry; late responses for a prior job/period/account
+    must not overwrite the current chart or expose a previous account's data. All event and analytics
+    policies are independent synthetic requirements.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What behavior is required for idempotent view events, period analytics and rendered
+    charts?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --port 8000 --db hiring.sqlite --fixtures fixtures/demo.json
+      runtime: Prepared Python/SQLite/Chromium local application
+    inputs:
+      http: Published session-authenticated HTTP/JSON endpoints and base64 file upload
+      browser: Published profile, relationship, job/application, interview/agenda and analytics controls
+    output:
+      application: Real browser UI, HTTP responses, SQLite rows/blobs and downloaded files
+      evaluation: Independent hidden checks mapped to five RUs
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: The original job privately supports a hiring web marketplace with authentication and database
+    work. All exact workflows, identities, schemas, code, files and policies are independently constructed,
+    not customer quotations.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/hiring_contract.py

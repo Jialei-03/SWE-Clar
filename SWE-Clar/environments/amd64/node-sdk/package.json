@@ -1,0 +1,12 @@
+{
+  "name": "sweclar-node-sdk",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.883.0",
+    "@aws-sdk/client-rekognition": "3.883.0"
+  }
+}

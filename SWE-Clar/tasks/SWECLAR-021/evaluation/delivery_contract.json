@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-021",
+  "public": {
+    "readme": "# Ingestion and snapshot reporting pipeline\n\n\nUse the prepared `python-web` Linux AMD64 environment: Python3.12, SQLite and the standard library. Browser dependencies are available in that shared profile but this task evaluates a command-line data pipeline, not a webpage. The benchmark starts a protected synthetic HTTP destination adapter at `http://127.0.0.1:8081` before candidate budget, under UID2000 with private storage. Candidate code executes as UID1000 without capabilities. Candidate cannot access evaluator data or adapter storage; it may use the documented adapter HTTP API. Each attempt gets fresh workspace/database/adapter state. Network is loopback only, 2CPUs,2048MiB memory,256PIDs,512MiB workspace,1024MiB temporary storage; evaluation wall limit300seconds. No downloads or third-party credentials are required.\n\nWork in `/workspace`. Build: `python -m compileall -q cli.py store.py reports.py transport.py`. Execute: `python cli.py --db /workspace/data/pipeline.sqlite3 --adapter http://127.0.0.1:8081`. Feed one UTF-8 JSON object per physical input line; the process returns exactly one JSON object per input line on stdout and continues until EOF. Diagnostics go to stderr. The CLI may be invoked repeatedly or concurrently against the same database. Successful database initialization and commands are durable. Public tests: `python /public_tests/test_public.py`, using disposable databases and output files. Reset by stopping all CLI processes and removing `/workspace/data`; the benchmark resets adapter state between attempts. Stopping/restarting CLI preserves application records and delivery retries. The public sample `/workspace/dev_runtime/sample.jsonl` contains only synthetic commands; no wall-clock scheduling is required.\n\nThe starter is a real working multi-file SQLite/CLI/CSV pipeline: it can ingest valid events, read the ordered stored records, refresh a snapshot, generate basic reports and write parseable CSV. Repair transactional revision/idempotency behavior, snapshot version rules, filtered aggregation and adapter delivery. Existing baseline commands and single-row reports must remain operational. It is not a state-dictionary emulator. CLI commands may be chained in a single process; later commands observe earlier successful commits. Internal SQL schema, algorithms, code structure and CSV quoting style are free within the following public contracts.\n\n### CLI framing and common values\n\nEach physical input line is at most262144 bytes including newline, must decode as a JSON object and may have whitespace before/after the object. Blank lines and malformed/oversize/nonobject JSON yield `{ok:false,error:{code:\"invalid_request\"}}` without terminating the stream. Reject non-finite JSON constants and invalid UTF-8. The next line must still be processed. Missing/unknown op yields `unknown_operation`. Expected errors exit normally at EOF; unrecoverable environment failures produce a nonzero process exit and stderr diagnostic. Never print secrets or traceback on stdout.\n\nOn success return `{ok:true,result:...}`. On known failure return `{ok:false,error:{code:...}}`; errors leave durable business state unchanged except the explicitly recorded failed delivery attempt. Extra response metadata is allowed, ignored input fields are allowed, and JSON key ordering/spacing is unconstrained. IDs are case-sensitive strings of1..100Unicode scalar values (unpaired surrogates are invalid), may include punctuation, whitespace and non-ASCII, and are preserved exactly without stripping; empty string is invalid. No generated opaque ID format is prescribed. Boolean is not an integer for numeric fields. Event dates are exact valid Gregorian `YYYY-MM-DD`, years0001..9999. Amounts are signed integer cents in[-1000000000,1000000000]. Revision is integer0..1000000. Group totals/counts use exact integers. Filename handling is defined for export; no remote file access is required.\n\n`Event` fields: `source,event_id,customer_id,booking_id,amount_cents,date,revision`. Event identity/revision behavior is clarifiable with the client. `Snapshot` fields: `version,record_count,watermark`, version initially0, record_count0, watermark null. `watermark` is an opaque caller-supplied string1..100 or null, never inferred from clock. Snapshot owns an immutable ordered copy of events; refreshing replaces that copy transactionally. `Report` fields: `customer_id,start,end,snapshot_version,event_count,total_cents,bookings`; customer_id/start/end nullable. Each booking aggregate: `{customer_id,booking_id,event_count,total_cents}`. Aggregation/order/filter rules are clarifiable with the client.\n\nCommands:\n\n- `{op:\"status\"}` \u2192 `{record_count,snapshot,pending_deliveries,delivered_count}`; counts reflect committed database contents.\n- `{op:\"ingest\",records:[Event,...]}` \u2192 `{inserted,updated,unchanged,record_count}`; records length0..200. Types/schema are public; complete validation/revision/conflict behavior is clarifiable with the client. Counters are nonnegative integers and count each input occurrence as specified there.\n- `{op:\"records\"}` \u2192 `{records:[Event,...]}` in durable first-insertion order.\n- `{op:\"refresh\",watermark:null|string}` \u2192 Snapshot. Missing watermark means null. Validating and changing snapshots is clarifiable with the client.\n- `{op:\"report\",customer_id:null|string,start:null|date,end:null|date}` \u2192 Report. Missing filters mean null; start>end is `invalid_filter`. Date/type/ID filter errors also `invalid_filter`. Report reads the last explicitly refreshed snapshot, not live records.\n- `{op:\"export\",path:string,customer_id:null|string,start:null|date,end:null|date}` \u2192 `{path,snapshot_version,row_count}` and an actual UTF-8 CSV file. Path is a nonempty absolute filesystem path of at most4096codepoints under the caller's current workdir; no `..` path components or symlink in any existing component, and target cannot be a directory. Missing parent directories may be created. Invalid path gives `invalid_path`; write/replace errors give `export_failed`. Preserve an existing output file on validation/report/write failure. Successful replacement is atomic at the filesystem level. JSON error must not be embedded into the CSV. Report filters are identical to report command. CSV output details are clarifiable with the client; `row_count` counts booking rows, excluding header. Echo the accepted absolute path exactly.\n- `{op:\"queue\",request_id:string,target:string,customer_id:null|string,start:null|date,end:null|date}` \u2192 `{delivery}` with immutable report envelope. Target is one of `table`,`mail`,`archive`. Missing/invalid target `invalid_target`; invalid request_id `invalid_request`; filter errors as report. Queue/replay rules are clarifiable with the client.\n- `{op:\"deliver\",request_id:string}` \u2192 `{delivery}` on success, or `{ok:false,error:{code:\"delivery_failed\"},delivery}` on an attempted external delivery failure. Unknown request_id gives `not_found` without network access. Missing/invalid request_id `invalid_request`. Retries and acknowledgements are clarifiable with the client.\n- `{op:\"deliveries\"}` \u2192 `{deliveries:[Delivery,...]}` in first queue order.\n\nDelivery fields: `{request_id,target,envelope,status,attempts,last_error}`. Status is `pending|delivered`, attempts is integer0initial, last_error null initially or `delivery_failed`. `Envelope`: `{request_id,target,report}` where report is the complete immutable Report when queued. No original customer IDs or provider-specific schemas appear; target names are synthetic adapter partitions. Non-applicable commands must not perform network requests.\n\n### Prepared adapter HTTP protocol\n\n- `GET /health` \u2192200 `{ok:true}`.\n- `POST /deliveries/{target}` with the Envelope JSON and `Idempotency-Key` equal to the UTF-8 percent-encoded envelope.request_id (encode every byte except ASCII letters, digits, hyphen, underscore, dot and tilde) creates a durable receipt for that target/request ID. Targets are table/mail/archive; path target must equal envelope.target. Decode the header exactly once and compare the result to envelope.request_id; malformed percent escapes or invalid UTF-8 are rejected. Header/identity mismatch400, invalid target404. Envelope shape validation is bounded to JSON with required request_id,target,report fields; adapter does not compute reports.\n- First accepted envelope201 `{accepted:true,request_id,target}`; exact JSON-semantic replay200 with same acknowledgement, irrespective of formatting or key order. Same target/request_id but different JSON-semantic envelope409 `{accepted:false,error:{code:\"conflict\"}}` and the original receipt remains unchanged. Semantic equality compares JSON values; additional envelope metadata changes the envelope.\n- `GET /receipts/{target}` \u2192200 `{receipts:[Envelope,...]}` in receipt creation order. This public endpoint exposes synthetic test receipts only; no real service/account data. It permits direct delivery inspection in development. There are no candidate-accessible failure injection or storage-management endpoints.\n- Adapter permits loopback clients only. Its implementation and fixtures are read-only. Manager-only calibration controls can cause503responses, invalid acknowledgements or loss of response after durable commit. Evaluated candidate must tolerate these through the same ordinary HTTP protocol; it is never asked to repair/restart the adapter.\n\nApplication must send actual HTTP to its fixed CLI-configured adapter URL, with the exact immutable queued envelope and idempotency header. No payload fields may override the destination URL. HTTP transport has a bounded timeout up to5seconds, never waits indefinitely and performs one HTTP attempt per explicit deliver command. No automatic background retries or real remote provider API calls. The manager has already made the adapter reachable before the task begins.\n\n\n## Visible baseline requirements\n\n## RU-001 \u2014 Durable streaming CLI and ordered storage (visible)\n\nMaintain the working real CLI/SQLite pipeline and stated command schemas. Multiple independent valid commands in one input stream each emit a response and observe previous commits. Status starts with zero records, snapshot version0/count0/watermark null, zero pending/delivered. Records are returned in first-insertion order and survive CLI process restart; updating an existing event preserves its position. Valid single-event ingest, records, refresh, unfiltered single-booking report and actual CSV export are existing starter behavior and must remain usable. A valid report immediately after an initial single-event ingest+refresh contains that event's exact amount and counts. Reporting an empty snapshot yields zero counts/total and empty bookings. CLI stdout is only JSON responses and remains parseable when invalid input precedes a valid command. No candidate-authored state or ready flag substitutes for actual file/SQLite/HTTP behavior.\n\n## RU-002 \u2014 Existing snapshot/report/export chain (visible)\n\nProvide actual snapshot reads and CSV production through the disclosed command chain. Ingest does not implicitly refresh the report snapshot. Before the first refresh, report reads the empty version0 snapshot even if live records exist. A nonempty refresh copies current events; records and snapshot are distinct durable states. Reports/export use the same snapshot_version and return actual numbers. The baseline nonempty one-customer/one-booking chain must work in a single CLI process and after restart. Valid export writes a real CSV with header `customer_id,booking_id,event_count,total_cents`, one row per booking in the report, and no fabricated success if the file is absent. Standard CSV quoting is required for delimiters/newlines/quotes in IDs, UTF-8 preserved; LF or CRLF line terminators and optional UTF-8 BOM are accepted. UI/browser is not required. Hidden RUs add exact revision, snapshot no-op and multi-record filtering/aggregation semantics rather than forcing an empty-project implementation.\n\n\n## Development target\n\nClarify and implement exact revision-conflict, cache refresh, filtered cross-booking aggregation and immutable connector-delivery behavior. Keep the existing streaming/storage/CSV chain operational.",
+    "interfaces": [
+      {
+        "type": "command",
+        "entry": {
+          "language": "Python",
+          "file": "cli.py",
+          "command": "python cli.py --db /workspace/data/pipeline.sqlite3 --adapter http://127.0.0.1:8081"
+        },
+        "inputs": {
+          "transport": "Streaming JSON-line CLI, actual CSV artifacts and prepared adapter HTTP",
+          "contract": "README.md"
+        },
+        "output": {
+          "type": "ingestion_pipeline",
+          "meaning": "Durable revision-aware events, snapshots, aggregated CSV and queued connector receipts"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "command",
+      "entry": {
+        "language": "Python",
+        "file": "cli.py",
+        "command": "python cli.py --db /workspace/data/pipeline.sqlite3 --adapter http://127.0.0.1:8081"
+      },
+      "inputs": {
+        "transport": "Streaming JSON-line CLI, actual CSV artifacts and prepared adapter HTTP",
+        "contract": "README.md"
+      },
+      "output": {
+        "type": "ingestion_pipeline",
+        "meaning": "Durable revision-aware events, snapshots, aggregated CSV and queued connector receipts"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "command",
+      "entry": {
+        "language": "Python",
+        "file": "cli.py",
+        "command": "python cli.py --db /workspace/data/pipeline.sqlite3 --adapter http://127.0.0.1:8081"
+      },
+      "inputs": {
+        "transport": "Streaming JSON-line CLI, actual CSV artifacts and prepared adapter HTTP",
+        "contract": "README.md"
+      },
+      "output": {
+        "type": "ingestion_pipeline",
+        "meaning": "Durable revision-aware events, snapshots, aggregated CSV and queued connector receipts"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "command",
+      "entry": {
+        "language": "Python",
+        "file": "cli.py",
+        "command": "python cli.py --db /workspace/data/pipeline.sqlite3 --adapter http://127.0.0.1:8081"
+      },
+      "inputs": {
+        "transport": "Streaming JSON-line CLI, actual CSV artifacts and prepared adapter HTTP",
+        "contract": "README.md"
+      },
+      "output": {
+        "type": "ingestion_pipeline",
+        "meaning": "Durable revision-aware events, snapshots, aggregated CSV and queued connector receipts"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "command",
+      "entry": {
+        "language": "Python",
+        "file": "cli.py",
+        "command": "python cli.py --db /workspace/data/pipeline.sqlite3 --adapter http://127.0.0.1:8081"
+      },
+      "inputs": {
+        "transport": "Streaming JSON-line CLI, actual CSV artifacts and prepared adapter HTTP",
+        "contract": "README.md"
+      },
+      "output": {
+        "type": "ingestion_pipeline",
+        "meaning": "Durable revision-aware events, snapshots, aggregated CSV and queued connector receipts"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "command",
+      "entry": {
+        "language": "Python",
+        "file": "cli.py",
+        "command": "python cli.py --db /workspace/data/pipeline.sqlite3 --adapter http://127.0.0.1:8081"
+      },
+      "inputs": {
+        "transport": "Streaming JSON-line CLI, actual CSV artifacts and prepared adapter HTTP",
+        "contract": "README.md"
+      },
+      "output": {
+        "type": "ingestion_pipeline",
+        "meaning": "Durable revision-aware events, snapshots, aggregated CSV and queued connector receipts"
+      },
+      "operations": []
+    },
+    "RU-006": {
+      "type": "command",
+      "entry": {
+        "language": "Python",
+        "file": "cli.py",
+        "command": "python cli.py --db /workspace/data/pipeline.sqlite3 --adapter http://127.0.0.1:8081"
+      },
+      "inputs": {
+        "transport": "Streaming JSON-line CLI, actual CSV artifacts and prepared adapter HTTP",
+        "contract": "README.md"
+      },
+      "output": {
+        "type": "ingestion_pipeline",
+        "meaning": "Durable revision-aware events, snapshots, aggregated CSV and queued connector receipts"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "8554f0733f8a8ab0b515c89f1b1fc90c26edc34f6c5d469701567d10d76e0fe4",
+  "test_sources_sha256": {
+    "evaluation/tests/expected_gates.json": "c3c4ffd42fe78b396dc4ea4c5370f588104f80fe1284a2b8eab0913330f3ec8f",
+    "evaluation/tests/official_verifier.py": "d8ef5b7a86437b85d2ba0972ee73bf65c8f463705e5d0a1e9ec19de4ef4513bc",
+    "evaluation/tests/pipeline_contract.py": "e36374fedaf34eef28ea38fd8cd49c9923e3d61f22a17e95113e7756565b7942"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

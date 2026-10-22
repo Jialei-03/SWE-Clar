@@ -1,0 +1,216 @@
+schema_version: 1
+task_id: SWECLAR-028
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent HTTP shift scheduling automation with SQLite and local notification delivery
+requirement_units:
+- ru_id: RU-001
+  name: Connected scheduling records
+  content: Implement the local scheduling service and preserve the public HTTP/configuration contract.
+    A signup resolves an existing employee by email or creates one, links the selected shift and employee
+    in a persisted signup, and preserves dynamic multi-location shifts. Repeated identical signup requests
+    do not create duplicate employees or signups; conflicting signup ID reuse is rejected.
+  requirement_category: core
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the required behavior and relevant boundaries for connected scheduling records.
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      language: Python
+      file: server.py
+      command: python server.py --config runtime/config.json --port 8080
+    inputs:
+      transport: HTTP JSON
+      contract: README.md
+    output:
+      type: persisted_state_and_http_delivery
+      meaning: Connected scheduling records
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/scheduling_contract.py
+  pass_rule: all_tests_pass
+  notes: Business workflow supported by privately reviewed source; Python/SQLite replacement, local notification
+    protocol, exact time and retry semantics and report serialization are benchmark reconstruction conventions.
+    No n8n compatibility, live account integration or original customer materials are claimed.
+- ru_id: RU-002
+  name: Dynamic signup notifications
+  content: A valid signup sends one SMS and one email to the employee and one email to the selected shift
+    manager through the prepared local notification endpoint. Every body includes worker name, offset-aware
+    shift timestamp, location, address and map URL. Recipients are derived from the linked records, not
+    fixed fixtures.
+  requirement_category: core
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the required behavior and relevant boundaries for dynamic signup notifications.
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      language: Python
+      file: server.py
+      command: python server.py --config runtime/config.json --port 8080
+    inputs:
+      transport: HTTP JSON
+      contract: README.md
+    output:
+      type: persisted_state_and_http_delivery
+      meaning: Dynamic signup notifications
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/scheduling_contract.py
+  pass_rule: all_tests_pass
+  notes: Business workflow supported by privately reviewed source; Python/SQLite replacement, local notification
+    protocol, exact time and retry semantics and report serialization are benchmark reconstruction conventions.
+    No n8n compatibility, live account integration or original customer materials are claimed.
+- ru_id: RU-003
+  name: Confirmed signup state and retries
+  content: Confirm the triggering signup only after all signup notifications succeed. Temporary delivery
+    failures must be reported without marking the step complete. Retry with stable idempotency keys and
+    avoid duplicate delivered messages. A repeated signup must preserve a later reminder state instead
+    of resetting it to Confirmed.
+  requirement_category: core
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the required behavior and relevant boundaries for confirmed signup state and
+    retries.
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      language: Python
+      file: server.py
+      command: python server.py --config runtime/config.json --port 8080
+    inputs:
+      transport: HTTP JSON
+      contract: README.md
+    output:
+      type: persisted_state_and_http_delivery
+      meaning: Confirmed signup state and retries
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/scheduling_contract.py
+  pass_rule: all_tests_pass
+  notes: Business workflow supported by privately reviewed source; Python/SQLite replacement, local notification
+    protocol, exact time and retry semantics and report serialization are benchmark reconstruction conventions.
+    No n8n compatibility, live account integration or original customer materials are claimed.
+- ru_id: RU-004
+  name: Two-stage reminders
+  content: Use the configured IANA timezone and explicit offset-aware now supplied to /tick. The 24h stage
+    selects Confirmed signups whose future shift starts on the next local calendar day, sends SMS and
+    email and advances to Reminder Sent 24h. The 2h stage selects only Reminder Sent 24h signups with
+    0 < starts_at-now <= 2 hours, sends both channels and advances to Reminder Sent 2h. Failed delivery
+    does not advance a stage; retry uses stable delivery keys. Past shifts and completed stages are not
+    resent.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the required behavior and relevant boundaries for two-stage reminders.
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      language: Python
+      file: server.py
+      command: python server.py --config runtime/config.json --port 8080
+    inputs:
+      transport: HTTP JSON
+      contract: README.md
+    output:
+      type: persisted_state_and_http_delivery
+      meaning: Two-stage reminders
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/scheduling_contract.py
+  pass_rule: all_tests_pass
+  notes: Business workflow supported by privately reviewed source; Python/SQLite replacement, local notification
+    protocol, exact time and retry semantics and report serialization are benchmark reconstruction conventions.
+    No n8n compatibility, live account integration or original customer materials are claimed.
+- ru_id: RU-005
+  name: Manager rosters and full-capacity alerts
+  content: At or after 06:00 in the configured local timezone, send one same-day roster per assigned manager,
+    once per local date. Earlier ticks do not send the daily roster. Separate managers receive only their
+    own shifts. Use the publicly specified structured report fields, with total capacity, filled signup
+    count and remaining capacity. Independently, an Open shift with remaining capacity <= 0 sends one
+    full-capacity email to its assigned manager and becomes Full after successful delivery. Failed delivery
+    does not complete the step; repeated ticks do not resend successful reports or alerts.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the required behavior and relevant boundaries for manager rosters and full-capacity
+    alerts.
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      language: Python
+      file: server.py
+      command: python server.py --config runtime/config.json --port 8080
+    inputs:
+      transport: HTTP JSON
+      contract: README.md
+    output:
+      type: persisted_state_and_http_delivery
+      meaning: Manager rosters and full-capacity alerts
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/scheduling_contract.py
+  pass_rule: all_tests_pass
+  notes: Business workflow supported by privately reviewed source; Python/SQLite replacement, local notification
+    protocol, exact time and retry semantics and report serialization are benchmark reconstruction conventions.
+    No n8n compatibility, live account integration or original customer materials are claimed.
+- ru_id: RU-006
+  name: Manual attendance
+  content: Signup and scheduled automation must not mark attendance as checked in. New signups retain
+    false/0 or unset attendance; existing attendance is preserved. Managers handle attendance separately.
+    This is a preimplemented regression requirement and does not represent wholly new hidden information.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the required behavior and relevant boundaries for manual attendance.
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      language: Python
+      file: server.py
+      command: python server.py --config runtime/config.json --port 8080
+    inputs:
+      transport: HTTP JSON
+      contract: README.md
+    output:
+      type: persisted_state_and_http_delivery
+      meaning: Manual attendance
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-006-T01
+    file: evaluation/tests/scheduling_contract.py
+  pass_rule: all_tests_pass
+  notes: Business workflow supported by privately reviewed source; Python/SQLite replacement, local notification
+    protocol, exact time and retry semantics and report serialization are benchmark reconstruction conventions.
+    No n8n compatibility, live account integration or original customer materials are claimed.

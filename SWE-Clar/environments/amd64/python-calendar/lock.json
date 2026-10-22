@@ -1,0 +1,7 @@
+{
+  "platform": "linux/amd64",
+  "base_profile": "python-web",
+  "source_profile": "python-calendar",
+  "wheels": [],
+  "archives": []
+}

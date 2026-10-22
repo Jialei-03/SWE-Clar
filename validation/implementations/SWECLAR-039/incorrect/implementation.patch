@@ -1,0 +1,836 @@
+diff --git a/controller.py b/controller.py
+index 3aa61e090af0d84996c4125a056901afc0b6c958..798e1b141226586e25f7129977d30d8d3ed5ed3f 100644
+--- a/controller.py
++++ b/controller.py
+@@ -1,53 +1,204 @@
+-"""Device workflow with durable pairing/history and actual peer exchanges."""
++"""Device workflow policy backed by the framed local peer."""
+ import re
++
+ from wire import exchange
+ 
+ 
++_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
++_COMMAND_NAMES = frozenset({"start", "stop", "calibrate", "status"})
++
++
+ class WorkflowError(Exception):
++    """An expected API workflow failure."""
++
+     def __init__(self, code, status=409):
+-        self.code, self.status = code, status
++        super().__init__(code)
++        self.code = code
++        self.status = status
+ 
+ 
+ def identifier(value):
+-    return isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,64}', value) is not None
++    """Return whether *value* is a public device/command/packet identifier."""
++    return isinstance(value, str) and _ID_PATTERN.fullmatch(value) is not None
++
++
++def _peer_failure():
++    return WorkflowError("peer_failure", 502)
+ 
+ 
+ def peer(port, request):
++    """Make one real peer exchange and translate its result to API errors."""
+     try:
+         response, packets = exchange(port, request)
+-    except (OSError, ValueError, UnicodeError):
+-        raise WorkflowError('peer_failure', 502)
+-    if not response['ok']:
+-        raise WorkflowError('peer_denied', 403)
++    except (OSError, ValueError, TypeError, UnicodeError, KeyError,
++            IndexError, OverflowError, RecursionError):
++        raise _peer_failure()
++
++    # exchange validates this as well, but keeping the boundary defensive makes
++    # this function safe if the wire implementation is replaced independently.
++    if not isinstance(response, dict) or type(response.get("ok")) is not bool:
++        raise _peer_failure()
++    if not response["ok"]:
++        raise WorkflowError("peer_denied", 403)
+     return response, packets
+ 
+ 
+ def discovery(port, service):
+-    response, _ = peer(port, {'op':'scan', 'service':service})
+-    advertisements = response.get('devices')
+-    if not isinstance(advertisements, list): raise WorkflowError('peer_failure', 502)
+-    devices = {}
++    """Scan, validate, collapse, and filter advertisements from the peer."""
++    if not isinstance(service, str) or not 1 <= len(service) <= 64:
++        raise WorkflowError("invalid_request", 400)
++
++    response, _ = peer(port, {"op": "scan", "service": service})
++    advertisements = response.get("devices")
++    if not isinstance(advertisements, list):
++        raise _peer_failure()
++
++    # Assignment updates a value without changing dict insertion order.  Thus
++    # a duplicate gets its latest fields while its first-seen position remains.
++    latest = {}
+     for item in advertisements:
+-        if (not isinstance(item, dict) or not identifier(item.get('device_id'))
+-                or not isinstance(item.get('name'), str) or not isinstance(item.get('services'), list)
+-                or not all(isinstance(s, str) for s in item['services'])):
+-            raise WorkflowError('peer_failure', 502)
+-        devices[item['device_id']] = {k:item[k] for k in ('device_id','name','services')}
+-    return [value for value in devices.values() if service in value['services']]
++        if (
++            not isinstance(item, dict)
++            or not identifier(item.get("device_id"))
++            or not isinstance(item.get("name"), str)
++            or not isinstance(item.get("services"), list)
++            or not all(isinstance(value, str) for value in item["services"])
++        ):
++            raise _peer_failure()
++        device_id = item["device_id"]
++        latest[device_id] = {
++            "device_id": device_id,
++            "name": item["name"],
++            "services": item["services"],
++        }
++
++    return [device for device in latest.values() if service in device["services"]]
++
++
++def _discovered(state, device_id):
++    return any(device.get("device_id") == device_id for device in state["devices"])
+ 
+ 
+-def lifecycle(state, op, body, port):
+-    # Provisional UI wiring; replace with the clarified peer-backed lifecycle.
+-    device_id = body.get('device_id')
+-    if op == 'pair':
+-        if device_id not in state['paired']: state['paired'].append(device_id)
+-    elif op == 'connect': state['connected'] = device_id
+-    elif op == 'disconnect': state['connected'] = None
++def lifecycle(state, operation, body, port):
++    """Apply one pairing/connection operation to the in-memory state."""
++    if operation == "pair":
++        device_id = body.get("device_id")
++        code = body.get("code")
++        if not identifier(device_id) or not isinstance(code, str) or not 1 <= len(code) <= 64:
++            raise WorkflowError("invalid_request", 400)
++        if not _discovered(state, device_id):
++            raise WorkflowError("not_discovered", 409)
++        # Re-pairing a visible device still makes a peer request; the peer's
++        # one-time code policy determines whether that repeated attempt works.
++        already_paired = device_id in state["paired"]
++        peer(port, {"op": "pair", "device_id": device_id, "code": code})
++        if already_paired:
++            return
++        # The code is deliberately never copied into state or history.
++        state["paired"].append(device_id)
++        return
++
++    if operation == "connect":
++        device_id = body.get("device_id")
++        if not identifier(device_id):
++            raise WorkflowError("invalid_request", 400)
++
++        if state["connected"] is not None:
++            if state["connected"] == device_id:
++                return
++            raise WorkflowError("already_connected", 409)
++        if not _discovered(state, device_id):
++            raise WorkflowError("not_discovered", 409)
++        if device_id not in state["paired"]:
++            raise WorkflowError("not_paired", 409)
++
++        peer(port, {"op": "connect", "device_id": device_id})
++        state["connected"] = device_id
++        return
++
++    if operation == "disconnect":
++        connected = state["connected"]
++        if connected is None:
++            return
++        # Clear only after the peer has confirmed a normal disconnect.  A
++        # transport/protocol failure is handled by the HTTP layer, which also
++        # clears the connection while retaining durable histories.
++        peer(port, {"op": "disconnect", "device_id": connected})
++        state["connected"] = None
++        return
++
++    raise WorkflowError("invalid_request", 400)
+ 
+ 
+ def command(state, body, port):
+-    # The wire client exists; connect it to the agreed command/history policy.
+-    result = {'accepted': body.get('name')}
+-    state['commands'].append({'device_id':body.get('device_id'), 'command_id':body.get('command_id'),
+-                              'name':body.get('name'), 'result':result})
++    """Send a command and atomically add its result and new telemetry."""
++    device_id = body.get("device_id")
++    command_id = body.get("command_id")
++    name = body.get("name")
++    if (
++        not identifier(device_id)
++        or not identifier(command_id)
++        or not isinstance(name, str)
++        or name not in _COMMAND_NAMES
++    ):
++        raise WorkflowError("invalid_request", 400)
++
++    # A command is meaningful only on the live connection named by the
++    # request.  This check also guarantees that rejected requests do not touch
++    # the peer, even when a command id happens to be in the durable history.
++    if state["connected"] != device_id:
++        raise WorkflowError("not_connected", 409)
++
++    for previous in state["commands"]:
++        if previous.get("command_id") == command_id:
++            if previous.get("device_id") == device_id and previous.get("name") == name:
++                return previous["result"]
++            raise WorkflowError("command_conflict", 409)
++
++    response, packets = peer(
++        port,
++        {"op": "command", "device_id": device_id, "command_id": command_id, "name": name},
++    )
++
++    if response.get("command_id") != command_id or not isinstance(response.get("result"), dict):
++        raise _peer_failure()
++
++    # Validate every declared frame before changing either history.  Packets
++    # for other devices are valid wire frames but are intentionally discarded.
++    new_telemetry = []
++    known_packets = {
++        (item.get("device_id"), item.get("packet_id")) for item in state["telemetry"]
++    }
++    for packet in packets:
++        if (
++            not isinstance(packet, dict)
++            or not identifier(packet.get("device_id"))
++            or not identifier(packet.get("packet_id"))
++            or not isinstance(packet.get("data"), dict)
++        ):
++            raise _peer_failure()
++        if packet["device_id"] != device_id:
++            continue
++        key = (packet["device_id"], packet["packet_id"])
++        if key in known_packets:
++            continue
++        known_packets.add(key)
++        new_telemetry.append(
++            {
++                "device_id": packet["device_id"],
++                "packet_id": packet["packet_id"],
++                "data": packet["data"],
++            }
++        )
++
++    result = response["result"]
++    state["commands"].append(
++        {
++            "device_id": device_id,
++            "command_id": command_id,
++            "name": name,
++            "result": result,
++        }
++    )
++    state["telemetry"].extend(new_telemetry)
+     return result
+diff --git a/index.html b/index.html
+index 99b63953e098fe1a7a7cb906d51c7479e19faafd..f01699f610852ec5d5ad2e148c4e4c6245520682 100644
+--- a/index.html
++++ b/index.html
+@@ -1,12 +1,186 @@
+-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Framed device monitor</title>
+-<style>body{font:16px system-ui;color:#233746;max-width:1050px;margin:24px auto;padding:0 16px}#workspace{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}section{min-width:0;border:1px solid #cbd5df;border-radius:8px;padding:16px}label{display:block;margin:10px 0}input,select{max-width:100%;box-sizing:border-box;padding:6px}button{margin:5px 4px 5px 0;padding:7px}#telemetry{padding-left:20px}#telemetry li{overflow-wrap:anywhere;white-space:pre-wrap;margin:12px 0}#device-list{display:flex;flex-direction:column;align-items:start}#status,#command-result{overflow-wrap:anywhere}</style>
+-<h1>Framed device monitor</h1><p>Discover synthetic local devices, pair, connect and inspect their telemetry.</p><p id="status" role="status"></p>
+-<div id="workspace"><section id="device-panel"><h2>Devices</h2><label>Service <input id="service" value="capture.v1"></label><button id="scan">Scan</button><div id="device-list"></div><label>Selected device <input id="device" readonly></label><label>Demo pairing code <input id="pair-code" type="password"></label><button id="pair">Pair</button><button id="connect">Connect</button><button id="disconnect">Disconnect</button><p id="connection">Disconnected</p></section>
+-<section id="telemetry-panel"><h2>Commands and telemetry</h2><label>Command ID <input id="command-id" value="demo-command"></label><label>Command <select id="command-name"><option>status</option><option>start</option><option>stop</option><option>calibrate</option></select></label><button id="send">Send command</button><p id="command-result"></p><ul id="telemetry"></ul></section></div>
++<!doctype html>
++<html lang="en">
++<head>
++<meta charset="utf-8">
++<meta name="viewport" content="width=device-width,initial-scale=1">
++<title>Framed device monitor</title>
++<style>
++  *, *::before, *::after { box-sizing: border-box; }
++  html, body { max-width: 100%; }
++  body {
++    width: 100%;
++    max-width: 1050px;
++    margin: 24px auto;
++    padding: 0 16px;
++    color: #233746;
++    font: 16px system-ui, sans-serif;
++  }
++  #workspace {
++    display: grid;
++    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
++    gap: 18px;
++    max-width: 100%;
++  }
++  section {
++    min-width: 0;
++    max-width: 100%;
++    border: 1px solid #cbd5df;
++    border-radius: 8px;
++    padding: 16px;
++  }
++  label {
++    display: flex;
++    flex-wrap: wrap;
++    align-items: center;
++    gap: 8px;
++    max-width: 100%;
++    margin: 10px 0;
++    overflow-wrap: anywhere;
++  }
++  input, select, button {
++    max-width: 100%;
++    font: inherit;
++  }
++  input, select {
++    min-width: 0;
++    padding: 6px;
++  }
++  label input, label select {
++    flex: 1 1 12rem;
++  }
++  button {
++    margin: 5px 4px 5px 0;
++    padding: 7px;
++  }
++  #device-list {
++    display: flex;
++    flex-direction: column;
++    align-items: stretch;
++    max-width: 100%;
++  }
++  #device-list button {
++    align-self: flex-start;
++    max-width: 100%;
++    white-space: normal;
++    overflow-wrap: anywhere;
++    text-align: left;
++  }
++  #telemetry {
++    max-width: 100%;
++    padding-left: 20px;
++  }
++  #telemetry li {
++    max-width: 100%;
++    margin: 12px 0;
++    overflow-wrap: anywhere;
++    word-break: break-word;
++    white-space: pre-wrap;
++  }
++  #status, #command-result, #connection {
++    max-width: 100%;
++    overflow-wrap: anywhere;
++    word-break: break-word;
++  }
++  @media (max-width: 767px) {
++    #workspace { grid-template-columns: minmax(0, 1fr); }
++  }
++</style>
++</head>
++<body>
++<h1>Framed device monitor</h1>
++<p>Discover synthetic local devices, pair, connect and inspect their telemetry.</p>
++<p id="status" role="status"></p>
++<div id="workspace">
++  <section id="device-panel">
++    <h2>Devices</h2>
++    <label>Service <input id="service" value="capture.v1"></label>
++    <button id="scan">Scan</button>
++    <div id="device-list"></div>
++    <label>Selected device <input id="device" readonly></label>
++    <label>Demo pairing code <input id="pair-code" type="password"></label>
++    <button id="pair">Pair</button>
++    <button id="connect">Connect</button>
++    <button id="disconnect">Disconnect</button>
++    <p id="connection">Disconnected</p>
++  </section>
++  <section id="telemetry-panel">
++    <h2>Commands and telemetry</h2>
++    <label>Command ID <input id="command-id" value="demo-command"></label>
++    <label>Command <select id="command-name"><option>status</option><option>start</option><option>stop</option><option>calibrate</option></select></label>
++    <button id="send">Send command</button>
++    <p id="command-result"></p>
++    <ul id="telemetry"></ul>
++  </section>
++</div>
+ <script>
+-const $=s=>document.querySelector(s);let selected='';
+-async function api(path,body){const r=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const value=await r.json();if(!r.ok)throw Error(value.error);return value;}
+-function render(state){$('#device-list').replaceChildren();for(const device of state.devices){const button=document.createElement('button');button.dataset.device=device.device_id;button.textContent=device.name+' ('+device.device_id+')';button.onclick=()=>{selected=device.device_id;$('#device').value=selected};$('#device-list').append(button)}$('#connection').textContent=state.connected??'Disconnected';$('#telemetry').replaceChildren();for(const p of state.telemetry){const row=document.createElement('li');row.dataset.device=p.device_id;row.dataset.packet=p.packet_id;row.textContent=p.device_id+' / '+p.packet_id+'\n'+JSON.stringify(p.data);$('#telemetry').append(row)}}
+-async function action(path,body){try{const result=await api(path,body);if(path==='/api/command')$('#command-result').textContent=JSON.stringify(result.result);render(await api('/api/state'));$('#status').textContent='Operation complete';}catch(error){$('#status').textContent=error.message;render(await api('/api/state'));}}
+-$('#scan').onclick=()=>action('/api/scan',{service:$('#service').value});$('#pair').onclick=()=>action('/api/pair',{device_id:selected,code:$('#pair-code').value});$('#connect').onclick=()=>action('/api/connect',{device_id:selected});$('#disconnect').onclick=()=>action('/api/disconnect',{});$('#send').onclick=()=>action('/api/command',{device_id:selected,command_id:$('#command-id').value,name:$('#command-name').value});api('/api/state').then(render);
+-</script></html>
++const $ = selector => document.querySelector(selector);
++let selected = '';
++
++async function api(path, body) {
++  const response = await fetch(path, body === undefined ? {} : {
++    method: 'POST',
++    headers: {'Content-Type': 'application/json'},
++    body: JSON.stringify(body)
++  });
++  const value = await response.json();
++  if (!response.ok) throw Error(value.error);
++  return value;
++}
++
++function render(state) {
++  const available = new Set(state.devices.map(device => device.device_id));
++  if (selected && !available.has(selected)) selected = '';
++  if (!selected && state.connected && available.has(state.connected)) selected = state.connected;
++  $('#device').value = selected;
++
++  const list = $('#device-list');
++  list.replaceChildren();
++  for (const device of state.devices) {
++    const button = document.createElement('button');
++    button.dataset.device = device.device_id;
++    // textContent, rather than HTML parsing, keeps peer-provided names inert.
++    button.textContent = device.name + ' (' + device.device_id + ')';
++    button.onclick = () => {
++      selected = device.device_id;
++      $('#device').value = selected;
++    };
++    list.append(button);
++  }
++
++  $('#connection').textContent = state.connected === null ? 'Disconnected' : state.connected;
++  const telemetry = $('#telemetry');
++  telemetry.replaceChildren();
++  for (const packet of state.telemetry) {
++    const row = document.createElement('li');
++    row.dataset.device = packet.device_id;
++    row.dataset.packet = packet.packet_id;
++    row.textContent = packet.device_id + ' / ' + packet.packet_id + '\n' + JSON.stringify(packet.data);
++    telemetry.append(row);
++  }
++}
++
++async function action(path, body) {
++  try {
++    const result = await api(path, body);
++    if (path === '/api/command') $('#command-result').textContent = JSON.stringify(result.result);
++    render(await api('/api/state'));
++    $('#status').textContent = 'Operation complete';
++  } catch (error) {
++    $('#status').textContent = error.message;
++    try { render(await api('/api/state')); } catch (_) { /* keep the last browser state */ }
++  }
++}
++
++$('#scan').onclick = () => action('/api/scan', {service: $('#service').value});
++$('#pair').onclick = () => action('/api/pair', {device_id: selected, code: $('#pair-code').value});
++$('#connect').onclick = () => action('/api/connect', {device_id: selected});
++$('#disconnect').onclick = () => action('/api/disconnect', {});
++$('#send').onclick = () => action('/api/command', {
++  device_id: selected,
++  command_id: $('#command-id').value,
++  name: $('#command-name').value
++});
++api('/api/state').then(render);
++</script>
++</body>
++</html>
+diff --git a/peer.py b/peer.py
+index e953b60f337346df19730f3461a17d35203416a8..78aecebb282575cb6e86ece3103f73b6bc91a067 100644
+--- a/peer.py
++++ b/peer.py
+@@ -1,5 +1,6 @@
+ """Runnable synthetic device peer; no radio, physical hardware or customer account."""
+ import argparse
++import hashlib
+ import json
+ import socketserver
+ import threading
+@@ -34,7 +35,17 @@ class Handler(socketserver.BaseRequestHandler):
+                     response = {'ok': True}
+                 elif op == 'command' and identifier == self.server.connected:
+                     command_id = request['command_id']
+-                    packets = [{'device_id': identifier, 'packet_id': command_id + '-sample',
++                    # Keep the demo packet identifier within the published
++                    # 64-byte identifier limit even for a maximum-length
++                    # command identifier.
++                    packet_id = command_id + '-sample'
++                    if len(packet_id) > 64:
++                        # A compact digest keeps long command IDs distinct as
++                        # well as keeping the generated packet ID valid.
++                        packet_id = command_id[:56] + '-' + hashlib.sha256(
++                            command_id.encode('ascii')
++                        ).hexdigest()[:7]
++                    packets = [{'device_id': identifier, 'packet_id': packet_id,
+                                 'data': {'value': 12.5, 'unit': 'synthetic', 'running': request['name'] == 'start'}}]
+                     response = {'ok': True, 'command_id': command_id, 'result': {'accepted': request['name']}, 'packet_count': len(packets)}
+                 else:
+diff --git a/server.py b/server.py
+index cb99636325f2f5d18aacf72a06ea89118ef55aef..cc6f8b9fca162cf305f2d56c105ec33e9203af7c 100644
+--- a/server.py
++++ b/server.py
+@@ -9,83 +9,191 @@ import sys
+ import threading
+ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
++
+ from controller import WorkflowError, command, discovery, lifecycle
+ 
+-EMPTY = {'devices':[], 'paired':[], 'connected':None, 'commands':[], 'telemetry':[]}
++
++EMPTY = {"devices": [], "paired": [], "connected": None, "commands": [], "telemetry": []}
+ 
+ 
+ def read(connection):
+-    return json.loads(connection.execute('SELECT document FROM state WHERE id=1').fetchone()[0])
++    row = connection.execute("SELECT document FROM state WHERE id=1").fetchone()
++    if row is None:
++        connection.execute(
++            "INSERT INTO state (id, document) VALUES (1, ?)",
++            (json.dumps(EMPTY, ensure_ascii=False, allow_nan=False),),
++        )
++        return dict(EMPTY)
++    return json.loads(row[0])
+ 
+ 
+ def write(connection, state):
+-    connection.execute('UPDATE state SET document=? WHERE id=1', (json.dumps(state, ensure_ascii=False, allow_nan=False),))
++    connection.execute(
++        "UPDATE state SET document=? WHERE id=1",
++        (json.dumps(state, ensure_ascii=False, allow_nan=False),),
++    )
++
++
++def _reject_constant(value):
++    raise ValueError("Nonfinite JSON number")
+ 
+ 
+ class Handler(BaseHTTPRequestHandler):
+-    def log_message(self, *_): pass
+-    def send(self, data, status=200, kind='application/json'):
+-        data = (json.dumps(data, ensure_ascii=False, allow_nan=False) if kind == 'application/json' else data).encode('utf-8')
+-        self.send_response(status); self.send_header('Content-Type', kind+'; charset=utf-8')
+-        self.send_header('Content-Length', str(len(data))); self.end_headers(); self.wfile.write(data)
++    # The application owns the workflow lock, not the HTTP server's socket
++    # accept loop.  Separate requests can therefore be handled concurrently,
++    # while all state reads/peer exchanges remain serialized.
++    server_version = "FramedDeviceMonitor/1"
++
++    def log_message(self, *_):
++        pass
++
++    def send(self, data, status=200, kind="application/json"):
++        if kind == "application/json":
++            payload = json.dumps(data, ensure_ascii=False, allow_nan=False).encode("utf-8")
++        else:
++            payload = data.encode("utf-8") if isinstance(data, str) else data
++        self.send_response(status)
++        self.send_header("Content-Type", kind + "; charset=utf-8")
++        self.send_header("Content-Length", str(len(payload)))
++        self.end_headers()
++        self.wfile.write(payload)
++
+     def do_GET(self):
+-        if self.path == '/': self.send(Path('index.html').read_text(), kind='text/html')
+-        elif self.path == '/api/state':
+-            with sqlite3.connect(self.server.database) as connection: self.send(read(connection))
+-        else: self.send({'error':'not_found'}, 404)
+-    def do_POST(self):
+-        if self.path not in ('/api/scan','/api/pair','/api/connect','/api/disconnect','/api/command'):
+-            return self.send({'error':'not_found'}, 404)
+-        try:
+-            size = int(self.headers.get('Content-Length','0'))
+-            if not 1 <= size <= 65536: raise ValueError('Body size')
+-            body = json.loads(self.rfile.read(size))
+-            if not isinstance(body, dict): raise ValueError('Expected object')
++        if self.path == "/":
++            try:
++                html = (Path(__file__).with_name("index.html")).read_text(encoding="utf-8")
++            except (OSError, UnicodeError):
++                return self.send({"error": "server_failure"}, 500)
++            return self.send(html, kind="text/html")
++
++        if self.path == "/api/state":
+             with self.server.lock:
+                 with sqlite3.connect(self.server.database) as connection:
+-                    state = read(connection)
+-                    op = self.path.removeprefix('/api/')
+-                    error = None
+-                    try:
+-                        if op == 'scan':
+-                            service = body.get('service')
+-                            if not isinstance(service, str) or not 1 <= len(service) <= 64:
+-                                raise WorkflowError('invalid_request', 400)
+-                            state['devices'] = discovery(self.server.peer_port, service)
+-                            if state['connected'] not in {d['device_id'] for d in state['devices']}:
+-                                state['connected'] = None
+-                            result = state
+-                        elif op == 'command':
+-                            result = {'result': command(state, body, self.server.peer_port)}
+-                        else:
+-                            lifecycle(state, op, body, self.server.peer_port); result = state
+-                    except WorkflowError as failure:
+-                        error = failure
+-                        if failure.status == 502: state['connected'] = None
+-                    write(connection, state)
+-                if error: self.send({'error':error.code}, error.status)
+-                else: self.send(result)
+-        except (ValueError, UnicodeError): self.send({'error':'invalid_request'}, 400)
++                    return self.send(read(connection))
++
++        return self.send({"error": "not_found"}, 404)
++
++    def _json_body(self):
++        try:
++            size = int(self.headers.get("Content-Length", "0"))
++        except (TypeError, ValueError):
++            raise ValueError("Invalid content length")
++        if not 1 <= size <= 65536:
++            raise ValueError("Body size")
++        raw = self.rfile.read(size)
++        if len(raw) != size:
++            raise ValueError("Truncated request body")
++        body = json.loads(raw.decode("utf-8"), parse_constant=_reject_constant)
++        if not isinstance(body, dict):
++            raise ValueError("Expected object")
++        # Also reject exponent overflow in ordinary JSON numbers (the parser
++        # represents those as infinity even when no NaN/Infinity token was
++        # present in the request text).
++        json.dumps(body, allow_nan=False)
++        return body
++
++    def do_POST(self):
++        operations = {"/api/scan", "/api/pair", "/api/connect", "/api/disconnect", "/api/command"}
++        if self.path not in operations:
++            return self.send({"error": "not_found"}, 404)
++
++        try:
++            body = self._json_body()
++        except (ValueError, UnicodeError, TypeError, RecursionError):
++            return self.send({"error": "invalid_request"}, 400)
++
++        operation = self.path.removeprefix("/api/")
++        failure = None
++        result = None
++        with self.server.lock:
++            with sqlite3.connect(self.server.database) as connection:
++                state = read(connection)
++                try:
++                    if operation == "scan":
++                        state["devices"] = discovery(self.server.peer_port, body.get("service"))
++                        # A successful scan only retains a live connection if
++                        # its target is still in the newly filtered result.
++                        if state["connected"] not in {
++                            item["device_id"] for item in state["devices"]
++                        }:
++                            state["connected"] = None
++                        result = state
++                    elif operation == "command":
++                        result = {"result": command(state, body, self.server.peer_port)}
++                    else:
++                        lifecycle(state, operation, body, self.server.peer_port)
++                        result = state
++                except WorkflowError as error:
++                    failure = error
++                    # A peer transport/protocol failure invalidates the live
++                    # connection, but never rolls back durable histories.
++                    if error.status == 502:
++                        state["connected"] = None
++
++                # Persist even on a 502 so the cleared connection is durable,
++                # and on local denials so any earlier valid state is retained.
++                write(connection, state)
++
++        if failure is not None:
++            return self.send({"error": failure.code}, failure.status)
++        return self.send(result)
+ 
+ 
+ def main():
+-    parser=argparse.ArgumentParser();parser.add_argument('--host',default='127.0.0.1');parser.add_argument('--port',type=int,default=8000)
+-    parser.add_argument('--db',default='/tmp/devices.sqlite');parser.add_argument('--peer-port',type=int);args=parser.parse_args()
+-    signal.signal(signal.SIGTERM,lambda *_:sys.exit(0))
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--host", default="127.0.0.1")
++    parser.add_argument("--port", type=int, default=8000)
++    parser.add_argument("--db", default="/tmp/devices.sqlite")
++    parser.add_argument("--peer-port", type=int)
++    args = parser.parse_args()
++
++    # Exit through the finally block so an automatically launched peer is
++    # always terminated with the manager process.
++    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
++
+     with sqlite3.connect(args.db) as connection:
+-        connection.execute('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, document TEXT NOT NULL)')
+-        connection.execute('INSERT OR IGNORE INTO state VALUES (1,?)',(json.dumps(EMPTY),))
+-        state=read(connection);state['devices']=[];state['connected']=None;write(connection,state)
+-    worker=None
++        connection.execute("CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, document TEXT NOT NULL)")
++        connection.execute(
++            "INSERT OR IGNORE INTO state VALUES (1, ?)",
++            (json.dumps(EMPTY, ensure_ascii=False, allow_nan=False),),
++        )
++        state = read(connection)
++        # Discovery and the live peer connection are session state.  Pairing,
++        # command history, and telemetry deliberately survive a restart.
++        state["devices"] = []
++        state["connected"] = None
++        write(connection, state)
++
++    worker = None
+     try:
+         if args.peer_port is None:
+-            worker=subprocess.Popen([sys.executable,'peer.py','--port','0','--state',args.db+'.peer.json'],stdout=subprocess.PIPE,text=True)
+-            if not select.select([worker.stdout],[],[],5)[0]: raise RuntimeError('Synthetic peer did not start')
+-            args.peer_port=int(json.loads(worker.stdout.readline())['port'])
+-        server=ThreadingHTTPServer((args.host,args.port),Handler);server.database=args.db;server.peer_port=args.peer_port;server.lock=threading.Lock()
+-        print(json.dumps({'port':server.server_port}),flush=True);server.serve_forever()
++            peer_script = str(Path(__file__).with_name("peer.py"))
++            worker = subprocess.Popen(
++                [sys.executable, peer_script, "--port", "0", "--state", args.db + ".peer.json"],
++                stdout=subprocess.PIPE,
++                text=True,
++            )
++            if worker.stdout is None or not select.select([worker.stdout], [], [], 5)[0]:
++                raise RuntimeError("Synthetic peer did not start")
++            line = worker.stdout.readline()
++            args.peer_port = int(json.loads(line)["port"])
++
++        server = ThreadingHTTPServer((args.host, args.port), Handler)
++        server.daemon_threads = True
++        server.database = args.db
++        server.peer_port = args.peer_port
++        server.lock = threading.Lock()
++        print(json.dumps({"port": server.server_port}), flush=True)
++        server.serve_forever()
+     finally:
+-        if worker: worker.terminate();worker.wait(timeout=5)
++        if worker is not None:
++            worker.terminate()
++            try:
++                worker.wait(timeout=5)
++            except subprocess.TimeoutExpired:
++                worker.kill()
++                worker.wait(timeout=5)
+ 
+ 
+-if __name__=='__main__':main()
++if __name__ == "__main__":
++    main()
+diff --git a/wire.py b/wire.py
+index 181e15592647435f998da4d69cabf1901aab3952..3897b867647d4bc955e6a6310179df73acb0f971 100644
+--- a/wire.py
++++ b/wire.py
+@@ -1,47 +1,90 @@
+ """Length-prefixed UTF-8 JSON framing for a prepared loopback peer."""
+ import json
++import select
+ import socket
+ import struct
+ 
+ 
++_MAX_FRAME = 65536
++
++
+ def exact(stream, size):
++    """Read exactly *size* bytes, including fragmented TCP reads."""
+     result = bytearray()
+     while len(result) < size:
+         chunk = stream.recv(size - len(result))
+         if not chunk:
+-            raise ValueError('Truncated peer frame')
++            raise ValueError("Truncated peer frame")
+         result.extend(chunk)
+     return bytes(result)
+ 
+ 
++def _reject_constant(value):
++    raise ValueError("Nonfinite JSON number")
++
++
+ def receive(stream):
+-    size = struct.unpack('!I', exact(stream, 4))[0]
+-    if not 1 <= size <= 65536:
+-        raise ValueError('Peer frame length outside 1..65536')
+-    def reject_constant(value):
+-        raise ValueError('Nonfinite JSON number')
+-    value = json.loads(exact(stream, size).decode('utf-8'), parse_constant=reject_constant)
+-    json.dumps(value, allow_nan=False)
++    """Receive one complete, finite JSON frame from a socket-like stream."""
++    header = exact(stream, 4)
++    size = struct.unpack("!I", header)[0]
++    if not 1 <= size <= _MAX_FRAME:
++        raise ValueError("Peer frame length outside 1..65536")
++    try:
++        value = json.loads(
++            exact(stream, size).decode("utf-8"),
++            parse_constant=_reject_constant,
++        )
++        # Python's JSON decoder can turn an enormous exponent into infinity;
++        # dumping with allow_nan=False catches that case, too.
++        json.dumps(value, allow_nan=False)
++    except (UnicodeError, ValueError, TypeError, OverflowError, RecursionError) as error:
++        raise ValueError("Invalid peer JSON") from error
+     return value
+ 
+ 
+ def transmit(stream, value):
+-    data = json.dumps(value, ensure_ascii=False, allow_nan=False).encode('utf-8')
+-    if not 1 <= len(data) <= 65536:
+-        raise ValueError('Request frame length outside 1..65536')
+-    stream.sendall(struct.pack('!I', len(data)) + data)
++    """Send one finite JSON frame."""
++    try:
++        data = json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8")
++    except (UnicodeError, ValueError, TypeError, OverflowError, RecursionError) as error:
++        raise ValueError("Invalid JSON request") from error
++    if not 1 <= len(data) <= _MAX_FRAME:
++        raise ValueError("Request frame length outside 1..65536")
++    stream.sendall(struct.pack("!I", len(data)) + data)
++
++
++def _has_trailing_bytes(stream):
++    """Detect bytes beyond the frames required by one peer response.
++
++    Peers normally close a request socket after replying, but a short grace
++    period also catches a coalesced extra frame without requiring a functioning
++    peer to close the connection immediately.
++    """
++    ready, _, _ = select.select([stream], [], [], 0.02)
++    if not ready:
++        return False
++    try:
++        return bool(stream.recv(1, socket.MSG_PEEK))
++    except (BlockingIOError, socket.timeout):
++        return False
+ 
+ 
+ def exchange(port, request):
+-    with socket.create_connection(('127.0.0.1', port), timeout=2) as stream:
++    """Perform one request/response exchange on a fresh two-second socket."""
++    with socket.create_connection(("127.0.0.1", port), timeout=2) as stream:
+         transmit(stream, request)
+         response = receive(stream)
+-        if not isinstance(response, dict) or type(response.get('ok')) is not bool:
+-            raise ValueError('Peer response requires boolean ok')
++        if not isinstance(response, dict) or type(response.get("ok")) is not bool:
++            raise ValueError("Peer response requires boolean ok")
++
+         packets = []
+-        if request['op'] == 'command' and response['ok']:
+-            count = response.get('packet_count')
++        if request.get("op") == "command" and response["ok"]:
++            count = response.get("packet_count")
+             if type(count) is not int or not 0 <= count <= 64:
+-                raise ValueError('Invalid packet count')
+-            packets = [receive(stream) for _ in range(count)]
++                raise ValueError("Invalid packet count")
++            for _ in range(count):
++                packets.append(receive(stream))
++
++        if _has_trailing_bytes(stream):
++            raise ValueError("Unexpected trailing peer frame")
+         return response, packets

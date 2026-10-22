@@ -1,0 +1,18 @@
+{
+  "platform": "linux/amd64",
+  "base_profile": "php-document",
+  "source_profile": "php-wordpress",
+  "wheels": [
+    {
+      "name": "PyMySQL",
+      "version": "1.1.1",
+      "filename": "PyMySQL-1.1.1-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/0c/94/e4181a1f6286f545507528c78016e00065ea913276888db2262507693ce5/PyMySQL-1.1.1-py3-none-any.whl",
+      "sha256": "4de15da4c61dc132f4fb9ab763063e693d521a80fd0e87943b9a453dd4c19d6c",
+      "bytes": 44972
+    }
+  ],
+  "archives": [],
+  "wordpress_image": "wordpress@sha256:362e268b6a8d69c1f2384cd0a4be4de9bf0f02d8349a1a37e1cd30352a26abf7",
+  "database_image": "mariadb@sha256:ec1794c8cd442f795b838f60379d7851acf8fef04cc39a8ecf74e7b1d6a3b6d7"
+}

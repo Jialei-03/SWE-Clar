@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-063",
+  "readme": "# Photo, feed and map component\n\nIndependent Python/SQLite/Pillow and Leaflet 1.9.4 web client. Prepared python-vision includes Python3.12.3, Pillow12.3.0 and Chromium/Playwright. No installation is needed. Before the task budget, `/public_tests/preflight.py` creates runtime/config.json and synthetic tokens. Start `FOOD_CONFIG=runtime/config.json FOOD_DATABASE=runtime/meals.sqlite PORT=8080 python server.py`; stdout reports a JSON port. HTTP health is GET http://127.0.0.1:8080/. Run public checks with `python /public_tests/smoke.py`. Runtime files are excluded from the source deliverable. Private config supplies tokens:{token:user_id}, users:{user_id:{follows:[user_id]}}, venues:{venue_id:{name,address,latitude,longitude}} and optionally a host-controlled clock_file containing a timezone-aware ISO timestamp for deterministic tests. The browser receives only the authenticated user's allowed feed and images. Original customer identities, photos, locations, app design and credentials are excluded.\n\nComplete the supplied photo upload, posting and map/feed component. POST /upload accepts {data:base64 PNG/JPEG}; POST /post accepts post_id,image_id,food,caption plus venue_id or venue:{name,address,latitude,longitude}. GET /feed returns records with id,owner,food,caption,venue,created,image_url,can_save,saved. POST /save accepts post_id,saved. GET /pins?mode=personal|friends returns post_id,food,name,address,latitude,longitude. GET /image/id serves the actual stored PNG to authorized viewers. GET /venues returns independent synthetic venues. Authentication comes from Authorization: Bearer token, not caller user_id fields.\n\nThe project includes working HTTP, SQLite, page and Leaflet infrastructure. Repair the missing image/post logic and map scope. Tests must transmit actual images and render actual map geometry; a list of pin flags is insufficient. The local map has synthetic point geometry and no external tiles. Manual venue, save/unsave and chronological feed adapt agency-reported behavior rather than client quotations; the job description supports meal photos, venue tagging, friend feed and personal/social map pins. This web component does not claim a complete React Native/Flutter application, camera hardware, Google Places lookup, Supabase deployment or store submission. Pillow 12.3.0 and the public Leaflet BSD license are used for the local verification environment.\n\nThe implemented feed ordering, image ownership, save controls and epoch guard are public regressions. The server clock or configured clock_file determines the creation instant; request timestamps and actor IDs do not. Identical owned post retries reuse the original stored creation instant; conflicting IDs reject. Required post strings are nonempty; configured venues or complete manual venues use finite latitude/longitude within geographic ranges. Fresh PNG output removes source metadata and retains decoded pixels. Successful JSON responses may include additional metadata and appropriate HTTP2xx; rejected operations use HTTP4xx with no exact error wording requirement. Array order is required only for the chronological feed (descending creation instant, then ascending ID).",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "store.py",
+        "function": "Store.post",
+        "signature": "Store.post(user_id,action) -> dict"
+      },
+      "inputs": {
+        "user_id": "trusted runtime actor",
+        "action": "meal post"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "persisted post"
+      },
+      "operations": []
+    }
+  ]
+}

@@ -1,0 +1,384 @@
+schema_version: 1
+task_id: SWECLAR-052
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Smartlink authorization and attribution component with actual HTTP authorization and outbound
+  connector delivery
+requirement_units:
+- ru_id: RU-001
+  name: Smartlink event entry point
+  content: Complete the supplied event processor and SmartlinkClient with actual HTTP authorization and
+    outbound connector operations. Preserve input objects and keep raw codes, client secrets and access
+    tokens out of returned state.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for smartlink event entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_smartlink_event
+      signature: process_smartlink_event(state, event, service=None) -> dict
+    inputs:
+      arguments:
+      - state
+      - event
+      action_variants:
+        status:
+          fields:
+          - type
+      protocol_fields:
+      - type
+      service: SmartlinkClient with local HTTP provider and connector configuration
+    output:
+      type: dict
+      meaning: New state without input mutation or raw credentials; HTTP operations occur when required.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: 'Source scenario: internal music smartlink/OAuth/post-click conversion workflow. Exact local
+    HTTP protocol and listed business policies are benchmark conventions. No live listening or vendor
+    API compatibility claim.'
+- ru_id: RU-002
+  name: Spotify OAuth state validation
+  content: Start authorization with a unique caller-generated state token. Reject a missing, mismatched
+    or consumed state, or a non-string/blank code before network access. Complete authorization only after
+    a successful form-encoded authorization-code token exchange using HTTP Basic client authentication
+    and configured redirect_uri, then an authenticated profile lookup with a nonempty id. Only then consume
+    the state and record authorized and provider_user_id. Failed exchanges or profiles leave the state
+    unconsumed and the user unauthorized.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for spotify oauth state validation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_smartlink_event
+      signature: process_smartlink_event(state, event, service=None) -> dict
+    inputs:
+      arguments:
+      - state
+      - event
+      action_variants:
+        oauth_complete:
+          fields:
+          - code
+          - state_token
+          - type
+        oauth_start:
+          fields:
+          - state_token
+          - type
+          - user_id
+      protocol_fields:
+      - attribution_window
+      - code
+      - smartlinks
+      - state_token
+      - type
+      - user_id
+      service: SmartlinkClient with local HTTP provider and connector configuration
+    output:
+      type: dict
+      meaning: New state without input mutation or raw credentials; HTTP operations occur when required.
+      asserted_field_paths:
+      - error
+      - error.code
+      required_tokens:
+        error.code:
+        - invalid_oauth_callback
+      field_schemas:
+        error.code:
+          type: string
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: 'Source scenario: internal music smartlink/OAuth/post-click conversion workflow. Exact local
+    HTTP protocol and listed business policies are benchmark conventions. No live listening or vendor
+    API compatibility claim.'
+- ru_id: RU-003
+  name: Click tracking
+  content: Record one click for a known smartlink with a unique click ID, destination, and timestamp;
+    repeated click IDs are idempotent and unknown links are rejected. Timestamps must be finite numbers,
+    excluding booleans.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for click tracking.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_smartlink_event
+      signature: process_smartlink_event(state, event, service=None) -> dict
+    inputs:
+      arguments:
+      - state
+      - event
+      action_variants:
+        click:
+          fields:
+          - click_id
+          - destination
+          - smartlink_id
+          - timestamp
+          - type
+        oauth_complete:
+          fields:
+          - code
+          - state_token
+          - type
+        oauth_start:
+          fields:
+          - state_token
+          - type
+          - user_id
+      protocol_fields:
+      - attribution_window
+      - click_id
+      - code
+      - destination
+      - smartlink_id
+      - smartlinks
+      - state_token
+      - timestamp
+      - type
+      - user_id
+      service: SmartlinkClient with local HTTP provider and connector configuration
+    output:
+      type: dict
+      meaning: New state without input mutation or raw credentials; HTTP operations occur when required.
+      asserted_field_paths:
+      - clicks
+      - clicks.<id>
+      - clicks.<id>.destination
+      - result
+      - result.replayed
+      field_schemas:
+        clicks:
+          type: object
+        clicks.<id>.destination:
+          type: string
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: 'Source scenario: internal music smartlink/OAuth/post-click conversion workflow. Exact local
+    HTTP protocol and listed business policies are benchmark conventions. No live listening or vendor
+    API compatibility claim.'
+- ru_id: RU-004
+  name: Post-click stream attribution
+  content: Attribute a stream to a recorded click only when the Spotify user is authorized and the stream
+    occurs no earlier than the click and within the configured attribution window. An unauthorized, pre-click,
+    or out-of-window stream is rejected with unattributed_stream and must not be inserted into the streams
+    mapping. Timestamps must be finite numbers, excluding booleans; the configured window is inclusive
+    at its upper boundary. Incoming stream observations are trusted synthetic inputs, not live listening
+    verification.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for post-click stream attribution.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_smartlink_event
+      signature: process_smartlink_event(state, event, service=None) -> dict
+    inputs:
+      arguments:
+      - state
+      - event
+      action_variants:
+        click:
+          fields:
+          - click_id
+          - destination
+          - smartlink_id
+          - timestamp
+          - type
+        oauth_complete:
+          fields:
+          - code
+          - state_token
+          - type
+        oauth_start:
+          fields:
+          - state_token
+          - type
+          - user_id
+        stream:
+          fields:
+          - click_id
+          - stream_id
+          - timestamp
+          - type
+          - user_id
+      protocol_fields:
+      - attribution_window
+      - click_id
+      - code
+      - destination
+      - smartlink_id
+      - smartlinks
+      - state_token
+      - stream_id
+      - timestamp
+      - type
+      - user_id
+      service: SmartlinkClient with local HTTP provider and connector configuration
+    output:
+      type: dict
+      meaning: New state without input mutation or raw credentials; HTTP operations occur when required.
+      asserted_field_paths:
+      - error
+      - error.code
+      - streams
+      - streams.<id>
+      - streams.<id>.attributed
+      required_tokens:
+        error.code:
+        - unattributed_stream
+      field_schemas:
+        error.code:
+          type: string
+        streams:
+          type: object
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: 'Source scenario: internal music smartlink/OAuth/post-click conversion workflow. Exact local
+    HTTP protocol and listed business policies are benchmark conventions. No live listening or vendor
+    API compatibility claim.'
+- ru_id: RU-005
+  name: Meta and TikTok conversions
+  content: Emit at most one conversion per normalized platform and external event ID for an attributed
+    stream, support only Meta and TikTok, and expose click, attributed-stream, and conversion totals.
+    Normalize platform by trimming surrounding whitespace and applying Unicode case-folding, so Meta and
+    meta identify the same platform and the same idempotency key. Actually POST JSON {event_id, platform,
+    stream_id, click_id} to the configured conversion_urls[platform] with Idempotency-Key=<normalized
+    platform>:<event_id>. Record conversion only after a successful HTTP response with accepted=true and
+    the same event_id. On transport or acknowledgement failure return conversion_failed and keep conversions
+    unchanged so retry can send again. A successful replay must not send again. This normalized connector
+    contract is a benchmark choice, not either platform's native API.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for meta and tiktok conversions.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_smartlink_event
+      signature: process_smartlink_event(state, event, service=None) -> dict
+    inputs:
+      arguments:
+      - state
+      - event
+      action_variants:
+        click:
+          fields:
+          - click_id
+          - destination
+          - smartlink_id
+          - timestamp
+          - type
+        conversion:
+          fields:
+          - event_id
+          - platform
+          - stream_id
+          - type
+        oauth_complete:
+          fields:
+          - code
+          - state_token
+          - type
+        oauth_start:
+          fields:
+          - state_token
+          - type
+          - user_id
+        status:
+          fields:
+          - type
+        stream:
+          fields:
+          - click_id
+          - stream_id
+          - timestamp
+          - type
+          - user_id
+      protocol_fields:
+      - attribution_window
+      - click_id
+      - code
+      - destination
+      - event_id
+      - platform
+      - smartlink_id
+      - smartlinks
+      - state_token
+      - stream_id
+      - timestamp
+      - type
+      - user_id
+      service: SmartlinkClient with local HTTP provider and connector configuration
+    output:
+      type: dict
+      meaning: New state without input mutation or raw credentials; HTTP operations occur when required.
+      asserted_field_paths:
+      - clicks
+      - conversions
+      - result
+      - result.attributed_streams
+      - result.clicks
+      - result.conversions
+      - result.replayed
+      - streams
+      field_schemas:
+        conversions:
+          type: object
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: 'Source scenario: internal music smartlink/OAuth/post-click conversion workflow. Exact local
+    HTTP protocol and listed business policies are benchmark conventions. No live listening or vendor
+    API compatibility claim.'

@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-002",
+  "public": {
+    "readme": "# Practice companion\n\nComplete this independently reconstructed React Native Web / HTTP / SQLite application. Keep its working screens and public interfaces. Clarify subscription, media interaction, goal/report and session-lifecycle policies with the client. This is a browser task; mobile lock-screen behavior, native SDKs and real purchases are outside its scope.\n\n## Prepared environment\n\nThe benchmark manager preinstalls Python 3.12, SQLite, Node 22.18, React 18.3.1, React Native Web 0.19.13, esbuild 0.25 and Chromium. No installation or external account is needed. `UI_NODE_MODULES` and `ESBUILD_BINARY_PATH` point to protected build dependencies. Network access is loopback only. CPU: 2; memory: 2 GB; workspace: 512 MB; temporary storage: 1 GB. Use regular source files and directories; symlinks in candidate source are rejected.\n\n```sh\nnode build.mjs\nPORT=8000 python server.py\npython -I /public_tests/test_public.py\n```\n\nOpen `http://127.0.0.1:8000` after launch. `PORT=0` requests a free port; the server prints its decimal port as the first stdout line. Rebuild after changing the UI. Stop your application, remove only its `practice.sqlite` database, and restart to reset your development records. Do not remove protected service files. Generated UI files belong in `dist/`. Normal logs may follow the initial port line; log diagnostics to stderr.\n\nThe preflight starts the synthetic receipt service and creates media/configuration. `PRACTICE_CONFIG` points to its readable config, `PRACTICE_ASSETS` to generated WAV files, `PRACTICE_DATABASE` to the application's writable SQLite path. The benchmark can replace these paths and local provider address with fresh fixtures using the same schema; never hard-code them. Development logins are `user-a` / `fixture-only` and `user-b` / `fixture-only`. Example receipt `demo-a` belongs to user-a, product `quarter`, channel `alpha`; `demo-b` belongs to user-b. These are public synthetic fixtures, not customer credentials.\n\nConfig: `users:[{id,login,password}]`, `products:{id:{title}}`, six distinct `questions:[{id,label}]`, `tracks:[{id,title,filename,playlists:string[]}]`, `provider` (loopback HTTP base URL), `provider_key` (hexadecimal synthetic signing key). Configured IDs and media filenames may vary. The application may read this config and media; business responses must not expose private configuration fields. Browser source should use the published API.\n\n## HTTP contract\n\nAll JSON request bodies are objects containing exactly the fields below. JSON successes return 200. An error is `{error:string}`; wording is flexible. Invalid fields/types return 400, failed authentication 401, missing/unavailable resources 404, unsupported methods 405, conflicts 409, oversized bodies 413, invalid media ranges 416, provider operational failures 502. Body limit is 65,536 bytes. Unknown routes return 404; existing routes with unsupported methods return 405. Only `/` and `/app.js` are public static resources.\n\nAuthenticated routes use `Authorization: Bearer <token>`. Nonempty login/password strings have maxima 128/256 characters. Goal IDs use 1\u201364 ASCII letters, digits, underscores or hyphens; titles are nonempty after trimming and at most 120 trimmed characters. Transaction IDs are nonempty strings up to 128 characters, product IDs up to 64 and channel strings up to 16. The subscription business policy is a separate clarification. Survey answer maps use the configured question IDs and numeric values; clarify validation, aggregation and lifecycle decisions.\n\n| Operation | Request | Success response |\n|---|---|---|\n| POST /login | `{login,password}` | `{token:string}` |\n| GET /me | \u2014 | `{id:string}` |\n| GET /products | \u2014 | configured product object |\n| GET /tracks | \u2014 | `[{id,title,playlists}]`; no filename field |\n| GET /questions | \u2014 | configured question array |\n| GET /goals | \u2014 | `[{id,title,complete:0\\|1}]` |\n| POST /goals | `{id,title}` | `{id}` |\n| POST /complete-goal | `{id}` | `{id,complete:true}` |\n| POST /surveys | `{answers:{question_id:number}}` | `{id:positive_integer}` |\n| GET /report | \u2014 | `{count:integer,latest:object,overall:object}` |\n| POST /activate | `{transaction_id,product,store}` | `{transaction_id,user,product,store}` |\n| GET /subscriptions | \u2014 | `[{transaction_id,product,store}]` |\n| POST /logout | `{}` | `{}` |\n\nGET `/audio/<percent-encoded track id>` returns original WAV bytes (`audio/wav`). The `Range` interface supports one `bytes=start-end` or `bytes=start-` range, with nonnegative decimal integers. Clamp end to the last byte; reject reversed or out-of-bounds starts and all other range forms. A valid range returns 206 with `Accept-Ranges: bytes` and `Content-Range: bytes start-end/total`; full content returns 200 with `Accept-Ranges: bytes`.\n\n## Local receipt interface\n\nMake a real HTTP GET to the configured provider's `/receipts/<percent-encoded transaction id>`. A successful response is `{payload:{transaction_id,user,product,store,status},signature}`. Canonical signing input is UTF-8 JSON of payload with keys sorted, compact separators, and non-ASCII characters escaped (`ensure_ascii=True`); signature is lowercase hex HMAC-SHA256 with the hex-decoded `provider_key`. The provider can return missing or unavailable responses. Clarify which signed receipts should activate, how repeated/conflicting transactions behave and how failures affect stored state.\n\n## Browser interfaces\n\nPreserve `data-testid` controls: `login`, `password`, `signin`, `logout`, `error`; `tab-audio`, `tab-goals`, `tab-survey`, `tab-results`, `tab-subscription`; `play-<track id>`, `pause`, `resume`, `playback`; `goal-title`, `add-goal`, `complete-<goal id>`, `goal-status-<goal id>`; `answer-<question id>`, `submit-survey`; `survey-count`, `latest`, `overall`, `score-<question id>`, `bar-<question id>`, `no-results`; `product`, `store`, `transaction`, `activate`.\n\nUse an actual HTML audio element for playback. Visible `playback` text includes `Playing` or `Paused` and the numeric position in seconds. Report `survey-count` reads `Submissions: N`; scores show two decimals, and bar heights use a common linear zero-to-ten scale (choice of total pixel height is free). Empty-result wording is free through `no-results`. Existing labels and navigation may be styled freely. Do not replace actual API calls, media playback or graphs with self-reported status flags.",
+    "interfaces": [
+      {
+        "type": "command",
+        "entry": {
+          "command": "node build.mjs && PORT=0 python server.py",
+          "runtime": "Prepared Python/SQLite/Node/React Native Web/Chromium with synthetic local receipt and media fixtures"
+        },
+        "inputs": {
+          "configuration": "PRACTICE_CONFIG, PRACTICE_DATABASE, PRACTICE_ASSETS, PORT; public README specifies config and HTTP schemas",
+          "identity": "Authorization: Bearer server-issued token",
+          "build": "UI_NODE_MODULES and ESBUILD_BINARY_PATH already supplied"
+        },
+        "output": {
+          "http": "Actual HTTP JSON/WAV responses and persisted application behavior",
+          "browser": "Real React Native Web controls, media and graphs using README selectors"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "command",
+      "entry": {
+        "command": "node build.mjs && PORT=0 python server.py",
+        "runtime": "Prepared Python/SQLite/Node/React Native Web/Chromium with synthetic local receipt and media fixtures"
+      },
+      "inputs": {
+        "configuration": "PRACTICE_CONFIG, PRACTICE_DATABASE, PRACTICE_ASSETS, PORT; public README specifies config and HTTP schemas",
+        "identity": "Authorization: Bearer server-issued token",
+        "build": "UI_NODE_MODULES and ESBUILD_BINARY_PATH already supplied"
+      },
+      "output": {
+        "http": "Actual HTTP JSON/WAV responses and persisted application behavior",
+        "browser": "Real React Native Web controls, media and graphs using README selectors"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "command",
+      "entry": {
+        "command": "node build.mjs && PORT=0 python server.py",
+        "runtime": "Prepared Python/SQLite/Node/React Native Web/Chromium with synthetic local receipt and media fixtures"
+      },
+      "inputs": {
+        "configuration": "PRACTICE_CONFIG, PRACTICE_DATABASE, PRACTICE_ASSETS, PORT; public README specifies config and HTTP schemas",
+        "identity": "Authorization: Bearer server-issued token",
+        "build": "UI_NODE_MODULES and ESBUILD_BINARY_PATH already supplied"
+      },
+      "output": {
+        "http": "Actual HTTP JSON/WAV responses and persisted application behavior",
+        "browser": "Real React Native Web controls, media and graphs using README selectors"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "command",
+      "entry": {
+        "command": "node build.mjs && PORT=0 python server.py",
+        "runtime": "Prepared Python/SQLite/Node/React Native Web/Chromium with synthetic local receipt and media fixtures"
+      },
+      "inputs": {
+        "configuration": "PRACTICE_CONFIG, PRACTICE_DATABASE, PRACTICE_ASSETS, PORT; public README specifies config and HTTP schemas",
+        "identity": "Authorization: Bearer server-issued token",
+        "build": "UI_NODE_MODULES and ESBUILD_BINARY_PATH already supplied"
+      },
+      "output": {
+        "http": "Actual HTTP JSON/WAV responses and persisted application behavior",
+        "browser": "Real React Native Web controls, media and graphs using README selectors"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "command",
+      "entry": {
+        "command": "node build.mjs && PORT=0 python server.py",
+        "runtime": "Prepared Python/SQLite/Node/React Native Web/Chromium with synthetic local receipt and media fixtures"
+      },
+      "inputs": {
+        "configuration": "PRACTICE_CONFIG, PRACTICE_DATABASE, PRACTICE_ASSETS, PORT; public README specifies config and HTTP schemas",
+        "identity": "Authorization: Bearer server-issued token",
+        "build": "UI_NODE_MODULES and ESBUILD_BINARY_PATH already supplied"
+      },
+      "output": {
+        "http": "Actual HTTP JSON/WAV responses and persisted application behavior",
+        "browser": "Real React Native Web controls, media and graphs using README selectors"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "command",
+      "entry": {
+        "command": "node build.mjs && PORT=0 python server.py",
+        "runtime": "Prepared Python/SQLite/Node/React Native Web/Chromium with synthetic local receipt and media fixtures"
+      },
+      "inputs": {
+        "configuration": "PRACTICE_CONFIG, PRACTICE_DATABASE, PRACTICE_ASSETS, PORT; public README specifies config and HTTP schemas",
+        "identity": "Authorization: Bearer server-issued token",
+        "build": "UI_NODE_MODULES and ESBUILD_BINARY_PATH already supplied"
+      },
+      "output": {
+        "http": "Actual HTTP JSON/WAV responses and persisted application behavior",
+        "browser": "Real React Native Web controls, media and graphs using README selectors"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "5fc1985b5aeaaf22ccca69798c3b5cf3fc29c7d2b54b52308b4fa450e86e7371",
+  "test_sources_sha256": {
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "e966f384905a23825438085a2cecfa43f278fe72a38352f97c87f05fd41f896f",
+    "evaluation/tests/practice_contract.py": "1f91b6379cef8b07cac4c3c48d15a6b4e5c26bc680d9b877715210176bf7c7c2"
+  },
+  "public_environment_sha256": "3dadfaf2aed558d1312cf33c56f3fa9ebaa402dcb7ac122b81b61482c514f5de",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

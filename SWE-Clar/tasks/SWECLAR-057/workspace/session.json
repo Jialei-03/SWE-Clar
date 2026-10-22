@@ -1,0 +1,25 @@
+{
+  "operations": [
+    {
+      "op": "mount"
+    },
+    {
+      "op": "enter_text",
+      "key": "username",
+      "text": "demo"
+    },
+    {
+      "op": "enter_text",
+      "key": "password",
+      "text": "synthetic"
+    },
+    {
+      "op": "tap",
+      "key": "login"
+    },
+    {
+      "op": "capture",
+      "name": "dashboard.png"
+    }
+  ]
+}

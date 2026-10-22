@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Framed device monitor</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { max-width: 100%; }
+  body {
+    width: 100%;
+    max-width: 1050px;
+    margin: 24px auto;
+    padding: 0 16px;
+    color: #233746;
+    font: 16px system-ui, sans-serif;
+  }
+  #workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 18px;
+    max-width: 100%;
+  }
+  section {
+    min-width: 0;
+    max-width: 100%;
+    border: 1px solid #cbd5df;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+    margin: 10px 0;
+    overflow-wrap: anywhere;
+  }
+  input, select, button {
+    max-width: 100%;
+    font: inherit;
+  }
+  input, select {
+    min-width: 0;
+    padding: 6px;
+  }
+  label input, label select {
+    flex: 1 1 12rem;
+  }
+  button {
+    margin: 5px 4px 5px 0;
+    padding: 7px;
+  }
+  #device-list {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    max-width: 100%;
+  }
+  #device-list button {
+    align-self: flex-start;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+  #telemetry {
+    max-width: 100%;
+    padding-left: 20px;
+  }
+  #telemetry li {
+    max-width: 100%;
+    margin: 12px 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+  #status, #command-result, #connection {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  @media (max-width: 767px) {
+    #workspace { grid-template-columns: minmax(0, 1fr); }
+  }
+</style>
+</head>
+<body>
+<h1>Framed device monitor</h1>
+<p>Discover synthetic local devices, pair, connect and inspect their telemetry.</p>
+<p id="status" role="status"></p>
+<div id="workspace">
+  <section id="device-panel">
+    <h2>Devices</h2>
+    <label>Service <input id="service" value="capture.v1"></label>
+    <button id="scan">Scan</button>
+    <div id="device-list"></div>
+    <label>Selected device <input id="device" readonly></label>
+    <label>Demo pairing code <input id="pair-code" type="password"></label>
+    <button id="pair">Pair</button>
+    <button id="connect">Connect</button>
+    <button id="disconnect">Disconnect</button>
+    <p id="connection">Disconnected</p>
+  </section>
+  <section id="telemetry-panel">
+    <h2>Commands and telemetry</h2>
+    <label>Command ID <input id="command-id" value="demo-command"></label>
+    <label>Command <select id="command-name"><option>status</option><option>start</option><option>stop</option><option>calibrate</option></select></label>
+    <button id="send">Send command</button>
+    <p id="command-result"></p>
+    <ul id="telemetry"></ul>
+  </section>
+</div>
+<script>
+const $ = selector => document.querySelector(selector);
+let selected = '';
+
+async function api(path, body) {
+  const response = await fetch(path, body === undefined ? {} : {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  const value = await response.json();
+  if (!response.ok) throw Error(value.error);
+  return value;
+}
+
+function render(state) {
+  const available = new Set(state.devices.map(device => device.device_id));
+  if (selected && !available.has(selected)) selected = '';
+  if (!selected && state.connected && available.has(state.connected)) selected = state.connected;
+  $('#device').value = selected;
+
+  const list = $('#device-list');
+  list.replaceChildren();
+  for (const device of state.devices) {
+    const button = document.createElement('button');
+    button.dataset.device = device.device_id;
+    // textContent, rather than HTML parsing, keeps peer-provided names inert.
+    button.textContent = device.name + ' (' + device.device_id + ')';
+    button.onclick = () => {
+      selected = device.device_id;
+      $('#device').value = selected;
+    };
+    list.append(button);
+  }
+
+  $('#connection').textContent = state.connected === null ? 'Disconnected' : state.connected;
+  const telemetry = $('#telemetry');
+  telemetry.replaceChildren();
+  for (const packet of state.telemetry) {
+    const row = document.createElement('li');
+    row.dataset.device = packet.device_id;
+    row.dataset.packet = packet.packet_id;
+    row.textContent = packet.device_id + ' / ' + packet.packet_id + '\n' + JSON.stringify(packet.data);
+    telemetry.append(row);
+  }
+}
+
+async function action(path, body) {
+  try {
+    const result = await api(path, body);
+    if (path === '/api/command') $('#command-result').textContent = JSON.stringify(result.result);
+    render(await api('/api/state'));
+    $('#status').textContent = 'Operation complete';
+  } catch (error) {
+    $('#status').textContent = error.message;
+    try { render(await api('/api/state')); } catch (_) { /* keep the last browser state */ }
+  }
+}
+
+$('#scan').onclick = () => action('/api/scan', {service: $('#service').value});
+$('#pair').onclick = () => action('/api/pair', {device_id: selected, code: $('#pair-code').value});
+$('#connect').onclick = () => action('/api/connect', {device_id: selected});
+$('#disconnect').onclick = () => action('/api/disconnect', {});
+$('#send').onclick = () => action('/api/command', {
+  device_id: selected,
+  command_id: $('#command-id').value,
+  name: $('#command-name').value
+});
+api('/api/state').then(render);
+</script>
+</body>
+</html>

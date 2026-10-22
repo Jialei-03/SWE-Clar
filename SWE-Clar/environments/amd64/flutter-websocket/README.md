@@ -1,0 +1,2 @@
+# Flutter with local WebSockets
+Derives from the pinned flutter-component recipe and retains its offline SDK/cache/render preflight. Links the existing pinned Playwright Node v22.18.0 binary and adds only integrity-locked ws 8.19.0 (license retained). Preparation uses npm ci with lifecycle scripts disabled. The preflight runs a real UID-1000 local socket round trip plus the inherited Flutter render checks. Candidate attempts need no dependency download. 2 CPU / 3 GiB.

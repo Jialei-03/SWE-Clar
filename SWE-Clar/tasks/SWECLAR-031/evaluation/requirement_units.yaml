@@ -1,0 +1,178 @@
+schema_version: 1
+task_id: SWECLAR-031
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent browser MIDI practice, transposition, recording/synth playback and current-score
+  exports
+requirement_units:
+- ru_id: RU-001
+  name: Chart workflow entry point
+  content: Repair the real browser practice-chart project. Parse binary local MIDI files and play a corresponding
+    synthetic recording. Preserve source notes and timing for subsequent edits, rendering and exports.
+    Actual decoding, media and generated files are required; chart dictionaries or capability flags alone
+    are insufficient.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for chart workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: javascript
+      file: app.js
+      function: loadChart
+      signature: loadChart(id) -> Promise<void>
+    inputs:
+      id: local config chart ID
+    output:
+      type: object
+      meaning: actual DOM/media and generated binary exports
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/notation_contract.py
+  notes: Independent reconstruction using synthetic MIDI/WebM. Source supports practice playback, transposition
+    and current-view export; exact component/interface choices are benchmark conventions. No original
+    music, platform code or native packaging is required.
+- ru_id: RU-002
+  name: Responsive chart layout
+  content: Keep the recording and rendered staff centered without horizontal overflow at mobile, tablet
+    and desktop widths, including either side of the 600 and 1024 CSS-pixel boundaries. Render note heads
+    at correct treble-staff pitch positions and show the corresponding pitch names. This is a timed staff
+    preview, not full professional rhythmic engraving; exact responsive thresholds are independent conventions.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for responsive chart layout.
+  test_interface:
+    type: function
+    entry:
+      language: javascript
+      file: app.js
+      function: loadChart
+      signature: loadChart(id) -> Promise<void>
+    inputs:
+      id: local config chart ID
+    output:
+      type: object
+      meaning: actual DOM/media and generated binary exports
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/notation_contract.py
+  notes: Independent reconstruction using synthetic MIDI/WebM. Source supports practice playback, transposition
+    and current-view export; exact component/interface choices are benchmark conventions. No original
+    music, platform code or native packaging is required.
+- ru_id: RU-003
+  name: Consistent notation transposition
+  content: Apply a signed integer semitone transposition to immutable source notes, using the same pitch
+    in the displayed staff/name, synthesized frequency and exported MIDI/PDF. Repeated changes are absolute
+    offsets from source, not accumulated deltas. Reject invalid offsets or out-of-range MIDI notes before
+    changing the accepted score.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for consistent notation transposition.
+  test_interface:
+    type: function
+    entry:
+      language: javascript
+      file: app.js
+      function: loadChart
+      signature: loadChart(id) -> Promise<void>
+    inputs:
+      id: local config chart ID
+    output:
+      type: object
+      meaning: actual DOM/media and generated binary exports
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/notation_contract.py
+  notes: Independent reconstruction using synthetic MIDI/WebM. Source supports practice playback, transposition
+    and current-view export; exact component/interface choices are benchmark conventions. No original
+    music, platform code or native packaging is required.
+- ru_id: RU-004
+  name: Playback state
+  content: Play, pause, resume and seek the actual recording; clamp finite seek positions to its real
+    duration. The active note highlight follows recording time. Switching between recording and synthesized
+    audio, or seeking while playing synth, must stop old oscillators and schedule the current score from
+    the new recording position. Paused media must not advance, and synthesizer output must contain the
+    expected notes rather than an asserted playing state.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for playback state.
+  test_interface:
+    type: function
+    entry:
+      language: javascript
+      file: app.js
+      function: loadChart
+      signature: loadChart(id) -> Promise<void>
+    inputs:
+      id: local config chart ID
+    output:
+      type: object
+      meaning: actual DOM/media and generated binary exports
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/notation_contract.py
+  notes: Independent reconstruction using synthetic MIDI/WebM. Source supports practice playback, transposition
+    and current-view export; exact component/interface choices are benchmark conventions. No original
+    music, platform code or native packaging is required.
+- ru_id: RU-005
+  name: Current-score MIDI/PDF export
+  content: Export real MIDI and PDF files from the current accepted score. The MIDI must preserve note
+    timing/duration while reflecting the accepted pitch change; the PDF must contain the rendered staff
+    and matching readable pitch labels. Use local pinned dependencies and actual browser execution.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for platform release compatibility.
+  test_interface:
+    type: function
+    entry:
+      language: javascript
+      file: app.js
+      function: loadChart
+      signature: loadChart(id) -> Promise<void>
+    inputs:
+      id: local config chart ID
+    output:
+      type: object
+      meaning: actual DOM/media and generated binary exports
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/notation_contract.py
+  notes: Independent reconstruction using synthetic MIDI/WebM. Source supports practice playback, transposition
+    and current-view export; exact component/interface choices are benchmark conventions. No original
+    music, platform code or native packaging is required.

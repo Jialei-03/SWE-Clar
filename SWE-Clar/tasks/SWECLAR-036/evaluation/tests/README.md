@@ -1,0 +1,5 @@
+# Setup evaluation
+
+Requires .NET SDK 8, an isolated MariaDB 11.4 instance, Python cryptography and PyMySQL. Configure MARIADB_HOST/PORT/USER/PASSWORD for a dedicated test instance whose account can create/drop temporary databases. Tests create randomly named databases, generated certificates and isolated service builds; they clean up only their own resources. No production database or system certificate store is accessed.
+
+Verified toolchain: .NET SDK 8.0.425, MySqlConnector 2.5.0, MariaDB 11.4.5, PyMySQL 1.1.2 and cryptography 50.0.1. Install the two Python packages in the evaluator environment and pre-restore the .NET package before a timed run. The MariaDB service must be disposable; the evaluator needs database-creation privileges and uses randomly named `sweclar_test_` databases. Set DOTNET when the SDK is not on PATH. Run `SWECLAR_PROJECT_DIR=/path/to/candidate SWECLAR_LOG_DIR=/path/to/logs python tests/official_verifier.py` with the four MariaDB environment values already configured. No stored connection value is a test fixture or a required answer.

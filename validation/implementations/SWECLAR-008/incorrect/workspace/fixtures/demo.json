@@ -1,0 +1,177 @@
+{
+  "clock_ms": 1704196800000,
+  "feed_token": "synthetic-local-feed",
+  "households": [
+    {
+      "id": "home-a",
+      "name": "Example Home A",
+      "freshness_minutes": 30,
+      "night_start": 1320,
+      "night_end": 360,
+      "sleep_start": 1380,
+      "sleep_end": 420
+    },
+    {
+      "id": "home-b",
+      "name": "Example Home B",
+      "freshness_minutes": 20,
+      "night_start": 1380,
+      "night_end": 420,
+      "sleep_start": 1380,
+      "sleep_end": 420
+    }
+  ],
+  "users": [
+    {
+      "id": "resident-a",
+      "name": "Resident A",
+      "role": "individual",
+      "password": "demo-resident",
+      "household_id": "home-a",
+      "assignments": []
+    },
+    {
+      "id": "resident-b",
+      "name": "Resident B",
+      "role": "individual",
+      "password": "demo-resident",
+      "household_id": "home-b",
+      "assignments": []
+    },
+    {
+      "id": "caregiver",
+      "name": "Example Caregiver",
+      "role": "caregiver",
+      "password": "demo-caregiver",
+      "household_id": null,
+      "assignments": [
+        "home-a",
+        "home-b"
+      ]
+    }
+  ],
+  "rooms": [
+    {
+      "household_id": "home-a",
+      "id": "kitchen",
+      "name": "Kitchen"
+    },
+    {
+      "household_id": "home-a",
+      "id": "bathroom",
+      "name": "Bathroom"
+    },
+    {
+      "household_id": "home-a",
+      "id": "entry",
+      "name": "Entry"
+    },
+    {
+      "household_id": "home-b",
+      "id": "kitchen",
+      "name": "Kitchen"
+    },
+    {
+      "household_id": "home-b",
+      "id": "bathroom",
+      "name": "Bathroom"
+    },
+    {
+      "household_id": "home-b",
+      "id": "entry",
+      "name": "Entry"
+    }
+  ],
+  "sensors": [
+    {
+      "household_id": "home-a",
+      "id": "fridge",
+      "room_id": "kitchen",
+      "name": "Fridge contact",
+      "kind": "contact"
+    },
+    {
+      "household_id": "home-a",
+      "id": "bath",
+      "room_id": "bathroom",
+      "name": "Room presence",
+      "kind": "presence"
+    },
+    {
+      "household_id": "home-a",
+      "id": "entry-door",
+      "room_id": "entry",
+      "name": "Entry contact",
+      "kind": "contact"
+    },
+    {
+      "household_id": "home-a",
+      "id": "entry-presence",
+      "room_id": "entry",
+      "name": "Entry presence",
+      "kind": "presence"
+    },
+    {
+      "household_id": "home-b",
+      "id": "fridge",
+      "room_id": "kitchen",
+      "name": "Fridge contact",
+      "kind": "contact"
+    },
+    {
+      "household_id": "home-b",
+      "id": "bath",
+      "room_id": "bathroom",
+      "name": "Room presence",
+      "kind": "presence"
+    },
+    {
+      "household_id": "home-b",
+      "id": "entry-door",
+      "room_id": "entry",
+      "name": "Entry contact",
+      "kind": "contact"
+    },
+    {
+      "household_id": "home-b",
+      "id": "entry-presence",
+      "room_id": "entry",
+      "name": "Entry presence",
+      "kind": "presence"
+    }
+  ],
+  "events": [
+    {
+      "household_id": "home-a",
+      "event_id": "opening",
+      "sensor_id": "fridge",
+      "timestamp_ms": 1704195600000,
+      "value": true
+    },
+    {
+      "household_id": "home-a",
+      "event_id": "presence",
+      "sensor_id": "bath",
+      "timestamp_ms": 1704195900000,
+      "value": true
+    },
+    {
+      "household_id": "home-b",
+      "event_id": "door-state",
+      "sensor_id": "entry-door",
+      "timestamp_ms": 1704196800000,
+      "value": false
+    }
+  ],
+  "rules": [
+    {
+      "household_id": "home-a",
+      "room_id": "kitchen",
+      "kind": "fridge_open",
+      "sensor_id": "fridge",
+      "enabled": true,
+      "threshold_minutes": 10,
+      "severity": "warning"
+    }
+  ]
+}

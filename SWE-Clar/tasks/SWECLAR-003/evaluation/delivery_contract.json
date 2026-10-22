@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-003",
+  "public": {
+    "readme": "# Local campaign site builder\n\nComplete this independent Python/HTML/CSS/JavaScript static-site project. It must build an actual responsive page with local images, campaign cards, contact form, consent controls and footer links. Clarify content/asset handling, consent precedence and local request rules with the client. Original customer code, branding and images are not included.\n\n## Prepared environment and commands\n\nThe benchmark provides Python 3.12 and Chromium with its browser test tools in a Linux AMD64 container. No download, dependency installation or external account is needed. CPU: 2; memory: 2 GB; writable workspace: 512 MB; temporary storage: 1 GB. Only loopback networking is available. Use regular source and output files, without symlinks.\n\n```sh\npython solution.py site assets < spec.json\npython -m http.server 8000 --bind 127.0.0.1 --directory site\npython -I /public_tests/test_public.py\n```\n\nOpen `http://127.0.0.1:8000` after starting the local server. Rebuild to update the generated files. The dedicated `site` output directory is disposable; source files and input assets remain elsewhere. Evaluation supplies fresh, disjoint output and asset directories. Application data is stored locally in the browser; no messages are sent to another person or service.\n\nKeep `build_campaign_site(spec, output_dir, asset_root)` in `solution.py` and the command-line entry above. The function returns `{\"index_file\":\"index.html\"}` on success, or `{\"error\":{\"code\":\"invalid_spec\"}}` / `{\"error\":{\"code\":\"invalid_asset\"}}` for invalid input. The CLI reads one JSON object from stdin and prints the returned object as JSON. Build bytes must be repeatable for the same input and assets; do not mutate the supplied dictionary. Invalid field shape is checked before asset resolution. Manager-provided output paths refer to dedicated writable directories, not source/assets or filesystem roots.\n\n## Input interface\n\nAll fields below are required except `consent_decision`. No additional fields are accepted. String content is preserved literally; names/title/description are nonblank, not executable markup.\n\n| Field | Shape |\n|---|---|\n| site_id | `[a-z][a-z0-9-]{0,39}` |\n| locale | `[a-z]{2}(-[A-Z]{2})?` |\n| title | nonblank string, at most 160 characters |\n| description | nonblank string, at most 600 characters |\n| hero_asset | local image filename |\n| available_assets | array of distinct string filenames |\n| campaigns | 1\u201312 objects, each exactly `{name,asset}`; name is nonblank and at most 120 characters |\n| legal | exactly `{privacy,terms,disclosure}` with distinct local fragment destinations |\n| consent_decision | omitted, null, `accept` or `decline` |\n\nAn image filename uses `[A-Za-z0-9][A-Za-z0-9._-]{0,79}` followed by `.svg`, `.png`, `.jpg`, `.jpeg` or `.webp`. Input assets are benchmark-owned images with no active code or external resources. Legal destinations use `#[a-z][a-z0-9-]{0,39}`; they cannot be `hero`, `campaigns`, `contact`, `footer`, `consent`, `accept`, `decline`, `form-status`, `outbox-count`, or begin with `campaign-`. Both malformed input and asset-related failures use the result interface above; clarify which assets are required and how a failed rebuild affects an existing output.\n\n## Page interface\n\nPreserve `#hero` with one h1 and its image, `#campaigns` with `.campaign-card` elements (h2 and img), `#contact` with one form, and `#footer` with its three links. Core content must remain within the viewport. Cards use three columns at widths >=1024, two at 600\u20131023 and one below 600. Card order follows input order; their IDs must be unique and nonempty. Color, font, card spacing and exact pixel heights are flexible.\n\nThe form has fields named `name`, `email`, `message`, a submit button, `#form-status` and `#outbox-count`. Status text is `invalid_contact` for invalid submissions and `saved_locally` for a saved local request. Count text is `Requests: N`. Clarify validation, normalization, storage and reset policies rather than assuming browser-default validation is sufficient.\n\nThe consent panel is `#consent` with `#accept` and `#decline` buttons. The browser storage interface uses keys `campaign:<site_id>:consent` (a decision string) and `campaign:<site_id>:outbox` (a JSON array). New local request records have exactly `request_id`, `name`, `email`, `message`, all strings. Evaluation observes actual DOM, storage and network behavior; no window function or self-reported success flag is required. Each site ID has its own storage namespace.\n\nAll scripts, styles and images must be generated local resources. Each supplied footer destination must resolve to an actual local section; its explanatory wording is free and must remain clearly synthetic. There is no external message submission or tracking. Static-site delivery does not imply a legal-policy or consent-compliance certification.",
+    "interfaces": [
+      {
+        "type": "command",
+        "entry": {
+          "command": "python solution.py OUTPUT ASSETS < spec.json",
+          "runtime": "Prepared Python 3.12 and Chromium; no external network"
+        },
+        "inputs": {
+          "spec": "JSON object defined in starter README",
+          "output": "Dedicated disposable output directory, disjoint from source and input assets",
+          "assets": "Benchmark-owned local image directory"
+        },
+        "output": {
+          "build": "index_file index.html or error.code invalid_spec/invalid_asset",
+          "browser": "Actual static DOM, local image loading, localStorage consent/outbox and contact interactions"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "command",
+      "entry": {
+        "command": "python solution.py OUTPUT ASSETS < spec.json",
+        "runtime": "Prepared Python 3.12 and Chromium; no external network"
+      },
+      "inputs": {
+        "spec": "JSON object defined in starter README",
+        "output": "Dedicated disposable output directory, disjoint from source and input assets",
+        "assets": "Benchmark-owned local image directory"
+      },
+      "output": {
+        "build": "index_file index.html or error.code invalid_spec/invalid_asset",
+        "browser": "Actual static DOM, local image loading, localStorage consent/outbox and contact interactions"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "command",
+      "entry": {
+        "command": "python solution.py OUTPUT ASSETS < spec.json",
+        "runtime": "Prepared Python 3.12 and Chromium; no external network"
+      },
+      "inputs": {
+        "spec": "JSON object defined in starter README",
+        "output": "Dedicated disposable output directory, disjoint from source and input assets",
+        "assets": "Benchmark-owned local image directory"
+      },
+      "output": {
+        "build": "index_file index.html or error.code invalid_spec/invalid_asset",
+        "browser": "Actual static DOM, local image loading, localStorage consent/outbox and contact interactions"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "command",
+      "entry": {
+        "command": "python solution.py OUTPUT ASSETS < spec.json",
+        "runtime": "Prepared Python 3.12 and Chromium; no external network"
+      },
+      "inputs": {
+        "spec": "JSON object defined in starter README",
+        "output": "Dedicated disposable output directory, disjoint from source and input assets",
+        "assets": "Benchmark-owned local image directory"
+      },
+      "output": {
+        "build": "index_file index.html or error.code invalid_spec/invalid_asset",
+        "browser": "Actual static DOM, local image loading, localStorage consent/outbox and contact interactions"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "command",
+      "entry": {
+        "command": "python solution.py OUTPUT ASSETS < spec.json",
+        "runtime": "Prepared Python 3.12 and Chromium; no external network"
+      },
+      "inputs": {
+        "spec": "JSON object defined in starter README",
+        "output": "Dedicated disposable output directory, disjoint from source and input assets",
+        "assets": "Benchmark-owned local image directory"
+      },
+      "output": {
+        "build": "index_file index.html or error.code invalid_spec/invalid_asset",
+        "browser": "Actual static DOM, local image loading, localStorage consent/outbox and contact interactions"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "command",
+      "entry": {
+        "command": "python solution.py OUTPUT ASSETS < spec.json",
+        "runtime": "Prepared Python 3.12 and Chromium; no external network"
+      },
+      "inputs": {
+        "spec": "JSON object defined in starter README",
+        "output": "Dedicated disposable output directory, disjoint from source and input assets",
+        "assets": "Benchmark-owned local image directory"
+      },
+      "output": {
+        "build": "index_file index.html or error.code invalid_spec/invalid_asset",
+        "browser": "Actual static DOM, local image loading, localStorage consent/outbox and contact interactions"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "1f0c3319237dce6f586cef6f6a85263f8ba2ee434e582753658bf5cf81bd53be",
+  "test_sources_sha256": {
+    "evaluation/tests/campaign_contract.py": "8186e0d8fdef14b7242378d1f498e4624586bd6a66fc4ec2cab7c80139f250ac",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "19e1d8289914de23266e4beca13c112ac95d985766173d9ebe7f49aca157596a"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

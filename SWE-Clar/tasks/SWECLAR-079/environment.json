@@ -1,0 +1,20 @@
+{
+  "profile": "python-comfy",
+  "platform": "linux/amd64",
+  "workdir": "/workspace",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 7168,
+    "pids": 256,
+    "workspace_mb": 512,
+    "evaluation_wall_seconds": 1200
+  },
+  "dependencies": "Preprovided real ComfyUI v0.3.30, pinned IPAdapter Plus, CPU PyTorch, Pillow and public pretrained SD1.5/ControlNet/CLIP Vision/IPAdapter weights; no install or download during attempts.",
+  "public_test": [
+    "python",
+    "/public_tests/smoke.py"
+  ],
+  "start": "python /public_tests/start.py --root /tmp/comfy-demo --port 8188",
+  "health": "GET http://127.0.0.1:8188/object_info",
+  "reset": "Stop and restart with a fresh --root directory; public starter creates writable input/output/temp/user directories."
+}

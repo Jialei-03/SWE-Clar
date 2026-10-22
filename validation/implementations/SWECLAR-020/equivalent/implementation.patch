@@ -1,0 +1,736 @@
+diff --git a/app.js b/app.js
+index 776940e1a18164bd8fcbaf3590532e8c6e2fce77..9e4d7e1812e80ab3afca151de1a0f3b4ed19e529 100644
+--- a/app.js
++++ b/app.js
+@@ -87,7 +87,7 @@ class AttendanceView {
+   }
+   node(id) { return this.document.getElementById(id); }
+   value(id) { return this.node(id).value; }
+-  listen(id,type,handler) { const node = this.node(id); node.addEventListener(type,handler); this.handlers.push(() => node.removeEventListener(type,handler)); }
++  listen(id,type,handler) { const node = this.node(id); if (!node) return; node.addEventListener(type,handler); this.handlers.push(() => node.removeEventListener(type,handler)); }
+   async run(action) {
+     const epoch = this.client.epoch;
+     try { await action(); } catch (_) {
+@@ -118,28 +118,29 @@ class AttendanceView {
+     this.node('inbox-section').hidden = c.user?.role !== 'parent'; this.node('admin-section').hidden = !admin;
+     this.options(this.node('device-id'),c.devices,'Choose a device');
+     const names = new Map(c.students.map(s => [s.id,s.name]));
++    const nameFor = id => names.has(id) ? names.get(id) : id;
+     const roster = this.node('roster'); roster.replaceChildren();
+     for (const s of c.students) roster.append(this.el('li',s.name+' · '+s.presence,{'data-student-id':s.id}));
+     const pending = this.node('pending-list'); const choices = new Map([...pending.querySelectorAll('[data-scan-id]')].map(row => [row.dataset.scanId,row.querySelector('[data-recipient]').value])); pending.replaceChildren();
+     for (const scan of c.scans.filter(s => s.state === 'pending')) {
+-      const row = this.el('li',undefined,{'data-scan-id':scan.id}); row.append(this.el('span',(names.get(scan.student_id)||scan.student_id)+' · '+scan.direction));
++      const row = this.el('li',undefined,{'data-scan-id':scan.id}); row.append(this.el('span',nameFor(scan.student_id)+' · '+scan.direction));
+       const select = this.el('select',undefined,{'data-recipient':'','aria-label':'Collection recipient'}); this.options(select,c.guardians,'No recipient');
+       if (choices.has(scan.id)) select.value = choices.get(scan.id);
+       const button = this.el('button','Confirm',{'data-confirm':'',type:'button'});
+       button.addEventListener('click',() => this.run(() => c.confirm(scan.id,select.value || null))); row.append(select,button); pending.append(row);
+     }
+     const attendance = this.node('attendance-list'); attendance.replaceChildren();
+-    for (const item of c.attendance) attendance.append(this.el('li',(names.get(item.student_id)||item.student_id)+' · '+item.direction+' · '+item.at,{'data-attendance-id':item.id}));
++    for (const item of c.attendance) attendance.append(this.el('li',nameFor(item.student_id)+' · '+item.direction+' · '+item.at,{'data-attendance-id':item.id}));
+     const inbox = this.node('inbox'); inbox.replaceChildren();
+     for (const item of c.inbox) {
+-      const row = this.el('li',undefined,{'data-entry-id':item.id}); row.append(this.el('span',(names.get(item.student_id)||item.student_id)+' · '+item.direction));
++      const row = this.el('li',undefined,{'data-entry-id':item.id}); row.append(this.el('span',nameFor(item.student_id)+' · '+item.direction));
+       const label = this.el('label','Read '); const check = this.el('input',undefined,{type:'checkbox','data-read':''}); check.checked = item.read;
+       check.addEventListener('change',() => this.run(() => c.setRead(item.id,check.checked))); label.append(check); row.append(label); inbox.append(row);
+     }
+     for (const [id,items,attribute,flag,action] of [['tag-list',c.tags,'data-tag-uid','data-tag-active',(key,value)=>c.setTagActive(key,value)],['guardian-list',c.guardians,'data-guardian-id','data-guardian-active',(key,value)=>c.setGuardianActive(key,value)]]) {
+       const list = this.node(id); list.replaceChildren();
+       if (admin) for (const item of items) {
+-        const key = item.uid || item.id; const row = this.el('li',undefined,{[attribute]:key}); const label = this.el('label',(item.name || key)+' active ');
++        const key = item.uid || item.id; const row = this.el('li',undefined,{[attribute]:key}); const label = this.el('label',(item.name !== undefined ? item.name : key)+' active ');
+         const check = this.el('input',undefined,{type:'checkbox',[flag]:''}); check.checked = item.active;
+         check.addEventListener('change',() => this.run(() => action(key,check.checked))); label.append(check); row.append(label); list.append(row);
+       }
+diff --git a/reader.py b/reader.py
+index c369d1611c0840502e7b7d6e89f62b63fab7309d..e33f1105e161e6766b04bdbacd639bd45b5db1b8 100644
+--- a/reader.py
++++ b/reader.py
+@@ -9,14 +9,23 @@ from store import Failure
+ def fetch_reading(base, key):
+     try:
+         with urlopen(base.rstrip('/') + '/readings/' + quote(key, safe=''), timeout=5) as response:
+-            value = json.loads(response.read(65537))['reading']
+-        assert isinstance(value, dict) and value['id'] == key
+-        assert all(isinstance(value[k], str) and 1 <= len(value[k]) <= 100 for k in ['uid', 'device_id'])
+-        assert value['interaction'] in ['tap', 'proximity']
+-        assert type(value['at']) is int and 0 <= value['at'] <= 2000000000
++            if response.status != 200:
++                raise ValueError('unexpected reader status')
++            value = json.loads(response.read(65537))
++        if not isinstance(value, dict) or not isinstance(value.get('reading'), dict):
++            raise ValueError('invalid reader response')
++        value = value['reading']
++        if value.get('id') != key:
++            raise ValueError('reader identity mismatch')
++        if not all(isinstance(value.get(k), str) and 1 <= len(value[k]) <= 100 for k in ['uid', 'device_id']):
++            raise ValueError('invalid reader string')
++        if value.get('interaction') not in ['tap', 'proximity']:
++            raise ValueError('invalid reader interaction')
++        if type(value.get('at')) is not int or not 0 <= value['at'] <= 2000000000:
++            raise ValueError('invalid reader time')
+         return {k: value[k] for k in ['id', 'uid', 'device_id', 'interaction', 'at']}
+     except HTTPError as error:
+         if error.code == 404: raise Failure(404, 'not_found') from error
+         raise Failure(502, 'reader_unavailable') from error
+-    except (URLError, TimeoutError, OSError, ValueError, KeyError, TypeError, AssertionError) as error:
++    except (URLError, TimeoutError, OSError, ValueError, KeyError, TypeError, AssertionError, UnicodeError) as error:
+         raise Failure(502, 'reader_unavailable') from error
+diff --git a/server.py b/server.py
+index d1697f49b17f1f7bb05adaa4952ece83c5690ea3..5c457b15271ef7bdc02912acb1e2a107f586e66f 100644
+--- a/server.py
++++ b/server.py
+@@ -47,15 +47,30 @@ class Handler(BaseHTTPRequestHandler):
+                 if path == '/api/me': return self.reply(200, {'user': store.public_user(user)})
+                 handler = {'/api/roster': store.roster, '/api/scans': store.scans, '/api/attendance': store.attendance, '/api/inbox': store.inbox}[path]
+                 return self.reply(200, handler(user))
+-            body = self.body()
+-            if path == '/api/logout': return self.reply(200, store.logout(authorization))
++            # Role checks precede request syntax and resource lookup for all
++            # role-restricted mutation routes.  This keeps a parent from
++            # probing staff resources with malformed requests, and keeps an
++            # ordinary user from probing administrative IDs.
++            if path == '/api/logout':
++                self.body()  # logout accepts an object; unknown fields are ignored
++                return self.reply(200, store.logout(authorization))
+             if item:
++                if item[1] == 'inbox':
++                    if user['role'] != 'parent': raise Failure(403, 'forbidden')
++                else:
++                    if user['role'] != 'administrator': raise Failure(403, 'forbidden')
++                body = self.body()
+                 key = unquote(item[2])
+                 value = store.set_read(user, key, body) if item[1] == 'inbox' else store.set_active(user, item[1], key, body)
+                 return self.reply(200, value)
+             if confirm:
++                store.staff(user)
++                body = self.body()
+                 status, value = store.confirm(user, unquote(confirm[1]), body); return self.reply(status, value)
+-            store.staff(user); key = text(body.get('reading_id'), 1000); direction = body.get('direction')
++            store.staff(user)
++            body = self.body()
++            key = text(body.get('reading_id'))
++            direction = body.get('direction')
+             if direction not in ['in', 'out']: raise Failure(400, 'invalid_request')
+             reading = fetch_reading(self.server.reader, key)
+             status, value = store.scan(user, reading, direction); return self.reply(status, value)
+diff --git a/store.py b/store.py
+index 546d0a661755a8024761d78c2c7cb2d2db388485..13607684722f1ed82e865eb4979dc64adabc7788 100644
+--- a/store.py
++++ b/store.py
+@@ -1,4 +1,4 @@
+-"""Durable synthetic attendance operations with transactional confirmation."""
++"""Durable attendance operations and authorization for the synthetic workspace."""
+ from contextlib import contextmanager
+ import hashlib
+ import hmac
+@@ -10,125 +10,259 @@ import threading
+ 
+ 
+ class Failure(Exception):
++    """An expected HTTP failure represented by its status and public code."""
++
+     def __init__(self, status, code):
+         self.status, self.code = status, code
+         super().__init__(code)
+ 
+ 
+-def text(value, limit=100):
+-    if not isinstance(value, str) or not 1 <= len(value) <= limit:
++def text(value, limit=None):
++    """Validate a required non-empty string from an application request."""
++    if not isinstance(value, str) or not value:
++        raise Failure(400, 'invalid_request')
++    if limit is not None and len(value) > limit:
+         raise Failure(400, 'invalid_request')
++    try:
++        value.encode('utf-8')
++    except UnicodeError as error:
++        raise Failure(400, 'invalid_request') from error
+     return value
+ 
+ 
++def encode_record(value):
++    """Store records as compact, Unicode-preserving JSON values.
++
++    Whitespace is not part of any persisted record's meaning.  Keeping this
++    representation in one codec makes every durable write use the same
++    serialization while leaving the decoded records and public response
++    objects unchanged.
++    """
++    return json.dumps(
++        value,
++        ensure_ascii=False,
++        allow_nan=False,
++        separators=(',', ':'),
++    )
++
++
+ class Store:
+     def __init__(self, path, fixture):
+         Path(path).parent.mkdir(parents=True, exist_ok=True)
+         self.db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
+         self.db.row_factory = sqlite3.Row
+-        self.lock = threading.RLock(); self.sessions = {}
++        self.lock = threading.RLock()
++        # Sessions intentionally live only in this process.  Restarting the
++        # application therefore expires every token without touching records.
++        self.sessions = {}
+         self.db.executescript('''
+-        CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, record TEXT NOT NULL, salt TEXT NOT NULL, digest TEXT NOT NULL);
+-        CREATE TABLE IF NOT EXISTS entities(kind TEXT, id TEXT, record TEXT NOT NULL, PRIMARY KEY(kind,id));
+-        CREATE TABLE IF NOT EXISTS scans(id TEXT PRIMARY KEY, reading_id TEXT UNIQUE NOT NULL, record TEXT NOT NULL);
+-        CREATE TABLE IF NOT EXISTS attendance(id TEXT PRIMARY KEY, scan_id TEXT UNIQUE NOT NULL, record TEXT NOT NULL);
+-        CREATE TABLE IF NOT EXISTS inbox(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, attendance_id TEXT NOT NULL, record TEXT NOT NULL, UNIQUE(user_id,attendance_id));
++        CREATE TABLE IF NOT EXISTS users(
++            id TEXT PRIMARY KEY,
++            record TEXT NOT NULL,
++            salt TEXT NOT NULL,
++            digest TEXT NOT NULL
++        );
++        CREATE TABLE IF NOT EXISTS entities(
++            kind TEXT,
++            id TEXT,
++            record TEXT NOT NULL,
++            PRIMARY KEY(kind,id)
++        );
++        CREATE TABLE IF NOT EXISTS scans(
++            id TEXT PRIMARY KEY,
++            reading_id TEXT UNIQUE NOT NULL,
++            record TEXT NOT NULL
++        );
++        CREATE TABLE IF NOT EXISTS attendance(
++            id TEXT PRIMARY KEY,
++            scan_id TEXT UNIQUE NOT NULL,
++            record TEXT NOT NULL
++        );
++        CREATE TABLE IF NOT EXISTS inbox(
++            id TEXT PRIMARY KEY,
++            user_id TEXT NOT NULL,
++            attendance_id TEXT NOT NULL,
++            record TEXT NOT NULL,
++            UNIQUE(user_id,attendance_id)
++        );
+         CREATE TABLE IF NOT EXISTS initialized(flag INTEGER PRIMARY KEY);
+         ''')
+         with self.transaction():
+             if not self.db.execute('SELECT 1 FROM initialized').fetchone():
+-                data = json.loads(Path(fixture).read_text())
++                data = json.loads(Path(fixture).read_text(encoding='utf-8'))
+                 for original in data['users']:
+-                    user = dict(original); password = user.pop('password'); salt = secrets.token_hex(16)
++                    user = dict(original)
++                    password = user.pop('password')
++                    salt = secrets.token_hex(16)
+                     digest = self.password(password, salt)
+-                    self.db.execute('INSERT INTO users VALUES(?,?,?,?)', (user['id'], json.dumps(user), salt, digest))
++                    self.db.execute(
++                        'INSERT INTO users VALUES(?,?,?,?)',
++                        (user['id'], encode_record(user), salt, digest),
++                    )
+                 for kind in ['students', 'tags', 'devices', 'guardians']:
+                     for original in data[kind]:
+                         item = dict(original)
+-                        if kind == 'students': item['presence'] = 'out'
+-                        self.db.execute('INSERT INTO entities VALUES(?,?,?)', (kind, item['uid' if kind == 'tags' else 'id'], json.dumps(item)))
++                        if kind == 'students':
++                            item['presence'] = 'out'
++                        key = item['uid'] if kind == 'tags' else item['id']
++                        self.db.execute(
++                            'INSERT INTO entities VALUES(?,?,?)',
++                            (kind, key, encode_record(item)),
++                        )
+                 self.db.execute('INSERT INTO initialized VALUES(1)')
+ 
+     @staticmethod
+     def password(password, salt):
+-        return hashlib.pbkdf2_hmac('sha256', password.encode(), bytes.fromhex(salt), 120000).hex()
++        return hashlib.pbkdf2_hmac(
++            'sha256', password.encode('utf-8'), bytes.fromhex(salt), 120000
++        ).hex()
+ 
+     @contextmanager
+     def transaction(self):
++        """Serialize writes and roll back every expected or unexpected failure."""
+         with self.lock:
+             self.db.execute('BEGIN IMMEDIATE')
+-            try: yield
++            try:
++                yield
+             except BaseException:
+-                self.db.execute('ROLLBACK'); raise
+-            else: self.db.execute('COMMIT')
++                self.db.execute('ROLLBACK')
++                raise
++            else:
++                self.db.execute('COMMIT')
+ 
+     def entities(self, kind):
+-        return [json.loads(r[0]) for r in self.db.execute('SELECT record FROM entities WHERE kind=? ORDER BY rowid', (kind,))]
++        return [
++            json.loads(row[0])
++            for row in self.db.execute(
++                'SELECT record FROM entities WHERE kind=? ORDER BY rowid', (kind,)
++            )
++        ]
+ 
+     def entity(self, kind, key):
+-        row = self.db.execute('SELECT record FROM entities WHERE kind=? AND id=?', (kind, key)).fetchone()
++        row = self.db.execute(
++            'SELECT record FROM entities WHERE kind=? AND id=?', (kind, key)
++        ).fetchone()
+         return json.loads(row[0]) if row else None
+ 
+     def save_entity(self, kind, key, value):
+-        self.db.execute('UPDATE entities SET record=? WHERE kind=? AND id=?', (json.dumps(value), kind, key))
++        self.db.execute(
++            'UPDATE entities SET record=? WHERE kind=? AND id=?',
++            (encode_record(value), kind, key),
++        )
+ 
+     @staticmethod
+     def public_user(user):
+-        return {k: user[k] for k in ['id', 'username', 'role', 'class_ids', 'student_ids']}
++        return {
++            key: user[key]
++            for key in ['id', 'username', 'role', 'class_ids', 'student_ids']
++        }
+ 
+     def login(self, body):
+-        username, password = text(body.get('username')), text(body.get('password'), 1000)
++        username = text(body.get('username'))
++        password = text(body.get('password'))
+         with self.lock:
+             for row in self.db.execute('SELECT * FROM users ORDER BY rowid'):
+                 user = json.loads(row['record'])
+-                if user['username'] == username and user['active'] and hmac.compare_digest(self.password(password, row['salt']), row['digest']):
+-                    token = secrets.token_urlsafe(32); self.sessions[token] = user['id']
++                if (
++                    user['username'] == username
++                    and user['role'] in ['teacher', 'administrator', 'parent']
++                    and user['active']
++                    and hmac.compare_digest(
++                        self.password(password, row['salt']), row['digest']
++                    )
++                ):
++                    # token_urlsafe(32) is generated from at least 32 random
++                    # bytes and is never persisted or put in a public record.
++                    token = secrets.token_urlsafe(32)
++                    self.sessions[token] = user['id']
+                     return {'token': token, 'user': self.public_user(user)}
+         raise Failure(401, 'unauthenticated')
+ 
+     def actor(self, authorization):
+         with self.lock:
+-            key = authorization[7:] if authorization.startswith('Bearer ') else ''
+-            uid = self.sessions.get(key)
+-            row = self.db.execute('SELECT record FROM users WHERE id=?', (uid,)).fetchone()
+-            if not row: raise Failure(401, 'unauthenticated')
+-            user = json.loads(row[0])
+-            if not user['active']: raise Failure(401, 'unauthenticated')
++            token = authorization[7:] if authorization.startswith('Bearer ') else ''
++            uid = self.sessions.get(token)
++            row = self.db.execute(
++                'SELECT record FROM users WHERE id=?', (uid,)
++            ).fetchone()
++            if not row:
++                raise Failure(401, 'unauthenticated')
++            user = json.loads(row['record'])
++            if not user['active']:
++                raise Failure(401, 'unauthenticated')
+             return user
+ 
+     def logout(self, authorization):
+-        with self.lock: self.sessions.pop(authorization[7:], None)
++        with self.lock:
++            token = authorization[7:] if authorization.startswith('Bearer ') else ''
++            self.sessions.pop(token, None)
+         return {'ok': True}
+ 
+     @staticmethod
+     def staff(user):
+-        if user['role'] not in ['teacher', 'administrator']: raise Failure(403, 'forbidden')
++        if user['role'] not in ['teacher', 'administrator']:
++            raise Failure(403, 'forbidden')
+ 
+     @staticmethod
+     def visible(user, student):
+-        return bool(student) and (user['role'] == 'administrator' or
+-            (user['role'] == 'teacher' and student['class_id'] in user['class_ids']) or
+-            (user['role'] == 'parent' and student['id'] in user['student_ids']))
++        return bool(student) and (
++            user['role'] == 'administrator'
++            or (
++                user['role'] == 'teacher'
++                and student['class_id'] in user['class_ids']
++            )
++            or (
++                user['role'] == 'parent'
++                and student['id'] in user['student_ids']
++            )
++        )
+ 
+     def roster(self, user):
+         with self.lock:
+-            students = [s for s in self.entities('students') if self.visible(user, s)]
+-            ids = {s['id'] for s in students}; guardians = []; tags = []; devices = []
++            students = [
++                student
++                for student in self.entities('students')
++                if self.visible(user, student)
++            ]
++            visible_ids = {student['id'] for student in students}
++            guardians = []
++            tags = []
++            devices = []
+             if user['role'] != 'parent':
+-                for g in self.entities('guardians'):
+-                    links = [s for s in g['student_ids'] if s in ids]
+-                    if links: guardians.append({**g, 'student_ids': links})
+-                tags = [t for t in self.entities('tags') if t['student_id'] in ids]
++                for guardian in self.entities('guardians'):
++                    links = [
++                        student_id
++                        for student_id in guardian['student_ids']
++                        if student_id in visible_ids
++                    ]
++                    if links:
++                        guardians.append({**guardian, 'student_ids': links})
++                tags = [
++                    tag
++                    for tag in self.entities('tags')
++                    if tag['student_id'] in visible_ids
++                ]
+                 devices = self.entities('devices')
+-            return {'students': students, 'guardians': guardians, 'tags': tags, 'devices': devices}
++            return {
++                'students': students,
++                'guardians': guardians,
++                'tags': tags,
++                'devices': devices,
++            }
+ 
+     def set_active(self, user, kind, key, body):
+-        if user['role'] != 'administrator': raise Failure(403, 'forbidden')
+-        if type(body.get('active')) is not bool: raise Failure(400, 'invalid_request')
++        # The caller also performs this check before parsing the request body;
++        # retaining it here keeps the storage method safe for direct callers.
++        if user['role'] != 'administrator':
++            raise Failure(403, 'forbidden')
++        if type(body.get('active')) is not bool:
++            raise Failure(400, 'invalid_request')
+         with self.transaction():
+             item = self.entity(kind, key)
+-            if item is None: raise Failure(404, 'not_found')
+-            item['active'] = body['active']; self.save_entity(kind, key, item)
++            if item is None:
++                raise Failure(404, 'not_found')
++            item['active'] = body['active']
++            self.save_entity(kind, key, item)
+             return {('tag' if kind == 'tags' else 'guardian'): item}
+ 
+     def scans(self, user):
+@@ -137,45 +271,273 @@ class Store:
+             result = []
+             for row in self.db.execute('SELECT record FROM scans ORDER BY rowid'):
+                 scan = json.loads(row[0])
+-                if self.visible(user, self.entity('students', scan['student_id'])): result.append(scan)
++                student = self.entity('students', scan['student_id'])
++                if self.visible(user, student):
++                    result.append(scan)
+             return {'scans': result}
+ 
+     def scan(self, user, reading, direction):
++        """Create or replay one pending scan for an immutable reader reading."""
+         self.staff(user)
+         with self.transaction():
+-            row = self.db.execute('SELECT record FROM scans WHERE reading_id=?', (reading['id'],)).fetchone()
++            row = self.db.execute(
++                'SELECT record FROM scans WHERE reading_id=?', (reading['id'],)
++            ).fetchone()
+             if row:
+-                scan = json.loads(row[0]); student = self.entity('students', scan['student_id'])
+-                if not self.visible(user, student): raise Failure(404, 'not_found')
+-                if scan['direction'] != direction: raise Failure(409, 'reading_conflict')
++                scan = json.loads(row[0])
++                student = self.entity('students', scan['student_id'])
++                # Scope is checked even for replay and before direction conflict.
++                if not self.visible(user, student):
++                    raise Failure(404, 'not_found')
++                if scan['direction'] != direction:
++                    raise Failure(409, 'reading_conflict')
+                 return 200, {'scan': scan, 'student': student}
++
+             device = self.entity('devices', reading['device_id'])
+-            if not device or not device['active']: raise Failure(422, 'inactive_device')
++            if not device or not device['active']:
++                raise Failure(422, 'inactive_device')
+             tag = self.entity('tags', reading['uid'])
+-            if not tag or not tag['active']: raise Failure(422, 'inactive_tag')
++            if not tag or not tag['active']:
++                raise Failure(422, 'inactive_tag')
+             student = self.entity('students', tag['student_id'])
+-            if not self.visible(user, student): raise Failure(404, 'not_found')
+-            if reading['interaction'] != 'tap': raise Failure(422, 'intentional_tap_required')
+-            scan = {'id': secrets.token_urlsafe(18), 'reading_id': reading['id'], 'student_id': student['id'],
+-                    'tag_uid': reading['uid'], 'device_id': reading['device_id'], 'direction': direction,
+-                    'at': reading['at'], 'state': 'pending', 'created_by': user['id'], 'attendance_id': None}
+-            self.db.execute('INSERT INTO scans VALUES(?,?,?)', (scan['id'], reading['id'], json.dumps(scan)))
++            if not self.visible(user, student):
++                raise Failure(404, 'not_found')
++            if reading['interaction'] != 'tap':
++                raise Failure(422, 'intentional_tap_required')
++
++            scan = {
++                'id': secrets.token_urlsafe(18),
++                'reading_id': reading['id'],
++                'student_id': student['id'],
++                'tag_uid': reading['uid'],
++                'device_id': reading['device_id'],
++                'direction': direction,
++                'at': reading['at'],
++                'state': 'pending',
++                'created_by': user['id'],
++                'attendance_id': None,
++            }
++            self.db.execute(
++                'INSERT INTO scans VALUES(?,?,?)',
++                (scan['id'], reading['id'], encode_record(scan)),
++            )
+             return 201, {'scan': scan, 'student': student}
+ 
++    @staticmethod
++    def _recipient_value(body):
++        # Omission and explicit null are the same public recipient intent.
++        return body.get('recipient_id')
++
++    @staticmethod
++    def _validate_recipient_syntax(direction, body):
++        """Return the normalized recipient or raise the public syntax error."""
++        recipient = Store._recipient_value(body)
++        if direction == 'in':
++            if recipient is not None:
++                raise Failure(400, 'invalid_request')
++            return None
++        # Check-out requires a non-empty string.  A missing key is represented
++        # by None and deliberately has its own business error.
++        if recipient is None:
++            raise Failure(422, 'recipient_required')
++        if not isinstance(recipient, str) or not recipient:
++            raise Failure(400, 'invalid_request')
++        try:
++            recipient.encode('utf-8')
++        except UnicodeError as error:
++            raise Failure(400, 'invalid_request') from error
++        return recipient
++
++    def _completed_replay(self, scan, body):
++        recipient = self._validate_recipient_syntax(scan['direction'], body)
++        if recipient != scan['_stored_recipient']:
++            raise Failure(409, 'confirmation_conflict')
++        attendance_row = self.db.execute(
++            'SELECT record FROM attendance WHERE scan_id=?', (scan['id'],)
++        ).fetchone()
++        # A completed scan is only written atomically with its attendance.  A
++        # missing row can therefore only indicate externally damaged storage;
++        # avoid manufacturing a second result in that case.
++        if not attendance_row:
++            raise Failure(404, 'not_found')
++        return 200, {'attendance': json.loads(attendance_row[0])}
++
+     def confirm(self, user, key, body):
++        """Authorize and atomically complete a pending scan or replay it."""
+         self.staff(user)
+-        raise Failure(501, 'not_implemented')
++        with self.transaction():
++            row = self.db.execute(
++                'SELECT record FROM scans WHERE id=?', (key,)
++            ).fetchone()
++            if not row:
++                raise Failure(404, 'not_found')
++            scan = json.loads(row[0])
++            student = self.entity('students', scan['student_id'])
++            if not self.visible(user, student):
++                raise Failure(404, 'not_found')
++
++            if scan['state'] == 'completed':
++                # Keep the stored recipient private to the implementation and
++                # use the same replay path without re-checking old tag/device,
++                # guardian activity, presence, or reading time.
++                attendance_row = self.db.execute(
++                    'SELECT record FROM attendance WHERE scan_id=?', (scan['id'],)
++                ).fetchone()
++                if not attendance_row:
++                    raise Failure(404, 'not_found')
++                attendance = json.loads(attendance_row[0])
++                scan['_stored_recipient'] = attendance['recipient_id']
++                return self._completed_replay(scan, body)
++
++            # A pending scan is re-authorized against current fixture state.
++            device = self.entity('devices', scan['device_id'])
++            if not device or not device['active']:
++                raise Failure(422, 'inactive_device')
++            tag = self.entity('tags', scan['tag_uid'])
++            if (
++                not tag
++                or not tag['active']
++                or tag['student_id'] != scan['student_id']
++            ):
++                raise Failure(422, 'inactive_tag')
++
++            recipient = self._validate_recipient_syntax(scan['direction'], body)
++            if scan['direction'] == 'out':
++                guardian = self.entity('guardians', recipient)
++                if (
++                    not guardian
++                    or not guardian['active']
++                    or scan['student_id'] not in guardian['student_ids']
++                ):
++                    raise Failure(422, 'unauthorized_recipient')
++
++            # Attendance timestamps are immutable reader seconds.  The last
++            # completion for this student is the sequence predecessor because
++            # confirmations are serialized and timestamps cannot decrease.
++            last = None
++            for previous_row in self.db.execute(
++                'SELECT record FROM attendance ORDER BY rowid DESC'
++            ):
++                previous = json.loads(previous_row[0])
++                if previous['student_id'] == student['id']:
++                    last = previous
++                    break
++            if last is not None and scan['at'] < last['at']:
++                raise Failure(409, 'stale_reading')
++
++            if scan['direction'] == 'in':
++                if student['presence'] != 'out':
++                    raise Failure(409, 'attendance_conflict')
++            else:
++                if student['presence'] != 'in':
++                    raise Failure(409, 'attendance_conflict')
++
++            attendance = {
++                'id': secrets.token_urlsafe(18),
++                'scan_id': scan['id'],
++                'student_id': scan['student_id'],
++                'tag_uid': scan['tag_uid'],
++                'device_id': scan['device_id'],
++                'direction': scan['direction'],
++                'at': scan['at'],
++                'confirmed_by': user['id'],
++                'recipient_id': recipient,
++                'method': 'simulated_tag_tap',
++            }
++            self.db.execute(
++                'INSERT INTO attendance VALUES(?,?,?)',
++                (
++                    attendance['id'],
++                    attendance['scan_id'],
++                    encode_record(attendance),
++                ),
++            )
++
++            student['presence'] = scan['direction']
++            self.save_entity('students', student['id'], student)
++            scan['state'] = 'completed'
++            scan['attendance_id'] = attendance['id']
++            self.db.execute(
++                'UPDATE scans SET record=? WHERE id=?',
++                (encode_record(scan), scan['id']),
++            )
++
++            # Each currently active parent receives its own durable copy.  The
++            # user id is indexed in the table but intentionally absent from the
++            # public InboxEntry shape.
++            for user_row in self.db.execute('SELECT id,record FROM users ORDER BY rowid'):
++                parent = json.loads(user_row['record'])
++                if (
++                    parent['role'] == 'parent'
++                    and parent['active']
++                    and student['id'] in parent['student_ids']
++                ):
++                    entry = {
++                        'id': secrets.token_urlsafe(18),
++                        'attendance_id': attendance['id'],
++                        'student_id': attendance['student_id'],
++                        'direction': attendance['direction'],
++                        'at': attendance['at'],
++                        'confirmed_by': attendance['confirmed_by'],
++                        'recipient_id': attendance['recipient_id'],
++                        'read': False,
++                    }
++                    self.db.execute(
++                        'INSERT INTO inbox VALUES(?,?,?,?)',
++                        (
++                            entry['id'],
++                            parent['id'],
++                            attendance['id'],
++                            encode_record(entry),
++                        ),
++                    )
++
++            return 201, {'attendance': attendance}
+ 
+     def attendance(self, user):
+         with self.lock:
+-            result = [json.loads(r[0]) for r in self.db.execute('SELECT record FROM attendance ORDER BY rowid')]
+-            return {'attendance': [r for r in result if self.visible(user, self.entity('students', r['student_id']))]}
++            result = [
++                json.loads(row[0])
++                for row in self.db.execute('SELECT record FROM attendance ORDER BY rowid')
++            ]
++            return {
++                'attendance': [
++                    item
++                    for item in result
++                    if self.visible(user, self.entity('students', item['student_id']))
++                ]
++            }
+ 
+     def inbox(self, user):
+-        if user['role'] != 'parent': raise Failure(403, 'forbidden')
++        if user['role'] != 'parent':
++            raise Failure(403, 'forbidden')
+         with self.lock:
+-            return {'entries': [json.loads(r[0]) for r in self.db.execute('SELECT record FROM inbox WHERE user_id=? ORDER BY rowid', (user['id'],))]}
++            return {
++                'entries': [
++                    json.loads(row[0])
++                    for row in self.db.execute(
++                        'SELECT record FROM inbox WHERE user_id=? ORDER BY rowid',
++                        (user['id'],),
++                    )
++                ]
++            }
+ 
+     def set_read(self, user, key, body):
+-        if user['role'] != 'parent': raise Failure(403, 'forbidden')
+-        raise Failure(501, 'not_implemented')
++        if user['role'] != 'parent':
++            raise Failure(403, 'forbidden')
++        if type(body.get('read')) is not bool:
++            raise Failure(400, 'invalid_request')
++        with self.transaction():
++            row = self.db.execute(
++                'SELECT record FROM inbox WHERE id=? AND user_id=?',
++                (key, user['id']),
++            ).fetchone()
++            if not row:
++                raise Failure(404, 'not_found')
++            entry = json.loads(row[0])
++            entry['read'] = body['read']
++            self.db.execute(
++                'UPDATE inbox SET record=? WHERE id=?',
++                (encode_record(entry), key),
++            )
++            return {'entry': entry}
+diff --git a/style.css b/style.css
+index adc03a2edb2506a99219f25f313e6475b76782ad..76cd625bbfb15579a3b847d1c0b645abe672c918 100644
+--- a/style.css
++++ b/style.css
+@@ -1 +1 @@
+-:root{font:16px/1.5 system-ui,sans-serif;color:#173d3d;background:#eef3f0}*{box-sizing:border-box}body{margin:0}main{max-width:1040px;margin:auto;padding:28px 20px}header{border-bottom:2px solid #abc7bd;padding-bottom:16px;margin-bottom:16px}h1{font-size:clamp(1.8rem,5vw,2.6rem);line-height:1.15}.eyebrow{font-size:.72rem;letter-spacing:.14em;font-weight:700;color:#42776a}section,form{background:#fff;border:1px solid #d0dfd8;border-radius:10px;padding:20px;margin:18px 0}h2{font-size:1.15rem;margin-top:0}h3{font-size:1rem}label{display:block}input:not([type=checkbox]),select{display:block;width:100%;min-width:0;font:inherit;padding:9px;border:1px solid #93b2a5;border-radius:5px;margin:5px 0 12px}input[type=checkbox]{width:20px;height:20px;vertical-align:middle}button{font:inherit;min-height:44px;padding:8px 16px;border:0;border-radius:5px;background:#245e51;color:white;cursor:pointer}nav{display:flex;gap:10px}.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}ul{padding:0;list-style:none}li{padding:12px 0;border-bottom:1px solid #e1e9e5;overflow-wrap:anywhere}li select{max-width:330px}li span{display:block;margin-bottom:8px}#error{color:#a32924;overflow-wrap:anywhere}[hidden]{display:none!important}@media(max-width:480px){main{padding:16px 12px}section,form{padding:15px}.fields{grid-template-columns:1fr}}
++:root{font:16px/1.5 system-ui,sans-serif;color:#173d3d;background:#eef3f0}*{box-sizing:border-box}body{margin:0}main{max-width:1040px;margin:auto;padding:28px 20px}header{border-bottom:2px solid #abc7bd;padding-bottom:16px;margin-bottom:16px}h1{font-size:clamp(1.8rem,5vw,2.6rem);line-height:1.15}.eyebrow{font-size:.72rem;letter-spacing:.14em;font-weight:700;color:#42776a}section,form{background:#fff;border:1px solid #d0dfd8;border-radius:10px;padding:20px;margin:18px 0}h2{font-size:1.15rem;margin-top:0}h3{font-size:1rem}label{display:block}input:not([type=checkbox]),select{display:block;width:100%;min-width:0;font:inherit;padding:9px;border:1px solid #93b2a5;border-radius:5px;margin:5px 0 12px}input[type=checkbox]{width:20px;height:20px;vertical-align:middle}button{font:inherit;min-height:44px;padding:8px 16px;border:0;border-radius:5px;background:#245e51;color:white;cursor:pointer}nav{display:flex;gap:10px}.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}ul{padding:0;list-style:none}#inbox{min-height:1px}li{padding:12px 0;border-bottom:1px solid #e1e9e5;overflow-wrap:anywhere}li select{max-width:330px}li span{display:block;margin-bottom:8px}#error{color:#a32924;overflow-wrap:anywhere}[hidden]{display:none!important}@media(max-width:480px){main{padding:16px 12px}section,form{padding:15px}.fields{grid-template-columns:1fr}}

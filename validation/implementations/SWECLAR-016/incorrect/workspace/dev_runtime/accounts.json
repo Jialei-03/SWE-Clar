@@ -1,0 +1,6 @@
+{
+  "users": [
+    {"id": "synthetic-user-a", "username": "reviewer-a", "password": "synthetic-password-a"},
+    {"id": "synthetic-user-b", "username": "reviewer-b", "password": "synthetic-password-b"}
+  ]
+}

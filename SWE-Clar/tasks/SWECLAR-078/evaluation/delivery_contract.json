@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-078",
+  "public": {
+    "readme": "# Investor membership component\nImplement `process_investor_action(state, action)` in solution.py. This is a local persistent backend component using Python's standard library, not a complete investment app. SQLite `cli.py --db PATH init|show|act` accepts JSON on stdin for init/act. init creates one state, show is trusted local operator inspection, act emits only result/error. Do not expose this operator CLI as an unauthenticated web service.\n\nReturn a new entire internal state with result or nonempty error.code; preserve business state on rejection and both input objects always. Random salts/tokens are allowed. Preserve the CLI's transactional persistence and public envelope. crypto.py supplies salted PBKDF2 password encoding/checking.\n\nRegister uses user_id,email,password,name(optional); emails are lowercase/trimmed, unique with exactly one @, nonempty parts and no whitespace. IDs unique/nonempty, passwords nonblank. Store users[id] email/name/password_hash securely. login(user_id,password) returns unpredictable token and user_id, persists sessions[token]=user_id. account(token) returns only that user's user_id,email,name,lifetime based on persisted entitlements. logout(token) revokes the session, preserves account. No plaintext password storage or hash disclosure in public results.\n\nPassword-verifier boundary (explicit local benchmark clarification): use salted PBKDF2-HMAC-SHA256/SHA512 with 100000..1000000 iterations, or scrypt with n in {16384,32768,65536}, r=8 and integer p in 1..4. Use a fresh random salt of at least 16 bytes and a 32..64-byte derived verifier. The salt/verifier floors provide 128-bit salt space and at least a 256-bit verifier; the upper work bounds keep independent verification within the prepared CPU/memory budget. These are bounded stdlib acceptance profiles, not a claim that other password KDFs are insecure or equivalent implementations are universally supported.\n\nStore password_hash as either `pbkdf2_sha256$iterations$salt_hex$digest_hex`, `pbkdf2_sha512$iterations$salt_hex$digest_hex`, `scrypt$n$r$p$salt_hex$digest_hex`, or a JSON object encoded as a string. JSON requires kdf (`pbkdf2` or `scrypt`), salt, digest and the corresponding cost fields (hash plus iterations for PBKDF2; n,r,p for scrypt). Optional encoding is hex (default), base64 or base64url, used for both salt and digest; padded/unpadded base64 is accepted. Optional normalization is none (default), NFC or NFKC, applied before UTF-8 encoding. Optional prehash is none (default), sha256 or sha512, applied to those bytes and passed as raw digest bytes to the KDF. Delimited forms use hex, no normalization and no prehash. JSON key order and whitespace are free; duplicate/unknown fields are invalid so the verifier record cannot double as plaintext-password storage. Cost fields are integers excluding booleans. The evaluator independently derives and compares the stored verifier for supplied passwords; invoking an unrelated KDF is insufficient. Login must use the same declared preprocessing. No reversible password copy may be stored elsewhere in user records.\n\nFurther policies may be clarified. Operation vocabulary: stripe_event(user_id,event_id,stripe_session_id,purchase_type,confirmed); generate_report(symbol,date,movement_pct,sections); screen(user_id,answers,timestamp); track(user_id,event,metro,timestamp). These actions run in trusted local service context, not as public network routes. Webhook input is already verified synthetic input; nothing sends money or requests external investment data.\n\nAn initial state can contain question_pool mapping each question ID to an object with a weight field, for example {\"q1\": {\"weight\": 3}}, curated_stocks mapping symbols to objects, and optional users,sessions,entitlements,payments,reports,screening,events collections. Empty collections may be initialized by the policy. Required report section names are reason,movement,risk_boundary,watch_next. Other policies, thresholds and validation conventions are clarification material.\n\nRun `python cli.py --db /tmp/investor.sqlite init` with `{\"curated_stocks\":{\"DEMO\":{}},\"question_pool\":{}}`, then run act with a registration JSON object. Run `python -m pytest public_tests` from the task project after deployment of public tests.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_investor_action",
+          "signature": "process_investor_action(state, action) -> dict"
+        },
+        "inputs": {
+          "state": "Internal synthetic application state",
+          "action": "Operation schema in README"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "Entire internal next state with result/error; CLI act only emits public result/error"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_investor_action",
+        "signature": "process_investor_action(state, action) -> dict"
+      },
+      "inputs": {
+        "state": "Internal synthetic application state",
+        "action": "Operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Entire internal next state with result/error; CLI act only emits public result/error"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_investor_action",
+        "signature": "process_investor_action(state, action) -> dict"
+      },
+      "inputs": {
+        "state": "Internal synthetic application state",
+        "action": "Operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Entire internal next state with result/error; CLI act only emits public result/error"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_investor_action",
+        "signature": "process_investor_action(state, action) -> dict"
+      },
+      "inputs": {
+        "state": "Internal synthetic application state",
+        "action": "Operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Entire internal next state with result/error; CLI act only emits public result/error"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_investor_action",
+        "signature": "process_investor_action(state, action) -> dict"
+      },
+      "inputs": {
+        "state": "Internal synthetic application state",
+        "action": "Operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Entire internal next state with result/error; CLI act only emits public result/error"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_investor_action",
+        "signature": "process_investor_action(state, action) -> dict"
+      },
+      "inputs": {
+        "state": "Internal synthetic application state",
+        "action": "Operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Entire internal next state with result/error; CLI act only emits public result/error"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "b7bc5e7f5fbedbebad6afd5d302990fd2b70af346dfec36e1b65a0d693d5fc67",
+  "test_sources_sha256": {
+    "evaluation/tests/candidate_proxy.py": "9ea177c9d61bc5715ab44f36613cc85560842954fa9c65146c2203d7b2f368f9",
+    "evaluation/tests/conftest.py": "8b7860e7d8d0902169fab1abc22d2daff6c02906e44d3d565cdd16e3cb0ac45f",
+    "evaluation/tests/evaluate.py": "2d235ecbe7745653f3942a95a228e5105e6b2badf2d37fc290b47acd0c6687ca",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/password_contract.py": "3a7b83673500734e1efd002c6e10b7a2679451f6f5bcd558e576ed23435adfc2",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "3cec4870f6599bc682591b7c5ca5c4c421d417c089375fa7bb7483c999803cbe"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

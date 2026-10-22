@@ -1,0 +1,3 @@
+# Evaluator runtime
+
+The prepared python-cesium profile provides Python 3.12.3, Python Playwright/Chromium, Pillow and local CesiumJS 1.121.0 assets and licenses. No Node resolver or installation is required. Root-owned assertions observe actual Cesium scene projections, WebGL pixels and point picking; each requirement uses an independent app/browser. The service and browser execute as UID 1000 with environment allowlists; public helpers contain launch operations only. All requests stay on loopback and all accounts, salts, locations and samples are synthetic. Panel dimensions and timestamp spellings are compared semantically, allowing alternate widths and extra response metadata.

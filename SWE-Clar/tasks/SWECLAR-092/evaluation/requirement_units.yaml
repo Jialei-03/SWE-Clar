@@ -1,0 +1,190 @@
+schema_version: 1
+task_id: SWECLAR-092
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Responsive HTML/CSS/Bootstrap dashboard with local JSON data and browser interactions
+requirement_units:
+- ru_id: RU-001
+  name: Dashboard delivery
+  content: Repair and complete the supplied HTML/CSS/Bootstrap dashboard. Render the existing fleet overview,
+    summary, driver and vehicle sections in the browser from the supplied window.FLEET_DATA object, without
+    mutating it. Preserve the local assets and controls. This is a page-local dashboard component, excluding
+    the surrounding site's global header/navigation sidebar. Its independently specified driver/vehicle
+    detail panel is local content, not reinstatement of global navigation. Input object is supplied before
+    data.js loads; valid summary is a scalar-valued object and drivers/vehicles are arrays of {id,name}
+    records. Additional fields may be ignored, no original assets or fleet identities.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for dashboard delivery.
+  test_interface:
+    type: web_ui
+    entry:
+      language: html_css_javascript
+      pages:
+      - index.html
+    inputs:
+      fleet_data: 'window.FLEET_DATA: {summary: object, drivers: array<{id,name}>, vehicles: array<{id,name}>}'
+      viewport_width_px: integer
+      interaction_entry: window.dashboard.dispatch(action)
+    output:
+      type: rendered_page
+      meaning: Observable dashboard layout, supplied record text, error messages and sidebar interactions
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: The page and JSON injection interface are independently reconstructed. The original Figma is
+    unavailable; original-design equivalence remains unverified.
+- ru_id: RU-002
+  name: Responsive layout
+  content: Use a desktop composition at widths of at least 1024, a tablet composition from 600 through
+    1023, and a mobile composition below 600. Driver and vehicle sections appear in columns on larger
+    layouts and stack vertically on mobile; their content remains visible within the viewport without
+    horizontal page overflow. Test viewport widths include320,599,600,1023,1024 and1280. Larger means
+    >=600 for the two section columns. Keep labels and long text readable with wrapping, section rectangles
+    inside viewport; exact spacing, colors and DOM implementation are not scoring requirements.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for responsive layout.
+  test_interface:
+    type: web_ui
+    entry:
+      language: html_css_javascript
+      pages:
+      - index.html
+    inputs:
+      fleet_data: 'window.FLEET_DATA: {summary: object, drivers: array<{id,name}>, vehicles: array<{id,name}>}'
+      viewport_width_px: integer
+      interaction_entry: window.dashboard.dispatch(action)
+    output:
+      type: rendered_page
+      meaning: Observable dashboard layout, supplied record text, error messages and sidebar interactions
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: The page and JSON injection interface are independently reconstructed. The original Figma is
+    unavailable; original-design equivalence remains unverified.
+- ru_id: RU-003
+  name: JSON data projection
+  content: Render summary, driver and vehicle values only from the supplied fleet JSON. If summary, drivers
+    or vehicles is missing, render an accessible error identifying missing_data and the missing fields
+    instead of inventing records. Missing means absent own property among summary,drivers,vehicles; fixtures
+    otherwise use valid types. Error has an accessible alert and names all missing fields; do not fabricate
+    default records or show partial records for missing data. Additional JSON keys are allowed. Rendering
+    and local actions must preserve the supplied data object.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for json data projection.
+  test_interface:
+    type: web_ui
+    entry:
+      language: html_css_javascript
+      pages:
+      - index.html
+    inputs:
+      fleet_data: 'window.FLEET_DATA: {summary: object, drivers: array<{id,name}>, vehicles: array<{id,name}>}'
+      viewport_width_px: integer
+      interaction_entry: window.dashboard.dispatch(action)
+    output:
+      type: rendered_page
+      meaning: Observable dashboard layout, supplied record text, error messages and sidebar interactions
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: The page and JSON injection interface are independently reconstructed. The original Figma is
+    unavailable; original-design equivalence remains unverified.
+- ru_id: RU-004
+  name: Contextual sidebars
+  content: Clicking View all drivers opens a visible sidebar containing the supplied drivers, and View
+    all vehicles opens the corresponding vehicle sidebar. Clicking Close closes either sidebar. The local
+    dispatch entry point accepts view_all with target drivers or vehicles and close_sidebar. Preserve
+    existing View all drivers/View all vehicles/Close controls and window.dashboard.dispatch(action).
+    Open only the requested local panel, containing all names in source order, close hides it, switching
+    replaces content. Standard local markup/style may vary. No global page menu or remote navigation is
+    requested.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for contextual sidebars.
+  test_interface:
+    type: web_ui
+    entry:
+      language: html_css_javascript
+      pages:
+      - index.html
+    inputs:
+      fleet_data: 'window.FLEET_DATA: {summary: object, drivers: array<{id,name}>, vehicles: array<{id,name}>}'
+      viewport_width_px: integer
+      interaction_entry: window.dashboard.dispatch(action)
+    output:
+      type: rendered_page
+      meaning: Observable dashboard layout, supplied record text, error messages and sidebar interactions
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: The page and JSON injection interface are independently reconstructed. The original Figma is
+    unavailable; original-design equivalence remains unverified.
+- ru_id: RU-005
+  name: Static offline behavior
+  content: The static dashboard must work using only its supplied local files and fleet data, without
+    remote HTTP requests. Unknown dispatch actions return an error object whose code is unknown_action;
+    they must not partially change the current fleet content or open sidebar. Display text as text rather
+    than executable markup. Local static HTTP serving is permitted; only page-local resource URLs may
+    be requested. Unknown includes unsupported type/target or malformed action; return {error:{code:unknown_action}}
+    with optional metadata, preserve current fleet/panel state and input. Render labels/names with text
+    semantics, including apparent HTML strings; no injected element/event execution.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for static offline behavior.
+  test_interface:
+    type: web_ui
+    entry:
+      language: html_css_javascript
+      pages:
+      - index.html
+    inputs:
+      fleet_data: 'window.FLEET_DATA: {summary: object, drivers: array<{id,name}>, vehicles: array<{id,name}>}'
+      viewport_width_px: integer
+      interaction_entry: window.dashboard.dispatch(action)
+    output:
+      type: rendered_page
+      meaning: Observable dashboard layout, supplied record text, error messages and sidebar interactions
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: The page and JSON injection interface are independently reconstructed. The original Figma is
+    unavailable; original-design equivalence remains unverified.

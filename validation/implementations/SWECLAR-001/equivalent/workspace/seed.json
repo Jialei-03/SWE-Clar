@@ -1,0 +1,58 @@
+{
+  "users": [
+    {
+      "id": "seller-a",
+      "role": "seller",
+      "agent_id": "agent-a"
+    },
+    {
+      "id": "seller-b",
+      "role": "seller",
+      "agent_id": "agent-b"
+    },
+    {
+      "id": "agent-a",
+      "role": "agent"
+    },
+    {
+      "id": "agent-b",
+      "role": "agent"
+    },
+    {
+      "id": "admin",
+      "role": "admin"
+    }
+  ],
+  "listings": [
+    {
+      "id": "parcel-a",
+      "owner_id": "seller-a",
+      "agent_id": "agent-a",
+      "label": "Synthetic Parcel A",
+      "property_type": "house",
+      "bedrooms": 3,
+      "bathrooms": 2,
+      "floor_area": 100,
+      "asking_price": 200000,
+      "features": [
+        "courtyard"
+      ],
+      "state": "draft"
+    },
+    {
+      "id": "parcel-b",
+      "owner_id": "seller-b",
+      "agent_id": "agent-b",
+      "label": "Synthetic Parcel B",
+      "property_type": "house",
+      "bedrooms": 3,
+      "bathrooms": 2,
+      "floor_area": 100,
+      "asking_price": 200000,
+      "features": [
+        "terrace"
+      ],
+      "state": "draft"
+    }
+  ]
+}

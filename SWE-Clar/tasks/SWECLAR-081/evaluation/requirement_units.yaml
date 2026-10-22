@@ -1,0 +1,214 @@
+schema_version: 1
+task_id: SWECLAR-081
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Offline page generation, bounded CLI pagination, search and cache-work planning
+requirement_units:
+- ru_id: RU-001
+  name: Deterministic directory planning API
+  content: Provide plan_directory_update(records, changed_ids, query=None, immediate_ids=None) in directory_planner.py.
+    Offline deterministic return includes pages,suggestions,cache_queue; extra metadata allowed. Do not
+    mutate inputs. Records list requires unique nonempty string id, business_name,country_code,state_name,state_code,main_city;
+    other_cities/services lists of nonempty strings; sponsored boolean. Empty records/lists allowed. changed_ids
+    and immediate_ids are lists of known IDs (duplicates allowed); immediate_ids defaults empty; query
+    string or None. Invalid input raises ValueError without partial result. Preserve supplied CLI reading
+    one JSON request from stdin and returning JSON output; --offset>=0 and --limit>=1 paginate only pages,
+    return total_pages and retain complete suggestions/cache_queue. CLI pagination is local viewing, not
+    publication.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the public function, required record fields, validation rules, and top-level
+    result fields.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: directory_planner.py
+      function: plan_directory_update
+    inputs:
+      request: records,changed_ids,query,immediate_ids
+    output:
+      type: dict
+      meaning: Offline page content/search/cache plan
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  pass_rule: all_tests_pass
+  notes: null
+- ru_id: RU-002
+  name: Aggregate state, city, and service pages
+  content: Generate state, state_service, city, city_service and one business page per record. Include
+    main and all other cities and every service; deduplicate normalized repeats and business membership.
+    Each page exposes route,kind,label,business_ids. Labels are state+' Movers', state+' '+service+' Movers',
+    city+' '+state_code+' Movers', city+' '+state_code+' '+service+' Movers', or business_name. For equivalent
+    normalized labels choose lexicographically smallest trimmed label. Membership sorts sponsored first,
+    then original ID lexicographically. Pages sort by route. CLI renders html for each returned page containing
+    escaped label and each matching business_name in membership order. HTML structure/style is free; actual
+    text and safe escaping required. All records and output are synthetic; no full WordPress website required.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain every page kind that must be generated, which cities and services contribute,
+    and how business IDs are deduplicated and ordered.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: directory_planner.py
+      function: plan_directory_update
+    inputs:
+      request: records,changed_ids,query,immediate_ids
+    output:
+      type: dict
+      meaning: Offline page content/search/cache plan
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  pass_rule: all_tests_pass
+  notes: null
+- ru_id: RU-003
+  name: Collision-safe canonical routes
+  content: 'Canonical slug: Unicode NFKD, remove non-ASCII characters, lowercase, replace each run outside
+    a-z0-9 with one hyphen, trim hyphens. Components that become empty reject. State routes /{state-name}-movers
+    and /{state-name}-{service}-movers; city routes /{city}-{state-code}-movers and /{city}-{state-code}-{service}-movers;
+    business /business/{business-name}-{id}. Same named cities in distinct state codes remain distinct.
+    Reject route collisions between distinct semantic keys rather than silently merging. Semantic keys
+    include kind,country_code,state_name,state_code,city/service as relevant (all normalized), business
+    key original ID; supported data has consistent country/state associations. No inferred disambiguation
+    suffixes.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: State the exact canonical route shape for every page kind and explain how same-named
+    cities remain distinct.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: directory_planner.py
+      function: plan_directory_update
+    inputs:
+      request: records,changed_ids,query,immediate_ids
+    output:
+      type: dict
+      meaning: Offline page content/search/cache plan
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  pass_rule: all_tests_pass
+  notes: null
+- ru_id: RU-004
+  name: Ranked search suggestions
+  content: Search generated page labels, including business pages. Normalize query/label by the same ASCII
+    token normalization as slugs, with spaces replacing hyphens. None/empty normalized query gives no
+    suggestions. Exact match score300, prefix200, substring100, otherwise excluded. Return unique targets
+    (page routes), fields target,kind,label,score, sort descending score then ascending target, cap10.
+    These exact scores/cap are synthetic conventions; other metadata allowed.
+  requirement_category: core
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain which targets are searchable, how matching is normalized and ranked, and how
+    many unique suggestions are returned.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: directory_planner.py
+      function: plan_directory_update
+    inputs:
+      request: records,changed_ids,query,immediate_ids
+    output:
+      type: dict
+      meaning: Offline page content/search/cache plan
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  pass_rule: all_tests_pass
+  notes: null
+- ru_id: RU-005
+  name: Targeted cache invalidation
+  content: cache_queue includes every generated page contributed by any changed_ids record and excludes
+    unrelated routes. Dedupe shared routes. Empty changed and immediate lists give empty queue. Route
+    contribution follows current supplied records; deleted records/prior memberships are outside this
+    slice. Queue entries expose route and mode; this is a work plan, not external cache execution.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe precisely which routes enter the cache queue after records change and which
+    routes must stay out.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: directory_planner.py
+      function: plan_directory_update
+    inputs:
+      request: records,changed_ids,query,immediate_ids
+    output:
+      type: dict
+      meaning: Offline page content/search/cache plan
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  pass_rule: all_tests_pass
+  notes: null
+- ru_id: RU-006
+  name: Immediate sponsorship cache priority
+  content: 'immediate_ids independently contributes affected routes even absent from changed_ids. Every
+    route contributed by an immediate ID has mode immediate; other changed-ID routes mode nightly. Immediate
+    wins for shared routes. Queue sorts by route. Sponsorship flag controls page membership ordering,
+    not automatic queue priority: caller supplies immediate_ids for the synthetic urgent trigger. No external
+    CDN deployment.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain how immediate IDs affect cache membership and mode, including the rule for a
+    route shared with nightly work.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: directory_planner.py
+      function: plan_directory_update
+    inputs:
+      request: records,changed_ids,query,immediate_ids
+    output:
+      type: dict
+      meaning: Offline page content/search/cache plan
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-006-T01
+    file: evaluation/tests/test_solution.py
+  pass_rule: all_tests_pass
+  notes: null

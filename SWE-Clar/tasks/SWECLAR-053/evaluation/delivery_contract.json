@@ -1,0 +1,377 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-053",
+  "public": {
+    "readme": "# Rolling level analyzer\n\nImplement `analyze_levels` in `levels.py` while preserving the supplied JSON console. This is a standalone calculation task over synthetic OHLC bars, not a trading platform, broker integration or investment recommendation.\n\nUse `/workspace` and prepared `python-web`: Python and standard-library tools are ready, no installation or internet needed. Limits: 2 CPU, 2048 MiB memory, 256 processes, 256 MiB workspace.\n\n- Run a file: `python cli.py example.json`.\n- Run stdin: `python cli.py < example.json`.\n- Public check: `python /public_tests/test_public.py`.\n- Reset: no persistent state; each invocation is independent. Errors appear on stderr.\n\nInput has `bars`, `lookback` and optional `options` matching the function's keyword parameters. Each bar contains finite numeric `open`, `high`, `low`, `close`, with low \u2264 open/close \u2264 high. Booleans are not prices. Lookback is a positive integer; an empty history or history no longer than lookback produces no levels. Options `use_close_instead_of_wick`, `keep_past_levels`, `hide_broken_levels` are booleans; `min_distance_ticks` is a nonnegative integer, `tick_size` a positive finite number, `extend_points` a nonnegative integer. Invalid input raises ValueError. Preserve inputs and make no network or interactive calls.\n\nOutput contains lists `active_levels`, `display_levels` and `break_events`. A level has `side` (high/low), `price`, `created_at` (zero-based bar index), `status` (active/broken/replaced), `extends_to`. Break events contain `side`, `price`, `index`. Additional nonconflicting metadata is permitted. Return records in creation order, high before low at the same index; break events in chronological order, then level creation order. Numeric int/float equivalents are acceptable; no particular internal algorithm is required.\n\nCalculate candidates from exactly the preceding lookback bars, excluding the current bar. Ask the client about retention, replacement, spacing suppression and break/display behavior. The console is provided and runnable; the starter intentionally does not compute levels yet.\n\nThe break-event output key is exactly `index`, the zero-based breaking bar index. `bar_index` is not a replacement for `index`. Clarification must preserve this output name; the requirement's phrase \u201cbar index\u201d describes the value, not a different JSON field.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "levels.py",
+          "function": "analyze_levels"
+        },
+        "inputs": {
+          "bars": "list of OHLC dictionaries",
+          "lookback": "positive integer",
+          "options": "keyword arguments"
+        },
+        "output": {
+          "type": "dictionary",
+          "meaning": "active and displayable levels plus break events",
+          "record_schemas": {
+            "level": {
+              "required": [
+                "side",
+                "price",
+                "created_at",
+                "status",
+                "extends_to"
+              ],
+              "additional_properties": true
+            },
+            "break_event": {
+              "required": [
+                "side",
+                "price",
+                "index"
+              ],
+              "index": "zero-based integer index of breaking bar",
+              "additional_properties": true,
+              "forbidden_substitution": "bar_index does not replace index"
+            }
+          }
+        },
+        "operations": []
+      },
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "levels.py",
+          "function": "analyze_levels"
+        },
+        "inputs": {
+          "bars": "list of OHLC dictionaries",
+          "lookback": "positive integer",
+          "use_close_instead_of_wick": "boolean"
+        },
+        "output": {
+          "type": "level records",
+          "meaning": "rolling high and low candidates based only on prior completed bars",
+          "record_schemas": {
+            "level": {
+              "required": [
+                "side",
+                "price",
+                "created_at",
+                "status",
+                "extends_to"
+              ],
+              "additional_properties": true
+            },
+            "break_event": {
+              "required": [
+                "side",
+                "price",
+                "index"
+              ],
+              "index": "zero-based integer index of breaking bar",
+              "additional_properties": true,
+              "forbidden_substitution": "bar_index does not replace index"
+            }
+          }
+        },
+        "operations": []
+      },
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "levels.py",
+          "function": "analyze_levels"
+        },
+        "inputs": {
+          "keep_past_levels": false
+        },
+        "output": {
+          "type": "level records",
+          "meaning": "The active set contains at most one current high and one current low. Earlier broken records remain displayable when hide_broken_levels is false; replaced records are never displayable.",
+          "record_schemas": {
+            "level": {
+              "required": [
+                "side",
+                "price",
+                "created_at",
+                "status",
+                "extends_to"
+              ],
+              "additional_properties": true
+            },
+            "break_event": {
+              "required": [
+                "side",
+                "price",
+                "index"
+              ],
+              "index": "zero-based integer index of breaking bar",
+              "additional_properties": true,
+              "forbidden_substitution": "bar_index does not replace index"
+            }
+          }
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "levels.py",
+        "function": "analyze_levels"
+      },
+      "inputs": {
+        "bars": "list of OHLC dictionaries",
+        "lookback": "positive integer",
+        "options": "keyword arguments"
+      },
+      "output": {
+        "type": "dictionary",
+        "meaning": "active and displayable levels plus break events",
+        "record_schemas": {
+          "level": {
+            "required": [
+              "side",
+              "price",
+              "created_at",
+              "status",
+              "extends_to"
+            ],
+            "additional_properties": true
+          },
+          "break_event": {
+            "required": [
+              "side",
+              "price",
+              "index"
+            ],
+            "index": "zero-based integer index of breaking bar",
+            "additional_properties": true,
+            "forbidden_substitution": "bar_index does not replace index"
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "levels.py",
+        "function": "analyze_levels"
+      },
+      "inputs": {
+        "bars": "list of OHLC dictionaries",
+        "lookback": "positive integer",
+        "use_close_instead_of_wick": "boolean"
+      },
+      "output": {
+        "type": "level records",
+        "meaning": "rolling high and low candidates based only on prior completed bars",
+        "record_schemas": {
+          "level": {
+            "required": [
+              "side",
+              "price",
+              "created_at",
+              "status",
+              "extends_to"
+            ],
+            "additional_properties": true
+          },
+          "break_event": {
+            "required": [
+              "side",
+              "price",
+              "index"
+            ],
+            "index": "zero-based integer index of breaking bar",
+            "additional_properties": true,
+            "forbidden_substitution": "bar_index does not replace index"
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "levels.py",
+        "function": "analyze_levels"
+      },
+      "inputs": {
+        "keep_past_levels": false
+      },
+      "output": {
+        "type": "level records",
+        "meaning": "The active set contains at most one current high and one current low. Earlier broken records remain displayable when hide_broken_levels is false; replaced records are never displayable.",
+        "record_schemas": {
+          "level": {
+            "required": [
+              "side",
+              "price",
+              "created_at",
+              "status",
+              "extends_to"
+            ],
+            "additional_properties": true
+          },
+          "break_event": {
+            "required": [
+              "side",
+              "price",
+              "index"
+            ],
+            "index": "zero-based integer index of breaking bar",
+            "additional_properties": true,
+            "forbidden_substitution": "bar_index does not replace index"
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "levels.py",
+        "function": "analyze_levels"
+      },
+      "inputs": {
+        "keep_past_levels": true
+      },
+      "output": {
+        "type": "active level records",
+        "meaning": "multiple unbroken same-side levels remain active",
+        "record_schemas": {
+          "level": {
+            "required": [
+              "side",
+              "price",
+              "created_at",
+              "status",
+              "extends_to"
+            ],
+            "additional_properties": true
+          },
+          "break_event": {
+            "required": [
+              "side",
+              "price",
+              "index"
+            ],
+            "index": "zero-based integer index of breaking bar",
+            "additional_properties": true,
+            "forbidden_substitution": "bar_index does not replace index"
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "levels.py",
+        "function": "analyze_levels"
+      },
+      "inputs": {
+        "min_distance_ticks": "non-negative integer",
+        "tick_size": "positive number"
+      },
+      "output": {
+        "type": "level records",
+        "meaning": "candidates within the configured same-side tick buffer are omitted",
+        "record_schemas": {
+          "level": {
+            "required": [
+              "side",
+              "price",
+              "created_at",
+              "status",
+              "extends_to"
+            ],
+            "additional_properties": true
+          },
+          "break_event": {
+            "required": [
+              "side",
+              "price",
+              "index"
+            ],
+            "index": "zero-based integer index of breaking bar",
+            "additional_properties": true,
+            "forbidden_substitution": "bar_index does not replace index"
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-006": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "levels.py",
+        "function": "analyze_levels"
+      },
+      "inputs": {
+        "hide_broken_levels": "boolean",
+        "extend_points": "non-negative integer"
+      },
+      "output": {
+        "type": "level and event records",
+        "meaning": "strict breaks are recorded and display filtering and extension are deterministic",
+        "record_schemas": {
+          "level": {
+            "required": [
+              "side",
+              "price",
+              "created_at",
+              "status",
+              "extends_to"
+            ],
+            "additional_properties": true
+          },
+          "break_event": {
+            "required": [
+              "side",
+              "price",
+              "index"
+            ],
+            "index": "zero-based integer index of breaking bar",
+            "additional_properties": true,
+            "forbidden_substitution": "bar_index does not replace index"
+          }
+        }
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "3876f2addd5d17e9caecdac4150bf4a8160bec9ca5908e4623b98ff0fc341907",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "da3279f5cc9505562e481e91a4582bc8f6a242065d8e5a57f0bbed46cd0f3c86",
+    "evaluation/tests/candidate_proxy.py": "686863d2d143177493d519546d4019c6381ee883e1a415883baeac3a2ea24cf4",
+    "evaluation/tests/evaluate.py": "70196e89a58a8bbdd7a77bec4c9c99a3e1e265ae323b8df2644bf192ec6c01cb",
+    "evaluation/tests/expected_gates.json": "070767deb54d86afdce8e245eef44138cf6a668beea203cbd5219d5316e674b1",
+    "evaluation/tests/official_verifier.py": "9897feabce298174b1143a05aa79e1717b080be6b323381bb7322c95691c5b07",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_levels.py": "43358e7b739df7116ae4a3fbba24e97dd4b9bec3860cd22bf1ef357d1c6c242e"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

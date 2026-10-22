@@ -1,0 +1,7 @@
+.dart_tool/
+build/
+.idea/
+__pycache__/
+*.pyc
+*.sqlite
+*.sqlite-*

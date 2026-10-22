@@ -1,0 +1,190 @@
+schema_version: 1
+task_id: SWECLAR-036
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual ASP.NET Core MariaDB connectivity, durable schema migration and development TLS
+  setup
+requirement_units:
+- ru_id: RU-001
+  name: Setup action entry point
+  content: Preserve the supplied ASP.NET Core 8 HTTP scaffold and public README contract. The benchmark
+    preconfigures a restricted local MariaDB connection, offline dependencies and fresh synthetic TLS
+    certificates. Preserve existing HTTPS with optional client-certificate request and validation against
+    CLIENT_CA_PEM using client-authentication purpose, without modifying system trust. Never expose connection
+    strings, passwords or private keys in responses.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for setup action entry point.
+  test_interface:
+    type: api
+    entry:
+      language: csharp
+      file: SetupApi.csproj
+      command: python start.py
+    inputs:
+      configuration: Benchmark-prepared runtime/connection.json and synthetic TLS materials; launcher
+        loads configuration automatically
+      requests: Actual HTTPS requests
+    output:
+      type: http
+      meaning: HTTP responses and actual MariaDB schema/history
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/setup_contract.py
+  notes: Independent reconstruction of local API/database setup. Schema, routes, fixed runtime and TLS
+    plumbing are public integration choices; exact migration/authorization behavior is a synthetic benchmark
+    specification, not quoted client instruction. Raw source and certificates are excluded.
+- ru_id: RU-002
+  name: MariaDB connection
+  content: POST /connect accepts only provider=MariaDB (case-insensitive), opens the configured database
+    connection, and verifies the server version identifies MariaDB before returning connected=true. Ignore
+    caller-supplied connection_ok. Failed credentials or unreachable databases return database_connection_failed
+    without claiming success.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for mariadb connection.
+  test_interface:
+    type: api
+    entry:
+      language: csharp
+      file: SetupApi.csproj
+      command: python start.py
+    inputs:
+      configuration: Benchmark-prepared runtime/connection.json and synthetic TLS materials; launcher
+        loads configuration automatically
+      requests: Actual HTTPS requests
+    output:
+      type: http
+      meaning: HTTP responses and actual MariaDB schema/history
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/setup_contract.py
+  notes: Independent reconstruction of local API/database setup. Schema, routes, fixed runtime and TLS
+    plumbing are public integration choices; exact migration/authorization behavior is a synthetic benchmark
+    specification, not quoted client instruction. Raw source and certificates are excluded.
+- ru_id: RU-003
+  name: Ordered idempotent migrations
+  content: 'POST /migrations accepts an array from the ordered IDs 001_create_samples, 002_add_category,
+    003_index_category. Apply these as real SQL: create samples(id VARCHAR(80) primary key,name VARCHAR(160)
+    not null), add category VARCHAR(80) not null default general, then index sample_category on category.
+    Record unique migration IDs in schema_migrations in applied order. Skip IDs already applied and persist
+    history across process restarts. New IDs must follow the next contiguous migration prefix. Reject
+    null, unknown, duplicate or out-of-order IDs as invalid_migrations before changing schema/history.
+    Preserve sample rows when applying later migrations. The supplied SQL is idempotent so successful
+    DDL can be resumed after interruption.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for ordered idempotent migrations.
+  matching_keywords: []
+  test_interface:
+    type: api
+    entry:
+      language: csharp
+      file: SetupApi.csproj
+      command: python start.py
+    inputs:
+      configuration: Benchmark-prepared runtime/connection.json and synthetic TLS materials; launcher
+        loads configuration automatically
+      requests: Actual HTTPS requests
+    output:
+      type: http
+      meaning: HTTP responses and actual MariaDB schema/history
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/setup_contract.py
+  notes: Independent reconstruction of local API/database setup. Schema, routes, fixed runtime and TLS
+    plumbing are public integration choices; exact migration/authorization behavior is a synthetic benchmark
+    specification, not quoted client instruction. Raw source and certificates are excluded.
+- ru_id: RU-004
+  name: Certificate-gated API verification
+  content: GET /secure requires a valid client certificate presented during TLS. Without a certificate
+    return certificate_required with HTTP 403. Do not accept caller headers or certificate-ID flags in
+    place of a valid TLS certificate. An untrusted certificate must not receive a successful response.
+    The successful response uses the public message and migration_count schema. TLS setup and chain validation
+    are public baseline facilities, not hidden information.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for certificate-gated api verification.
+  matching_keywords: []
+  test_interface:
+    type: api
+    entry:
+      language: csharp
+      file: SetupApi.csproj
+      command: python start.py
+    inputs:
+      configuration: Benchmark-prepared runtime/connection.json and synthetic TLS materials; launcher
+        loads configuration automatically
+      requests: Actual HTTPS requests
+    output:
+      type: http
+      meaning: HTTP responses and actual MariaDB schema/history
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/setup_contract.py
+  notes: Independent reconstruction of local API/database setup. Schema, routes, fixed runtime and TLS
+    plumbing are public integration choices; exact migration/authorization behavior is a synthetic benchmark
+    specification, not quoted client instruction. Raw source and certificates are excluded.
+- ru_id: RU-005
+  name: Health and safe failures
+  content: GET /health reports actual database_connected, durable migration_count and tls_configured.
+    GET /samples reads current id/name/category rows from MariaDB in ID order and reports api_not_ready
+    before schema readiness. GET /secure returns message=certificate accepted plus migration_count after
+    certificate validation. Unknown endpoints return unknown_endpoint/404 and malformed requests return
+    structured errors without exposing configuration secrets.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for health and safe failures.
+  test_interface:
+    type: api
+    entry:
+      language: csharp
+      file: SetupApi.csproj
+      command: python start.py
+    inputs:
+      configuration: Benchmark-prepared runtime/connection.json and synthetic TLS materials; launcher
+        loads configuration automatically
+      requests: Actual HTTPS requests
+    output:
+      type: http
+      meaning: HTTP responses and actual MariaDB schema/history
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/setup_contract.py
+  notes: Independent reconstruction of local API/database setup. Schema, routes, fixed runtime and TLS
+    plumbing are public integration choices; exact migration/authorization behavior is a synthetic benchmark
+    specification, not quoted client instruction. Raw source and certificates are excluded.

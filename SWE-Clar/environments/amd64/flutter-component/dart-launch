@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+export FLUTTER_ROOT=/opt/flutter
+export PUB_CACHE="${HOME:?A writable HOME is required}/.cache/sweclar-pub"
+mkdir -p "$PUB_CACHE"
+for area in hosted hosted-hashes; do
+    if [ ! -e "$PUB_CACHE/$area" ]; then ln -s "/opt/pub-cache/$area" "$PUB_CACHE/$area"; fi
+done
+exec /opt/flutter/bin/cache/dart-sdk/bin/dart "$@"

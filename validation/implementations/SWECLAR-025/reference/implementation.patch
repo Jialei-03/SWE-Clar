@@ -1,0 +1,456 @@
+diff --git a/InspectionService.php b/InspectionService.php
+index 986056156d380af19dff46659ac3ff43a620b5b1..73ca9e36ad9e04f12bcfcf677f336cda72b8bf3d 100644
+--- a/InspectionService.php
++++ b/InspectionService.php
+@@ -1,33 +1,284 @@
+ <?php
+-function database(array $config): PDO {
+-    $db=new PDO('sqlite:'.getenv('INSPECTION_DB'));$db->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);
+-    $db->exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
+-    $db->exec('CREATE TABLE IF NOT EXISTS communities(id TEXT PRIMARY KEY); CREATE TABLE IF NOT EXISTS streets(community TEXT NOT NULL,street TEXT NOT NULL,PRIMARY KEY(community,street),FOREIGN KEY(community) REFERENCES communities(id)); CREATE TABLE IF NOT EXISTS inspections(id TEXT PRIMARY KEY,community TEXT NOT NULL,street TEXT NOT NULL,residence TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ("open","closed")),FOREIGN KEY(community,street) REFERENCES streets(community,street)); CREATE TABLE IF NOT EXISTS initialized(id INTEGER PRIMARY KEY);');
+-    $db->beginTransaction();
++
++/**
++ * Open the records database and seed it exactly once from the supplied fixture.
++ *
++ * The database is deliberately the source of truth after this initialization
++ * step.  In particular, commands never trust address data supplied by a
++ * caller without checking the streets table.
++ */
++function database(array $config): PDO
++{
++    $databasePath = getenv('INSPECTION_DB');
++    if (!is_string($databasePath) || trim($databasePath) === '') {
++        throw new RuntimeException('INSPECTION_DB is not configured');
++    }
++
++    $db = new PDO('sqlite:' . $databasePath);
++    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
++    $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
++    $db->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
++    $db->exec('PRAGMA foreign_keys = ON');
++    $db->exec('PRAGMA busy_timeout = 5000');
++
++    // Create the schema before the initialization transaction.  IF NOT
++    // EXISTS makes this safe when several PHP workers receive their first
++    // request at the same time.
++    $db->exec(
++        'CREATE TABLE IF NOT EXISTS communities (' .
++        'id TEXT PRIMARY KEY NOT NULL' .
++        ')'
++    );
++    $db->exec(
++        'CREATE TABLE IF NOT EXISTS streets (' .
++        'community TEXT NOT NULL,' .
++        'street TEXT NOT NULL,' .
++        'PRIMARY KEY (community, street),' .
++        'FOREIGN KEY (community) REFERENCES communities(id)' .
++        ')'
++    );
++    $db->exec(
++        'CREATE TABLE IF NOT EXISTS inspections (' .
++        'id TEXT PRIMARY KEY NOT NULL,' .
++        'community TEXT NOT NULL,' .
++        'street TEXT NOT NULL,' .
++        'residence TEXT NOT NULL,' .
++        'status TEXT NOT NULL CHECK (status IN ("open", "closed")),' .
++        'FOREIGN KEY (community, street) REFERENCES streets(community, street)' .
++        ')'
++    );
++    $db->exec(
++        'CREATE TABLE IF NOT EXISTS initialized (' .
++        'id INTEGER PRIMARY KEY' .
++        ')'
++    );
++    $db->exec(
++        'CREATE INDEX IF NOT EXISTS inspections_community_idx ' .
++        'ON inspections(community)'
++    );
++
++    // BEGIN IMMEDIATE prevents two first requests from both observing an
++    // empty initialization marker and trying to seed the same rows.
++    $db->exec('BEGIN IMMEDIATE');
++    $initializationStarted = true;
+     try {
+-        if (!$db->query('SELECT 1 FROM initialized')->fetchColumn()) {
+-            foreach($config['communities'] as $community=>$streets) {
+-                $db->prepare('INSERT INTO communities VALUES(?)')->execute([$community]);
+-                foreach($streets as $street)$db->prepare('INSERT INTO streets VALUES(?,?)')->execute([$community,$street]);
++        $initialized = $db->query('SELECT 1 FROM initialized LIMIT 1')->fetchColumn();
++        if ($initialized === false) {
++            $communities = $config['communities'] ?? null;
++            if (!is_array($communities)) {
++                throw new RuntimeException('Invalid communities fixture');
++            }
++
++            $communityInsert = $db->prepare(
++                'INSERT INTO communities (id) VALUES (?)'
++            );
++            $streetInsert = $db->prepare(
++                'INSERT INTO streets (community, street) VALUES (?, ?)'
++            );
++            foreach ($communities as $community => $streets) {
++                if (!is_string($community) || !is_array($streets)) {
++                    throw new RuntimeException('Invalid communities fixture');
++                }
++                $communityInsert->execute([$community]);
++                foreach ($streets as $street) {
++                    if (!is_string($street)) {
++                        throw new RuntimeException('Invalid streets fixture');
++                    }
++                    $streetInsert->execute([$community, $street]);
++                }
++            }
++
++            $inspectionInsert = $db->prepare(
++                'INSERT INTO inspections ' .
++                '(id, community, street, residence, status) VALUES (?, ?, ?, ?, ?)'
++            );
++            $inspections = $config['inspections'] ?? [];
++            if (!is_array($inspections)) {
++                throw new RuntimeException('Invalid inspections fixture');
++            }
++            foreach ($inspections as $inspection) {
++                if (!is_array($inspection)) {
++                    throw new RuntimeException('Invalid inspections fixture');
++                }
++                foreach (['id', 'community', 'street', 'residence', 'status'] as $field) {
++                    if (!array_key_exists($field, $inspection) || !is_string($inspection[$field])) {
++                        throw new RuntimeException('Invalid inspections fixture');
++                    }
++                }
++                $inspectionInsert->execute([
++                    $inspection['id'],
++                    $inspection['community'],
++                    $inspection['street'],
++                    $inspection['residence'],
++                    $inspection['status'],
++                ]);
+             }
+-            foreach(($config['inspections'] ?? []) as $row)$db->prepare('INSERT INTO inspections VALUES(?,?,?,?,?)')->execute([$row['id'],$row['community'],$row['street'],$row['residence'],$row['status']]);
+-            $db->exec('INSERT INTO initialized VALUES(1)');
++
++            $db->exec('INSERT INTO initialized (id) VALUES (1)');
+         }
+-        $db->commit();
+-    }catch(Throwable $e){$db->rollBack();throw $e;}
++        $db->exec('COMMIT');
++        $initializationStarted = false;
++    } catch (Throwable $exception) {
++        if ($initializationStarted) {
++            try {
++                $db->exec('ROLLBACK');
++            } catch (Throwable) {
++                // Preserve the original initialization error.
++            }
++        }
++        throw $exception;
++    }
++
+     return $db;
+ }
+-function command(PDO $db,array $input,string $role): array {
+-    $kind=$input['type'] ?? '';
+-    if($kind==='create') {
+-        if(!in_array($role,['admin','inspector'],true))return ['error'=>['code'=>'forbidden']];
+-        foreach(['id','community','street','residence'] as $field)if(!isset($input[$field]) || !is_string($input[$field]) || trim($input[$field])==='')return ['error'=>['code'=>'invalid_address']];
+-        $query=$db->prepare('SELECT 1 FROM streets WHERE community=? AND street=?');$query->execute([$input['community'],$input['street']]);
+-        if(!$query->fetchColumn())return ['error'=>['code'=>'invalid_address']];
+-        $q=$db->prepare('SELECT 1 FROM inspections WHERE id=?');$q->execute([$input['id']]);if($q->fetchColumn())return ['error'=>['code'=>'duplicate_id']];
+-        $db->prepare('INSERT INTO inspections VALUES(?,?,?,?,?)')->execute([$input['id'],$input['community'],$input['street'],$input['residence'],'open']);
+-        return ['result'=>['id'=>$input['id'],'status'=>'open']];
++
++function nonEmptyString(mixed $value): bool
++{
++    return is_string($value) && trim($value) !== '';
++}
++
++function operationError(string $code): array
++{
++    return ['error' => ['code' => $code]];
++}
++
++function isDuplicateInspectionError(PDOException $exception): bool
++{
++    $errorInfo = $exception->errorInfo;
++    $message = strtolower($exception->getMessage());
++
++    // The pre-insert lookup handles normal duplicates.  This branch handles
++    // the small race window for callers using another connection and keeps a
++    // uniqueness violation a structured operation error rather than a 500.
++    return ($errorInfo[0] ?? null) === '23000'
++        && (str_contains($message, 'unique') || str_contains($message, 'primary key'));
++}
++
++/**
++ * Execute one authenticated operation.  The caller's role is supplied by
++ * router.php from the access-code map; no role field in $input is consulted.
++ */
++function command(PDO $db, array $input, string $role): array
++{
++    $kind = $input['type'] ?? null;
++
++    if ($kind === 'create') {
++        if (!in_array($role, ['admin', 'inspector'], true)) {
++            return operationError('forbidden');
++        }
++
++        foreach (['id', 'community', 'street', 'residence'] as $field) {
++            if (!array_key_exists($field, $input) || !nonEmptyString($input[$field])) {
++                return operationError('invalid_address');
++            }
++        }
++
++        // Checking the composite address, rather than checking the street
++        // name alone, prevents a street from being used in another community.
++        $streetQuery = $db->prepare(
++            'SELECT 1 FROM streets WHERE community = ? AND street = ? LIMIT 1'
++        );
++        $streetQuery->execute([$input['community'], $input['street']]);
++        if ($streetQuery->fetchColumn() === false) {
++            return operationError('invalid_address');
++        }
++
++        $existingQuery = $db->prepare(
++            'SELECT 1 FROM inspections WHERE id = ? LIMIT 1'
++        );
++        $existingQuery->execute([$input['id']]);
++        if ($existingQuery->fetchColumn() !== false) {
++            return operationError('duplicate_id');
++        }
++
++        try {
++            $insert = $db->prepare(
++                'INSERT INTO inspections ' .
++                '(id, community, street, residence, status) VALUES (?, ?, ?, ?, ?)'
++            );
++            $insert->execute([
++                $input['id'],
++                $input['community'],
++                $input['street'],
++                $input['residence'],
++                'open',
++            ]);
++        } catch (PDOException $exception) {
++            if (isDuplicateInspectionError($exception)) {
++                return operationError('duplicate_id');
++            }
++            throw $exception;
++        }
++
++        return ['result' => ['id' => $input['id'], 'status' => 'open']];
++    }
++
++    if ($kind === 'delete') {
++        if ($role !== 'admin') {
++            return operationError('forbidden');
++        }
++        if (!array_key_exists('id', $input) || !nonEmptyString($input['id'])) {
++            return operationError('not_found');
++        }
++
++        $lookup = $db->prepare(
++            'SELECT status FROM inspections WHERE id = ? LIMIT 1'
++        );
++        $lookup->execute([$input['id']]);
++        $inspection = $lookup->fetch();
++        if ($inspection === false) {
++            return operationError('not_found');
++        }
++        if ($inspection['status'] !== 'open') {
++            return operationError('closed_inspection');
++        }
++
++        $delete = $db->prepare(
++            'DELETE FROM inspections WHERE id = ? AND status = "open"'
++        );
++        $delete->execute([$input['id']]);
++        if ($delete->rowCount() !== 1) {
++            // A command transaction is serialized, so this is defensive; it
++            // also guarantees that a surprising database state cannot report
++            // success without changing exactly one open record.
++            return operationError('not_found');
++        }
++
++        return ['result' => ['deleted' => true]];
++    }
++
++    if ($kind === 'report') {
++        if (!array_key_exists('community', $input) || !nonEmptyString($input['community'])) {
++            return operationError('unknown_community');
++        }
++
++        $communityQuery = $db->prepare(
++            'SELECT 1 FROM communities WHERE id = ? LIMIT 1'
++        );
++        $communityQuery->execute([$input['community']]);
++        if ($communityQuery->fetchColumn() === false) {
++            return operationError('unknown_community');
++        }
++
++        $counts = $db->prepare(
++            'SELECT COUNT(*) AS total,' .
++            'COALESCE(SUM(CASE WHEN status = "open" THEN 1 ELSE 0 END), 0) AS open_count,' .
++            'COALESCE(SUM(CASE WHEN status = "closed" THEN 1 ELSE 0 END), 0) AS closed_count ' .
++            'FROM inspections WHERE community = ?'
++        );
++        $counts->execute([$input['community']]);
++        $row = $counts->fetch();
++
++        return [
++            'result' => [
++                'total' => (int) $row['total'],
++                'by_status' => [
++                    'open' => (int) $row['open_count'],
++                    'closed' => (int) $row['closed_count'],
++                ],
++            ],
++        ];
+     }
+-    if($kind==='delete' || $kind==='report')return ['error'=>['code'=>'not_implemented']];
+-    return ['error'=>['code'=>'unknown_command']];
++
++    return operationError('unknown_command');
+ }
+diff --git a/router.php b/router.php
+index 1ee977d587af5f7ca277b119490ba050010aec0c..dfa3a5d79690aeeb42ff31f887ee9c4aa58234ab 100644
+--- a/router.php
++++ b/router.php
+@@ -1,22 +1,118 @@
+ <?php
+-$path=parse_url($_SERVER['REQUEST_URI'],PHP_URL_PATH);
+-if(!str_starts_with($path,'/api/'))return false;
+-header('Content-Type: application/json');
+-function reply(int $status,array $value): never {http_response_code($status);echo json_encode($value);exit;}
++
++$path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
++if (!is_string($path) || !str_starts_with($path, '/api/')) {
++    return false;
++}
++
++header('Content-Type: application/json; charset=utf-8');
++
++function reply(int $status, array $value): never
++{
++    http_response_code($status);
++    echo json_encode($value, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
++    exit;
++}
++
+ try {
+-    $config=json_decode(file_get_contents(getenv('INSPECTION_CONFIG')),true,512,JSON_THROW_ON_ERROR);
+-    $authorization=$_SERVER['HTTP_AUTHORIZATION'] ?? '';
+-    $role=str_starts_with($authorization,'Bearer ')?($config['access_codes'][substr($authorization,7)] ?? null):null;
+-    if(!in_array($role,['admin','inspector','office'],true))reply(401,['error'=>['code'=>'unauthenticated']]);
+-    require __DIR__.'/InspectionService.php';$db=database($config);
+-    if($path==='/api/context' && $_SERVER['REQUEST_METHOD']==='GET') {
+-        $groups=[];foreach($db->query('SELECT community,street FROM streets ORDER BY community,street')->fetchAll(PDO::FETCH_ASSOC) as $row)$groups[$row['community']][]=$row['street'];
+-        reply(200,['role'=>$role,'communities'=>$groups,'inspections'=>$db->query('SELECT * FROM inspections ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)]);
+-    }
+-    if($path!=='/api/command' || $_SERVER['REQUEST_METHOD']!=='POST')reply(404,['error'=>['code'=>'not_found']]);
+-    $input=json_decode(file_get_contents('php://input'),true,512,JSON_THROW_ON_ERROR);if(!is_array($input))reply(400,['error'=>['code'=>'invalid_request']]);
++    $configPath = getenv('INSPECTION_CONFIG');
++    if (!is_string($configPath) || trim($configPath) === '') {
++        throw new RuntimeException('INSPECTION_CONFIG is not configured');
++    }
++    $config = json_decode(
++        file_get_contents($configPath),
++        true,
++        512,
++        JSON_THROW_ON_ERROR
++    );
++    if (!is_array($config)) {
++        throw new RuntimeException('Invalid inspection configuration');
++    }
++
++    // Only this server-side mapping determines the role.  The request body
++    // is never used for authentication or authorization.
++    $authorization = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
++    $role = null;
++    if (is_string($authorization) && str_starts_with($authorization, 'Bearer ')) {
++        $accessCode = substr($authorization, 7);
++        $accessCodes = $config['access_codes'] ?? [];
++        if (is_array($accessCodes) && $accessCode !== '' && array_key_exists($accessCode, $accessCodes)) {
++            $candidateRole = $accessCodes[$accessCode];
++            if (is_string($candidateRole)) {
++                $role = $candidateRole;
++            }
++        }
++    }
++    if (!in_array($role, ['admin', 'inspector', 'office'], true)) {
++        reply(401, ['error' => ['code' => 'unauthenticated']]);
++    }
++
++    require_once __DIR__ . '/InspectionService.php';
++    $db = database($config);
++
++    if ($path === '/api/context' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
++        $communities = [];
++        foreach ($db->query('SELECT id FROM communities ORDER BY id')->fetchAll() as $community) {
++            $communities[$community['id']] = [];
++        }
++        foreach (
++            $db->query(
++                'SELECT community, street FROM streets ORDER BY community, street'
++            )->fetchAll() as $street
++        ) {
++            $communities[$street['community']][] = $street['street'];
++        }
++
++        $inspections = $db->query(
++            'SELECT id, community, street, residence, status ' .
++            'FROM inspections ORDER BY id'
++        )->fetchAll();
++        reply(200, [
++            'role' => $role,
++            'communities' => $communities,
++            'inspections' => $inspections,
++        ]);
++    }
++
++    if ($path !== '/api/command' || ($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
++        reply(404, ['error' => ['code' => 'not_found']]);
++    }
++
++    $decoded = json_decode(
++        file_get_contents('php://input'),
++        true,
++        512,
++        JSON_THROW_ON_ERROR
++    );
++    if (!is_array($decoded)) {
++        reply(400, ['error' => ['code' => 'invalid_request']]);
++    }
++
++    // Serializing writers makes the duplicate lookup and insert one atomic
++    // operation, including when competing PHP workers submit the same ID.
+     $db->exec('BEGIN IMMEDIATE');
+-    try{$result=command($db,$input,$role);$db->exec(isset($result['error'])?'ROLLBACK':'COMMIT');}
+-    catch(Throwable $e){$db->exec('ROLLBACK');throw $e;}
+-    reply(isset($result['error'])?400:200,$result);
+-}catch(Throwable $e){reply(400,['error'=>['code'=>'invalid_request']]);}
++    $commandTransactionStarted = true;
++    try {
++        $result = command($db, $decoded, $role);
++        if (array_key_exists('error', $result)) {
++            $db->exec('ROLLBACK');
++        } else {
++            $db->exec('COMMIT');
++        }
++        $commandTransactionStarted = false;
++    } catch (Throwable $exception) {
++        if ($commandTransactionStarted) {
++            try {
++                $db->exec('ROLLBACK');
++            } catch (Throwable) {
++                // Preserve the original command/database error.
++            }
++        }
++        throw $exception;
++    }
++
++    reply(array_key_exists('error', $result) ? 400 : 200, $result);
++} catch (Throwable) {
++    // Do not expose configuration, access codes, SQL, or filesystem details.
++    reply(400, ['error' => ['code' => 'invalid_request']]);
++}

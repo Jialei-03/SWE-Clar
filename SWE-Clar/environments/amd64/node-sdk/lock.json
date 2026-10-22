@@ -1,0 +1,7 @@
+{
+  "platform": "linux/amd64",
+  "base_profile": "python-vision",
+  "source_profile": "node-sdk",
+  "wheels": [],
+  "archives": []
+}

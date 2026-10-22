@@ -1,0 +1,25 @@
+# CPU x86_64 runtime, resolved to a complete SHA-256 wheel lock before build.
+comfyui-frontend-package==1.17.11
+torch==2.6.0
+torchvision==0.21.0
+torchaudio==2.6.0
+torchsde==0.2.6
+numpy==2.2.6
+einops==0.8.1
+transformers==4.49.0
+tokenizers==0.21.1
+sentencepiece==0.2.0
+safetensors==0.5.3
+aiohttp==3.11.18
+yarl==1.20.0
+PyYAML==6.0.2
+Pillow==12.3.0
+scipy==1.15.3
+tqdm==4.67.1
+psutil==7.0.0
+kornia==0.8.1
+spandrel==0.4.1
+soundfile==0.13.1
+av==14.2.0
+comfyui-workflow-templates==0.1.3
+pydantic==2.11.7

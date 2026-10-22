@@ -1,0 +1,779 @@
+"""Local investor membership and educational-report policy.
+
+The function in this module deliberately works on ordinary Python data structures.  It
+is used by the small SQLite operator CLI, which persists the returned state after a
+successful action.  The implementation keeps the state transition transactional at
+this boundary: all changes are made to a deep copy and a rejected transition is
+constructed from a fresh copy of the input state.
+"""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import copy
+import datetime as _datetime
+import hashlib
+import hmac
+import json
+import math
+import re
+import secrets
+import unicodedata
+from types import MappingProxyType
+from typing import Any
+
+
+_MISSING = object()
+
+
+class _Reject(Exception):
+    """An expected policy rejection, carrying only a public error code."""
+
+    def __init__(self, code: str = "invalid_action") -> None:
+        self.code = code or "invalid_action"
+        super().__init__(self.code)
+
+
+# ---------------------------------------------------------------------------
+# General state and input helpers
+
+
+def _reject(code: str = "invalid_input") -> None:
+    raise _Reject(code)
+
+
+def _nonempty_string(value: Any) -> bool:
+    return isinstance(value, str) and len(value) > 0
+
+
+def _nonblank_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _finite_number(value: Any) -> bool:
+    """Return whether value is a finite, non-boolean JSON-style number."""
+
+    # The public input is JSON-shaped, so accepting int and float is both more
+    # predictable and safer for the later JSON persistence step than accepting
+    # arbitrary objects implementing numeric operators.
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    if isinstance(value, int):
+        # Python integers have arbitrary precision and are finite by
+        # definition; converting a large one through float would incorrectly
+        # reject an otherwise valid numeric timestamp or weight.
+        return True
+    try:
+        return math.isfinite(value)
+    except (OverflowError, TypeError, ValueError):
+        return False
+
+
+def _finite_nonnegative(value: Any) -> bool:
+    return _finite_number(value) and value >= 0
+
+
+def _mapping(
+    state: dict[str, Any],
+    key: str,
+    *,
+    create: bool = False,
+    missing_code: str = "missing_state",
+) -> dict[Any, Any]:
+    value = state.get(key, _MISSING)
+    if value is _MISSING:
+        if create:
+            value = {}
+            state[key] = value
+        else:
+            _reject(missing_code)
+    if not isinstance(value, dict):
+        _reject("invalid_state")
+    return value
+
+
+def _list_collection(state: dict[str, Any], key: str, *, create: bool = False) -> list[Any]:
+    value = state.get(key, _MISSING)
+    if value is _MISSING:
+        if create:
+            value = []
+            state[key] = value
+        else:
+            _reject("missing_state")
+    if not isinstance(value, list):
+        _reject("invalid_state")
+    return value
+
+
+def _known_user(state: dict[str, Any], user_id: Any) -> bool:
+    users = state.get("users", _MISSING)
+    return isinstance(users, dict) and user_id in users
+
+
+def _clear_envelope(state: dict[str, Any]) -> None:
+    # result/error are the transient process envelope, rather than business
+    # collections.  This also makes passing a prior returned state as the next
+    # input behave as a normal new transition.
+    state.pop("result", None)
+    state.pop("error", None)
+
+
+def _error_state(state: Any, code: str) -> dict[str, Any]:
+    try:
+        result = copy.deepcopy(state) if isinstance(state, dict) else {}
+    except Exception:
+        result = {}
+    _clear_envelope(result)
+    result["error"] = {"code": code or "invalid_action"}
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Password verifier boundary
+
+
+def _new_password_hash(password: str) -> str:
+    """Create the documented, delimited PBKDF2-SHA256 verifier."""
+
+    # The minimum permitted work factor keeps the local CLI usable while still
+    # satisfying the explicitly bounded acceptance profile.
+    iterations = 100_000
+    salt = secrets.token_bytes(16)
+    password_bytes = password.encode("utf-8")
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password_bytes, salt, iterations, dklen=32
+    )
+    return "pbkdf2_sha256${}${}${}".format(
+        iterations, salt.hex(), digest.hex()
+    )
+
+
+def _parse_decimal_text(value: Any) -> int:
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]+", value):
+        raise ValueError("not an unsigned decimal")
+    return int(value)
+
+
+def _decode_hex(value: Any) -> bytes:
+    if not isinstance(value, str) or not value or len(value) % 2:
+        raise ValueError("invalid hex")
+    if re.fullmatch(r"[0-9a-fA-F]+", value) is None:
+        raise ValueError("invalid hex")
+    return bytes.fromhex(value)
+
+
+def _decode_base64(value: Any, *, urlsafe: bool) -> bytes:
+    if not isinstance(value, str) or any(char.isspace() for char in value):
+        raise ValueError("invalid base64")
+
+    alphabet = r"A-Za-z0-9_-" if urlsafe else r"A-Za-z0-9+/"
+    if re.fullmatch(r"[" + alphabet + r"]*={0,2}", value) is None:
+        raise ValueError("invalid base64")
+    if "=" in value and len(value) % 4 != 0:
+        raise ValueError("invalid base64 padding")
+    if "=" not in value and len(value) % 4 == 1:
+        raise ValueError("invalid base64 length")
+
+    padded = value + ("=" * ((-len(value)) % 4))
+    try:
+        raw = base64.b64decode(
+            padded,
+            altchars=b"-_" if urlsafe else None,
+            validate=True,
+        )
+    except (ValueError, TypeError, binascii.Error):
+        raise ValueError("invalid base64")
+
+    # Reject non-canonical spellings while still accepting omitted padding.
+    canonical_bytes = (
+        base64.urlsafe_b64encode(raw)
+        if urlsafe
+        else base64.b64encode(raw)
+    )
+    canonical = canonical_bytes.decode("ascii")
+    if value.rstrip("=") != canonical.rstrip("="):
+        raise ValueError("invalid base64 spelling")
+    return raw
+
+
+def _decode_verifier_blob(value: Any, encoding: str) -> bytes:
+    if encoding == "hex":
+        return _decode_hex(value)
+    if encoding == "base64":
+        return _decode_base64(value, urlsafe=False)
+    if encoding == "base64url":
+        return _decode_base64(value, urlsafe=True)
+    raise ValueError("unknown encoding")
+
+
+def _password_key_material(password: str, normalization: str, prehash: str) -> bytes:
+    if not isinstance(password, str):
+        raise ValueError("password is not text")
+    if normalization not in {"none", "NFC", "NFKC"}:
+        raise ValueError("unknown normalization")
+    if prehash not in {"none", "sha256", "sha512"}:
+        raise ValueError("unknown prehash")
+
+    text = password if normalization == "none" else unicodedata.normalize(normalization, password)
+    raw = text.encode("utf-8")
+    if prehash == "sha256":
+        return hashlib.sha256(raw).digest()
+    if prehash == "sha512":
+        return hashlib.sha512(raw).digest()
+    return raw
+
+
+def _valid_verifier_sizes(salt: bytes, digest: bytes) -> None:
+    if len(salt) < 16:
+        raise ValueError("salt too short")
+    if not 32 <= len(digest) <= 64:
+        raise ValueError("digest size outside profile")
+
+
+def _derive_from_delimited(password: str, encoded: str) -> tuple[bytes, bytes]:
+    parts = encoded.split("$")
+    if len(parts) == 4 and parts[0] in {"pbkdf2_sha256", "pbkdf2_sha512"}:
+        algorithm, iterations_text, salt_text, digest_text = parts
+        iterations = _parse_decimal_text(iterations_text)
+        if not 100_000 <= iterations <= 1_000_000:
+            raise ValueError("iterations outside profile")
+        salt = _decode_hex(salt_text)
+        digest = _decode_hex(digest_text)
+        _valid_verifier_sizes(salt, digest)
+        hash_name = algorithm.rsplit("_", 1)[1]
+        key = _password_key_material(password, "none", "none")
+        derived = hashlib.pbkdf2_hmac(
+            hash_name, key, salt, iterations, dklen=len(digest)
+        )
+        return derived, digest
+
+    if len(parts) == 6 and parts[0] == "scrypt":
+        _, n_text, r_text, p_text, salt_text, digest_text = parts
+        n = _parse_decimal_text(n_text)
+        r = _parse_decimal_text(r_text)
+        p = _parse_decimal_text(p_text)
+        if n not in {16_384, 32_768, 65_536} or r != 8 or not 1 <= p <= 4:
+            raise ValueError("scrypt cost outside profile")
+        salt = _decode_hex(salt_text)
+        digest = _decode_hex(digest_text)
+        _valid_verifier_sizes(salt, digest)
+        key = _password_key_material(password, "none", "none")
+        derived = hashlib.scrypt(
+            password=key,
+            salt=salt,
+            n=n,
+            r=r,
+            p=p,
+            dklen=len(digest),
+            # OpenSSL's implicit default is often 32 MiB, which is below
+            # the explicitly permitted n=32768/65536 profiles.  The profile
+            # itself bounds the maximum allocation; this merely lets those
+            # permitted records be verified on standard Python builds.
+            maxmem=128 * 1024 * 1024,
+        )
+        return derived, digest
+
+    raise ValueError("unknown verifier format")
+
+
+class _DuplicateJSONKey(ValueError):
+    pass
+
+
+def _json_object_without_duplicates(pairs: list[tuple[Any, Any]]) -> dict[Any, Any]:
+    result: dict[Any, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateJSONKey("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _derive_from_json_verifier(password: str, encoded: str) -> tuple[bytes, bytes]:
+    obj = json.loads(encoded, object_pairs_hook=_json_object_without_duplicates)
+    if not isinstance(obj, dict):
+        raise ValueError("JSON verifier must be an object")
+
+    common = {"kdf", "salt", "digest", "encoding", "normalization", "prehash"}
+    kdf = obj.get("kdf", _MISSING)
+    if kdf == "pbkdf2":
+        allowed = common | {"hash", "iterations"}
+        required = {"kdf", "salt", "digest", "hash", "iterations"}
+    elif kdf == "scrypt":
+        allowed = common | {"n", "r", "p"}
+        required = {"kdf", "salt", "digest", "n", "r", "p"}
+    else:
+        raise ValueError("unknown JSON kdf")
+
+    if any(key not in allowed for key in obj) or not required.issubset(obj):
+        raise ValueError("invalid JSON verifier fields")
+
+    encoding = obj.get("encoding", "hex")
+    normalization = obj.get("normalization", "none")
+    prehash = obj.get("prehash", "none")
+    if encoding not in {"hex", "base64", "base64url"}:
+        raise ValueError("unknown encoding")
+    if normalization not in {"none", "NFC", "NFKC"}:
+        raise ValueError("unknown normalization")
+    if prehash not in {"none", "sha256", "sha512"}:
+        raise ValueError("unknown prehash")
+
+    salt = _decode_verifier_blob(obj["salt"], encoding)
+    digest = _decode_verifier_blob(obj["digest"], encoding)
+    _valid_verifier_sizes(salt, digest)
+    key = _password_key_material(password, normalization, prehash)
+
+    if kdf == "pbkdf2":
+        hash_name = obj["hash"]
+        iterations = obj["iterations"]
+        if hash_name not in {"sha256", "sha512"}:
+            raise ValueError("unknown PBKDF2 hash")
+        if isinstance(iterations, bool) or not isinstance(iterations, int):
+            raise ValueError("invalid PBKDF2 iterations")
+        if not 100_000 <= iterations <= 1_000_000:
+            raise ValueError("iterations outside profile")
+        derived = hashlib.pbkdf2_hmac(
+            hash_name, key, salt, iterations, dklen=len(digest)
+        )
+    else:
+        n = obj["n"]
+        r = obj["r"]
+        p = obj["p"]
+        if any(isinstance(value, bool) or not isinstance(value, int) for value in (n, r, p)):
+            raise ValueError("invalid scrypt cost")
+        if n not in {16_384, 32_768, 65_536} or r != 8 or not 1 <= p <= 4:
+            raise ValueError("scrypt cost outside profile")
+        derived = hashlib.scrypt(
+            password=key,
+            salt=salt,
+            n=n,
+            r=r,
+            p=p,
+            dklen=len(digest),
+            maxmem=128 * 1024 * 1024,
+        )
+
+    return derived, digest
+
+
+def _verify_password(password: Any, encoded: Any) -> bool:
+    if not isinstance(password, str) or not isinstance(encoded, str):
+        return False
+    try:
+        if encoded.lstrip().startswith("{"):
+            derived, expected = _derive_from_json_verifier(password, encoded)
+        else:
+            derived, expected = _derive_from_delimited(password, encoded)
+        return hmac.compare_digest(derived, expected)
+    except (ValueError, TypeError, UnicodeError, MemoryError, OverflowError):
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Individual policy operations
+
+
+def _register(state: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    user_id = action.get("user_id", _MISSING)
+    email_value = action.get("email", _MISSING)
+    password = action.get("password", _MISSING)
+    if not _nonempty_string(user_id):
+        _reject("invalid_user_id")
+    if not isinstance(email_value, str):
+        _reject("invalid_email")
+    if not isinstance(password, str) or not password.strip():
+        _reject("invalid_password")
+
+    email = email_value.strip().lower()
+    if (
+        email.count("@") != 1
+        or any(not part for part in email.split("@"))
+        or any(char.isspace() for char in email)
+    ):
+        _reject("invalid_email")
+
+    if "name" in action and not isinstance(action["name"], str):
+        _reject("invalid_name")
+    name = action.get("name", "")
+
+    # The working state is already a private copy.  Initializing this
+    # collection here makes registration and the other state transitions use
+    # one consistent collection policy.
+    users = _mapping(state, "users", create=True)
+    if user_id in users:
+        _reject("duplicate_user")
+
+    for existing in users.values():
+        if isinstance(existing, dict) and isinstance(existing.get("email"), str):
+            if existing["email"].strip().lower() == email:
+                _reject("duplicate_email")
+
+    # Encode only after all ordinary validation has passed.  No plaintext
+    # password is put into either the user record or the result envelope.
+    try:
+        password_hash = _new_password_hash(password)
+    except (UnicodeError, ValueError, TypeError, MemoryError):
+        _reject("invalid_password")
+
+    users[user_id] = {
+        "email": email,
+        "name": name,
+        "password_hash": password_hash,
+    }
+    return {"user_id": user_id, "email": email}
+
+
+def _login(state: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    user_id = action.get("user_id", _MISSING)
+    password = action.get("password", _MISSING)
+    if not _nonempty_string(user_id) or not isinstance(password, str):
+        _reject("invalid_credentials")
+
+    users = state.get("users", _MISSING)
+    if not isinstance(users, dict) or user_id not in users:
+        _reject("invalid_credentials")
+    user = users[user_id]
+    if not isinstance(user, dict) or not _verify_password(password, user.get("password_hash")):
+        _reject("invalid_credentials")
+
+    sessions = _mapping(state, "sessions", create=True)
+
+    token = ""
+    for _ in range(8):
+        candidate = secrets.token_urlsafe(32)
+        if candidate and candidate not in sessions:
+            token = candidate
+            break
+    if not token:
+        _reject("session_error")
+
+    sessions[token] = user_id
+    return {"token": token, "user_id": user_id}
+
+
+def _account(state: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    token = action.get("token", _MISSING)
+    if not _nonempty_string(token):
+        _reject("invalid_session")
+    sessions = _mapping(state, "sessions", missing_code="invalid_session")
+    if token not in sessions:
+        _reject("invalid_session")
+    user_id = sessions[token]
+
+    users = _mapping(state, "users", missing_code="invalid_session")
+    if user_id not in users:
+        _reject("invalid_session")
+    user = users[user_id]
+    if not isinstance(user, dict) or not isinstance(user.get("email"), str):
+        _reject("invalid_state")
+
+    entitlements_value = state.get("entitlements", _MISSING)
+    if entitlements_value is _MISSING:
+        lifetime = False
+    elif not isinstance(entitlements_value, dict):
+        _reject("invalid_state")
+    else:
+        entitlement = entitlements_value.get(user_id, _MISSING)
+        # The canonical value written by stripe_event is the literal
+        # "lifetime".  True is accepted for compatibility with a pre-existing
+        # synthetic state, but client action flags are never consulted.
+        lifetime = entitlement == "lifetime" or entitlement is True
+
+    return {
+        "user_id": user_id,
+        "email": user["email"],
+        "name": user.get("name", ""),
+        "lifetime": lifetime,
+    }
+
+
+def _logout(state: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    token = action.get("token", _MISSING)
+    if not _nonempty_string(token):
+        _reject("invalid_session")
+    sessions = _mapping(state, "sessions", missing_code="invalid_session")
+    if token not in sessions:
+        _reject("invalid_session")
+    del sessions[token]
+    return {"logged_out": True}
+
+
+def _stripe_event(state: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    user_id = action.get("user_id", _MISSING)
+    event_id = action.get("event_id", _MISSING)
+    stripe_session_id = action.get("stripe_session_id", _MISSING)
+    purchase_type = action.get("purchase_type", _MISSING)
+    confirmed = action.get("confirmed", _MISSING)
+
+    if not _nonempty_string(user_id) or not _known_user(state, user_id):
+        _reject("unknown_user")
+    if not _nonempty_string(event_id) or not _nonempty_string(stripe_session_id):
+        _reject("invalid_payment_event")
+    if confirmed is not True or purchase_type != "lifetime":
+        _reject("invalid_payment_event")
+
+    payments = _mapping(state, "payments", create=True)
+
+    if event_id in payments:
+        existing = payments[event_id]
+        if not isinstance(existing, dict):
+            _reject("payment_event_conflict")
+        same = (
+            existing.get("event_id", event_id) == event_id
+            and existing.get("user_id") == user_id
+            and existing.get("stripe_session_id") == stripe_session_id
+            and existing.get("purchase_type") == purchase_type
+            and existing.get("confirmed") is True
+        )
+        if not same:
+            _reject("payment_event_conflict")
+        # In particular, do not assign entitlements again on a replay.
+        return {
+            "event_id": event_id,
+            "duplicate": True,
+            "granted": False,
+        }
+
+    entitlements = _mapping(state, "entitlements", create=True)
+
+    payments[event_id] = {
+        "event_id": event_id,
+        "user_id": user_id,
+        "stripe_session_id": stripe_session_id,
+        "purchase_type": purchase_type,
+        "confirmed": True,
+    }
+    entitlements[user_id] = "lifetime"
+    return {
+        "event_id": event_id,
+        "duplicate": False,
+        "granted": True,
+    }
+
+
+def _strict_date(value: Any) -> bool:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value) is None:
+        return False
+    try:
+        _datetime.date.fromisoformat(value)
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
+def _generate_report(state: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    symbol = action.get("symbol", _MISSING)
+    date_value = action.get("date", _MISSING)
+    movement_pct = action.get("movement_pct", _MISSING)
+    sections = action.get("sections", _MISSING)
+
+    if not _nonempty_string(symbol):
+        _reject("invalid_report")
+    curated = state.get("curated_stocks", _MISSING)
+    if not isinstance(curated, dict) or symbol not in curated:
+        _reject("unknown_stock")
+    if not _strict_date(date_value):
+        _reject("invalid_report")
+    if not _finite_number(movement_pct):
+        _reject("invalid_report")
+    if not isinstance(sections, dict):
+        _reject("invalid_report")
+
+    required = ("reason", "movement", "risk_boundary", "watch_next")
+    for key in required:
+        value = sections.get(key, _MISSING)
+        if not _nonblank_string(value):
+            _reject("invalid_report")
+        lowered = value.casefold()
+        if "guaranteed return" in lowered or "institutional-grade" in lowered:
+            _reject("invalid_report_language")
+
+    try:
+        change = 1000 * movement_pct / 100
+    except (ArithmeticError, TypeError, ValueError, OverflowError):
+        # For an arbitrarily large integer the mathematically equivalent
+        # multiplication by ten avoids Python's float conversion in `/`.
+        if isinstance(movement_pct, int) and not isinstance(movement_pct, bool):
+            change = movement_pct * 10
+        else:
+            _reject("invalid_report")
+    if not _finite_number(change):
+        _reject("invalid_report")
+
+    report = {
+        "symbol": symbol,
+        "date": date_value,
+        "reason": sections["reason"],
+        "movement": sections["movement"],
+        "risk_boundary": sections["risk_boundary"],
+        "watch_next": sections["watch_next"],
+        "illustration": {"allocation": 1000, "change": change},
+    }
+
+    reports = _mapping(state, "reports", create=True)
+    reports[date_value + ":" + symbol] = report
+    return copy.deepcopy(report)
+
+
+def _question_weight(config: Any) -> Any:
+    # The public description uses question_pool[id].weight.  Accepting a
+    # direct numeric value as well keeps the initial state's short
+    # "mapping IDs to weight" form useful without changing the policy.
+    if isinstance(config, dict):
+        if "weight" not in config:
+            _reject("invalid_question_pool")
+        return config["weight"]
+    return config
+
+
+def _screen(state: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    user_id = action.get("user_id", _MISSING)
+    answers = action.get("answers", _MISSING)
+    timestamp = action.get("timestamp", _MISSING)
+    if not _nonempty_string(user_id) or not _known_user(state, user_id):
+        _reject("unknown_user")
+    if not isinstance(answers, dict) or len(answers) != 4:
+        _reject("invalid_answers")
+    if any(not isinstance(value, bool) for value in answers.values()):
+        _reject("invalid_answers")
+    if not _finite_nonnegative(timestamp):
+        _reject("invalid_timestamp")
+
+    question_pool = state.get("question_pool", _MISSING)
+    if not isinstance(question_pool, dict):
+        _reject("invalid_question_pool")
+
+    score_terms: list[Any] = []
+    for question_id, answer in answers.items():
+        if question_id not in question_pool:
+            _reject("unknown_question")
+        weight = _question_weight(question_pool[question_id])
+        if not _finite_nonnegative(weight):
+            _reject("invalid_question_weight")
+        if answer:
+            score_terms.append(weight)
+
+    score: Any = sum(score_terms, 0)
+    if not _finite_number(score):
+        _reject("invalid_question_weight")
+    if score >= 8:
+        tier = "Pro Beta"
+    elif score >= 4:
+        tier = "Basic Beta"
+    else:
+        tier = "Waitlist"
+
+    screening = _mapping(state, "screening", create=True)
+
+    if user_id in screening:
+        previous = screening[user_id]
+        if not isinstance(previous, dict):
+            _reject("invalid_screening")
+        previous_tier = previous.get("tier")
+        previous_timestamp = previous.get("timestamp")
+        if previous_tier in {"Pro Beta", "Basic Beta"}:
+            _reject("screening_locked")
+        if previous_tier != "Waitlist" or not _finite_nonnegative(previous_timestamp):
+            _reject("invalid_screening")
+        if timestamp < previous_timestamp + 604_800:
+            _reject("screening_cooldown")
+
+    screening[user_id] = {
+        "tier": tier,
+        "timestamp": timestamp,
+        "score": score,
+    }
+    return {"tier": tier, "score_hidden": True}
+
+
+def _track(state: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    user_id = action.get("user_id", _MISSING)
+    event = action.get("event", _MISSING)
+    metro = action.get("metro", _MISSING)
+    timestamp = action.get("timestamp", _MISSING)
+    if not _nonempty_string(user_id) or not _known_user(state, user_id):
+        _reject("unknown_user")
+    if not _nonempty_string(event) or not _nonempty_string(metro):
+        _reject("invalid_tracking_event")
+    if not _finite_nonnegative(timestamp):
+        _reject("invalid_timestamp")
+
+    events = _list_collection(state, "events", create=True)
+    events.append(
+        {
+            "user_id": user_id,
+            "event": event,
+            "metro": metro,
+            "timestamp": timestamp,
+        }
+    )
+    return {"tracked": True}
+
+
+# Keep the operation vocabulary in one immutable dispatch table.  The handlers
+# still receive the private working copy, so moving dispatch out of the entry
+# point does not change the transaction boundary or expose any internal state.
+_ACTION_HANDLERS = MappingProxyType(
+    {
+        "register": _register,
+        "login": _login,
+        "account": _account,
+        "logout": _logout,
+        "stripe_event": _stripe_event,
+        "generate_report": _generate_report,
+        "screen": _screen,
+        "track": _track,
+    }
+)
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+
+
+def _operation_name(action: dict[str, Any]) -> Any:
+    # ``op`` is the normal spelling.  The README's operation list predates a
+    # field-name declaration, so accepting the common equivalent spellings is
+    # harmless for the local component and makes the function tolerant of
+    # callers using the earlier vocabulary.
+    if "op" in action:
+        return action["op"]
+    for key in ("operation", "type", "action"):
+        if key in action:
+            return action[key]
+    return _MISSING
+
+
+def process_investor_action(state: dict, action: dict) -> dict:
+    """Apply one investor action and return the complete next internal state.
+
+    Both the working state and all rejected states are copies, so neither the
+    state nor action supplied by the caller is mutated.  Expected validation
+    failures and unexpected malformed-state failures are represented by a
+    nonempty ``error.code`` rather than escaping to the caller.
+    """
+
+    if not isinstance(state, dict) or not isinstance(action, dict):
+        return _error_state(state, "invalid_action")
+
+    try:
+        next_state = copy.deepcopy(state)
+        operation = _operation_name(action)
+        if not isinstance(operation, str) or not operation:
+            _reject("unknown_operation")
+
+        handler = _ACTION_HANDLERS.get(operation)
+        if handler is None:
+            _reject("unknown_operation")
+
+        result = handler(next_state, action)
+        _clear_envelope(next_state)
+        next_state["result"] = result
+        return next_state
+    except _Reject as exc:
+        return _error_state(state, exc.code)
+    except Exception:
+        # A malformed synthetic state must not cause a partial transition or
+        # leak an implementation exception through the public boundary.
+        return _error_state(state, "invalid_action")

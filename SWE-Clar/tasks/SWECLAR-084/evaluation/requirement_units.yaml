@@ -1,0 +1,199 @@
+schema_version: 1
+task_id: SWECLAR-084
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Persistent local coaching services, credit booking, plan/checkin and participant review/chat
+requirement_units:
+- ru_id: RU-001
+  name: Coaching workflow entry point
+  content: 'process_coaching_action(state,action) returns entire new internal state with result or nonempty
+    error.code, deterministic and without mutating inputs. Invalid/unknown actions preserve business collections.
+    Known dictionary collections users,credits,services,sessions,plans and list collections checkins,reviews,messages
+    must have correct collection type when present; initialize missing collections as needed. Preserve
+    SQLite CLI init/show/act: init once, successful state survives separate processes, rejected action
+    leaves stored state intact. act emits only result/error; show is trusted local operator inspection.
+    User IDs in operation fields are trusted upstream identity context, not a public authentication implementation.
+    Extra metadata and alternate error wording accepted.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for coaching workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_coaching_action
+      signature: process_coaching_action(state,action) -> dict
+    inputs:
+      state: Internal synthetic backend records
+      action: Supported action schema in README
+    output:
+      type: dict
+      meaning: Next internal state; CLI persists and emits result/error only
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.
+- ru_id: RU-002
+  name: Coach services and discovery
+  content: publish_service requires users[coach_id].role=coach, unique nonempty service_id, nonblank specialty,
+    modality online/in_person/hybrid, finite nonnegative numeric nonboolean price, nonempty list of nonblank
+    slot strings. Trim specialty/slots, dedupe slots preserving first occurrence, store coach_id,specialty,modality,price,slots,active=true.
+    discover returns result.services rows with service_id plus service fields, only active=true. Optional
+    specialty is case-insensitive trimmed substring filter; optional modality must be supported and matches
+    exactly. Sort by casefolded specialty then service_id. Empty specialty filter matches all. No original
+    coach profiles or broad marketplace UI.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for coach services and discovery.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_coaching_action
+      signature: process_coaching_action(state,action) -> dict
+    inputs:
+      state: Internal synthetic backend records
+      action: Supported action schema in README
+    output:
+      type: dict
+      meaning: Next internal state; CLI persists and emits result/error only
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.
+- ru_id: RU-003
+  name: Conflict-safe session booking
+  content: book needs role athlete, unique nonempty session_id, active service, slot from normalized service
+    slots and purchase_type one_time/subscription. One service/slot admits only one booked or completed
+    session. Repeated session ID rejects without another debit; conflicting/unknown/invalid booking rejects
+    atomically. Subscription requires strictly positive integer credit excluding bool; debit exactly1
+    on successful booking. one_time consumes no credit and means locally accepted purchase intent, not
+    external billing. Store athlete_id,coach_id,service_id,slot,purchase_type,status=booked,price from
+    service. Ignore supplied price/credit overrides.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for conflict-safe session booking.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_coaching_action
+      signature: process_coaching_action(state,action) -> dict
+    inputs:
+      state: Internal synthetic backend records
+      action: Supported action schema in README
+    output:
+      type: dict
+      meaning: Next internal state; CLI persists and emits result/error only
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.
+- ru_id: RU-004
+  name: Plans and weekly check-ins
+  content: assign_plan requires known coach and athlete, at least one status=booked session between them,
+    unique nonempty plan_id, plan_type training/meal/supplement and nonempty content (string/list/dictionary).
+    Store coach_id,athlete_id,plan_type,content unchanged. No advice or nutrition content is generated.
+    checkin requires plan's assigned athlete, nonblank week string and nonempty content; trim week and
+    allow at most one entry per plan+athlete+week, storing plan_id,athlete_id,week,content. Week is caller's
+    canonical week identifier; no calendar parsing required. Completed/cancelled sessions alone do not
+    authorize a new plan; existing plan check-ins remain allowed.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for plans and weekly check-ins.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_coaching_action
+      signature: process_coaching_action(state,action) -> dict
+    inputs:
+      state: Internal synthetic backend records
+      action: Supported action schema in README
+    output:
+      type: dict
+      meaning: Next internal state; CLI persists and emits result/error only
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.
+- ru_id: RU-005
+  name: Completed-session reviews and participant chat
+  content: complete_session requires session's coach and status=booked, sets completed. review requires
+    that session's athlete, status=completed, nonempty unique review_id and integer rating1..5 excluding
+    bool; only one review per session; store review_id,session_id,rating (extra fields allowed). message
+    requires booked/completed session and its two distinct coach/athlete participants as sender_id/recipient_id,
+    nonempty message_id, nonblank text trimmed for storage. Store message_id,session_id,sender_id,recipient_id,text.
+    Same ID with identical normalized fields returns duplicate=true without another message; conflicting
+    reuse rejects. view_session(actor_id,session_id) requires a participant and returns the session's
+    messages/reviews only; unrelated users denied. Chat/history remain available after completion.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for completed-session reviews and participant chat.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_coaching_action
+      signature: process_coaching_action(state,action) -> dict
+    inputs:
+      state: Internal synthetic backend records
+      action: Supported action schema in README
+    output:
+      type: dict
+      meaning: Next internal state; CLI persists and emits result/error only
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.

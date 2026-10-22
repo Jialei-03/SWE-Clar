@@ -1,0 +1,1 @@
+Five isolated HTTP/SQLite/browser requirement checks. Public helpers provide only process boundaries and neutral cryptographic observation. No native-iOS or real-GPS accuracy claim. Session/cryptography checks preserve existing public behavior; additional metadata, scrypt parameters and distinct visual prominence implementations are accepted.

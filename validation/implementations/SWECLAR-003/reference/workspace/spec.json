@@ -1,0 +1,31 @@
+{
+  "site_id": "local-campaign",
+  "locale": "en-US",
+  "title": "Discover local campaigns",
+  "description": "Independently generated places and activities for this demonstration.",
+  "hero_asset": "hero.svg",
+  "available_assets": [
+    "hero.svg",
+    "alpha.svg",
+    "beta.svg"
+  ],
+  "campaigns": [
+    {
+      "name": "Campaign Alpha",
+      "asset": "alpha.svg"
+    },
+    {
+      "name": "Campaign Beta",
+      "asset": "beta.svg"
+    },
+    {
+      "name": "Campaign Gamma",
+      "asset": "alpha.svg"
+    }
+  ],
+  "legal": {
+    "privacy": "#privacy-information",
+    "terms": "#terms-information",
+    "disclosure": "#disclosure-information"
+  }
+}

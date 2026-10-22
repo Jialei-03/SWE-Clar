@@ -1,0 +1,183 @@
+{
+  "users": [
+    {
+      "id": "teacher-a",
+      "username": "teacher_a",
+      "password": "synthetic-teacher-a",
+      "role": "teacher",
+      "class_ids": [
+        "class-a"
+      ],
+      "student_ids": [],
+      "active": true
+    },
+    {
+      "id": "teacher-b",
+      "username": "teacher_b",
+      "password": "synthetic-teacher-b",
+      "role": "teacher",
+      "class_ids": [
+        "class-a",
+        "class-b"
+      ],
+      "student_ids": [],
+      "active": true
+    },
+    {
+      "id": "teacher-c",
+      "username": "teacher_c",
+      "password": "synthetic-teacher-c",
+      "role": "teacher",
+      "class_ids": [
+        "class-c"
+      ],
+      "student_ids": [],
+      "active": true
+    },
+    {
+      "id": "admin-a",
+      "username": "admin_a",
+      "password": "synthetic-admin-a",
+      "role": "administrator",
+      "class_ids": [],
+      "student_ids": [],
+      "active": true
+    },
+    {
+      "id": "parent-a",
+      "username": "parent_a",
+      "password": "synthetic-parent-a",
+      "role": "parent",
+      "class_ids": [],
+      "student_ids": [
+        "student-a"
+      ],
+      "active": true
+    },
+    {
+      "id": "parent-b",
+      "username": "parent_b",
+      "password": "synthetic-parent-b",
+      "role": "parent",
+      "class_ids": [],
+      "student_ids": [
+        "student-a",
+        "student-b"
+      ],
+      "active": true
+    },
+    {
+      "id": "parent-c",
+      "username": "parent_c",
+      "password": "synthetic-parent-c",
+      "role": "parent",
+      "class_ids": [],
+      "student_ids": [
+        "student-c"
+      ],
+      "active": true
+    },
+    {
+      "id": "parent-off",
+      "username": "parent_off",
+      "password": "synthetic-parent-off",
+      "role": "parent",
+      "class_ids": [],
+      "student_ids": [
+        "student-a"
+      ],
+      "active": false
+    }
+  ],
+  "students": [
+    {
+      "id": "student-a",
+      "name": "Student A",
+      "class_id": "class-a"
+    },
+    {
+      "id": "student-b",
+      "name": "Student B",
+      "class_id": "class-b"
+    },
+    {
+      "id": "student-c",
+      "name": "Student C",
+      "class_id": "class-c"
+    }
+  ],
+  "tags": [
+    {
+      "uid": "tag-a",
+      "student_id": "student-a",
+      "active": true
+    },
+    {
+      "uid": "tag-a-backup",
+      "student_id": "student-a",
+      "active": true
+    },
+    {
+      "uid": "tag-b",
+      "student_id": "student-b",
+      "active": true
+    },
+    {
+      "uid": "tag-c",
+      "student_id": "student-c",
+      "active": true
+    },
+    {
+      "uid": "tag-revoked",
+      "student_id": "student-a",
+      "active": false
+    }
+  ],
+  "devices": [
+    {
+      "id": "desk-a",
+      "name": "Desk reader",
+      "active": true
+    },
+    {
+      "id": "desk-off",
+      "name": "Retired reader",
+      "active": false
+    }
+  ],
+  "guardians": [
+    {
+      "id": "guardian-a",
+      "name": "Guardian A",
+      "student_ids": [
+        "student-a"
+      ],
+      "active": true
+    },
+    {
+      "id": "guardian-ab",
+      "name": "Guardian AB",
+      "student_ids": [
+        "student-a",
+        "student-b"
+      ],
+      "active": true
+    },
+    {
+      "id": "guardian-c",
+      "name": "Guardian C",
+      "student_ids": [
+        "student-c"
+      ],
+      "active": true
+    },
+    {
+      "id": "guardian-off",
+      "name": "Guardian OFF",
+      "student_ids": [
+        "student-a"
+      ],
+      "active": false
+    }
+  ]
+}

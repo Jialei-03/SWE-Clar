@@ -1,0 +1,187 @@
+schema_version: 1
+task_id: SWECLAR-059
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual web forms, authenticated SQLite registration/review, image bytes and CSV import/export
+requirement_units:
+- ru_id: RU-001
+  name: Registration workflow entry point
+  content: Complete the supplied loopback Python/SQLite registration web component. Authenticate every
+    data API request from private configured tokens, derive actor/role/supplier scope from the server
+    configuration, preserve input objects and existing database rows, and persist successful changes across
+    process restarts. Use transactional writes and do not serve implementation/configuration/database
+    files.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for registration workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.action
+      signature: Store.action(token,action) -> dict
+    inputs:
+      token: private identity token
+      action: registration operation
+    output:
+      type: dict
+      meaning: result after persisted operation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/registration_contract.py
+  notes: Independent Python/SQLite web reconstruction with synthetic staff and geometric image fixtures.
+    Field set, normalized access-token roles, PNG re-encoding and CSV protocol are disclosed benchmark
+    choices; no original identities, documents, database or customer software is distributed.
+- ru_id: RU-002
+  name: Supplier and staff registration
+  content: Create unique suppliers and staff records with required nonempty name, birth_city and supplier
+    ownership. A reviewer may create suppliers and manage any supplier; supplier users can register/list
+    only their own staff. Reject duplicate IDs, missing fields and orphan supplier references, including
+    concurrent duplicate requests. Render actual registration and list forms safely as text.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for supplier and staff registration.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.action
+      signature: Store.action(token,action) -> dict
+    inputs:
+      token: private identity token
+      action: registration operation
+    output:
+      type: dict
+      meaning: result after persisted operation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/registration_contract.py
+  notes: Independent Python/SQLite web reconstruction with synthetic staff and geometric image fixtures.
+    Field set, normalized access-token roles, PNG re-encoding and CSV protocol are disclosed benchmark
+    choices; no original identities, documents, database or customer software is distributed.
+- ru_id: RU-003
+  name: Role-based status review
+  content: Only authenticated review-role users may transition a submitted staff row once to approved
+    or rejected. Derive audit actor from the authenticated token and timestamp from the server clock,
+    never caller role/actor/time fields. Every committed transition records staff, old/new status, actor
+    and time in the database; rejected actions leave row and audit unchanged. The page must reflect review
+    outcomes.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for role-based status review.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.action
+      signature: Store.action(token,action) -> dict
+    inputs:
+      token: private identity token
+      action: registration operation
+    output:
+      type: dict
+      meaning: result after persisted operation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/registration_contract.py
+  notes: Independent Python/SQLite web reconstruction with synthetic staff and geometric image fixtures.
+    Field set, normalized access-token roles, PNG re-encoding and CSV protocol are disclosed benchmark
+    choices; no original identities, documents, database or customer software is distributed.
+- ru_id: RU-004
+  name: Photo integrity
+  content: Upload actual PNG/JPEG bytes to a supplier-owned image record, validate format and bounds,
+    decode then re-encode to PNG without source metadata. Attach only a known image of the same supplier
+    to a known authorized staff record; replacement preserves previous photo IDs in ordered history, and
+    repeating the same attachment is idempotent. Return actual stored image bytes only to authorized users.
+    Missing/malformed/foreign images fail without changing staff/history.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for photo integrity.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.action
+      signature: Store.action(token,action) -> dict
+    inputs:
+      token: private identity token
+      action: registration operation
+    output:
+      type: dict
+      meaning: result after persisted operation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/registration_contract.py
+  notes: Independent Python/SQLite web reconstruction with synthetic staff and geometric image fixtures.
+    Field set, normalized access-token roles, PNG re-encoding and CSV protocol are disclosed benchmark
+    choices; no original identities, documents, database or customer software is distributed.
+- ru_id: RU-005
+  name: Complete deterministic export/import
+  content: Authorized reviewers export a real CSV containing staff_id,supplier_id,name,birth_city,status,photo_id
+    in stable staff-ID order. Import a CSV with exactly those columns into existing suppliers; validate
+    all rows, non-conflicting IDs, statuses and supplier-owned photo references in one transaction. Preserve
+    all existing rows on malformed/conflicting imports. Round-trip quoted names and cities correctly and
+    do not allow supplier users to export/import the full dataset. Import column order may vary; duplicate/missing/extra
+    columns are invalid.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for complete deterministic export/import.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.action
+      signature: Store.action(token,action) -> dict
+    inputs:
+      token: private identity token
+      action: registration operation
+    output:
+      type: dict
+      meaning: result after persisted operation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/registration_contract.py
+  notes: Independent Python/SQLite web reconstruction with synthetic staff and geometric image fixtures.
+    Field set, normalized access-token roles, PNG re-encoding and CSV protocol are disclosed benchmark
+    choices; no original identities, documents, database or customer software is distributed.

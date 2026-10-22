@@ -1,0 +1,12 @@
+{
+  "players": [
+    {"id": "sample-a", "position": "QB", "projected_points": 12},
+    {"id": "sample-b", "position": "RB", "projected_points": 7},
+    {"id": "sample-c", "position": "WR", "projected_points": 9},
+    {"id": "sample-d", "position": "TE", "projected_points": 5},
+    {"id": "sample-e", "position": "RB", "projected_points": 4},
+    {"id": "sample-f", "position": "WR", "projected_points": 8}
+  ],
+  "limit": 3,
+  "mode": "deep"
+}

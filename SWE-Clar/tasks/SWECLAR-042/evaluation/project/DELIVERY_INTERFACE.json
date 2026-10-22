@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-042",
+  "readme": "# Review assignment, fee allocation and approval-ledger module\n\nImplement `process_review_action(state, action)` in `solution.py`. The supplied SQLite adapter and console work; the domain function currently leaves state unchanged. This task handles synthetic review-workflow records and an approval ledger. It does not transfer money or upload photos. Actor fields represent authenticated identity supplied by an upstream service; implementing that login service is outside this component.\n\nThe benchmark prepares Python and SQLite using the shared `python-web` environment. From `/workspace`, run `python cli.py runtime/ledger.db < example.json`. The request contains `seed` and `action`; the seed is used only when the database has no saved workflow. A new invocation restores the last successful state. Use a new database filename to start a fresh local scenario. `node`, web services and external accounts are not required. Run `python /public_tests/test_public.py` for public console/storage checks.\n\nState contains `users` keyed by user ID, `sessions` as active user IDs, and numeric `fee_rate`. Workflow collections are `listings`, `applications`, `reviews`, `payments` (objects keyed by their respective IDs), `payouts` (list), and `processed_events` (list of payment event IDs). Missing workflow collections start empty. IDs and asset references are synthetic strings. Amounts are nonnegative decimal currency values with at most two decimal places. `fee_rate` is a supplied fraction between zero and one.\n\nThe public action envelopes are:\n\n| type | fields |\n|---|---|\n| create_listing | listing_id, owner_id, price |\n| apply | application_id, listing_id, reviewer_id |\n| accept | application_id, owner_id |\n| submit_review | review_id, reviewer_id, images (list of image-reference strings), optional url |\n| payment | event_id, listing_id, payer_id, amount |\n| approve_review | listing_id, owner_id |\n| profile_image | user_id, image_ref |\n| delete_account | user_id |\n\nApplication IDs also identify their associated reviews. Listing records contain `owner_id`, `price`, `status`, and, after acceptance, `active_review_id`. Applications contain `listing_id`, `reviewer_id`, `status`; reviews contain `listing_id`, `reviewer_id`, `status`, `images`, and optional `url`. Payment records include `event_id`, `listing_id`, `payer_id`, `receiver_id`, `gross`, `platform_fee`, `eligible`, `status`. Payout records contain `event_id`, `listing_id`, `receiver_id`, `amount`. These linkage and envelope fields are public; submission rules, fee processing and approval conditions can be clarified.\n\nThe `payments` object is keyed by payment `event_id`, not listing ID. Error codes must be nonempty strings; no particular spelling is required for rejected actions.\n\nReturn the next state as a JSON object. Rejections return `error.code` and are not persisted. Optional `result` fields describe action output; submission uses `image_count` and Boolean `url_skipped`. Additional nonconflicting metadata is allowed. Caller inputs remain unchanged. Payment credentials passed as incidental action data must never be copied into returned or stored state.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_review_action",
+        "signature": "process_review_action(state: dict, action: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "action"
+        ],
+        "action_variants": {
+          "profile_image": {
+            "fields": [
+              "image_ref",
+              "type",
+              "user_id"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "fee_rate",
+          "image_ref",
+          "sessions",
+          "type",
+          "user_id",
+          "users"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next workflow state or error.code; public README defines record keys and envelopes. Additional nonconflicting metadata is allowed."
+      },
+      "operations": []
+    },
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_review_action",
+        "signature": "process_review_action(state: dict, action: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "action"
+        ],
+        "action_variants": {
+          "accept": {
+            "fields": [
+              "application_id",
+              "owner_id",
+              "type"
+            ]
+          },
+          "apply": {
+            "fields": [
+              "application_id",
+              "listing_id",
+              "reviewer_id",
+              "type"
+            ]
+          },
+          "create_listing": {
+            "fields": [
+              "listing_id",
+              "owner_id",
+              "price",
+              "type"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "application_id",
+          "fee_rate",
+          "listing_id",
+          "owner_id",
+          "price",
+          "reviewer_id",
+          "sessions",
+          "type",
+          "users"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next workflow state or error.code; public README defines record keys and envelopes. Additional nonconflicting metadata is allowed."
+      },
+      "operations": []
+    }
+  ]
+}

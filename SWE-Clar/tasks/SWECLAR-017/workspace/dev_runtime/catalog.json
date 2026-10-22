@@ -1,0 +1,13 @@
+{
+  "users": [
+    {"id": "seller-a", "username": "seller_alpha", "password": "synthetic-seller-alpha", "role": "seller"},
+    {"id": "seller-b", "username": "seller_beta", "password": "synthetic-seller-beta", "role": "seller"},
+    {"id": "buyer-a", "username": "buyer_alpha", "password": "synthetic-buyer-alpha", "role": "buyer"},
+    {"id": "buyer-b", "username": "buyer_beta", "password": "synthetic-buyer-beta", "role": "buyer"}
+  ],
+  "listings": [
+    {"id": "listing-a", "seller_id": "seller-a", "title": "Adjustable reading lamp", "price_cents": 9000, "reference_price_cents": 10000, "previous_price_cents": 9500, "created_at": 2000000000},
+    {"id": "listing-b", "seller_id": "seller-b", "title": "Compact side table", "price_cents": 15000, "reference_price_cents": null, "previous_price_cents": null, "created_at": 1999000000},
+    {"id": "listing-c", "seller_id": "seller-a", "title": "Canvas storage set", "price_cents": 4000, "reference_price_cents": 5000, "previous_price_cents": 3900, "created_at": 2000000100}
+  ]
+}

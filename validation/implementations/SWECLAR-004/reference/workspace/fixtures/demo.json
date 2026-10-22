@@ -1,0 +1,400 @@
+{
+  "accounts": [
+    {
+      "id": "u1",
+      "display": "Member A",
+      "role": "user",
+      "password": "demo-u1",
+      "x": 0,
+      "y": 0,
+      "interests": [
+        "design",
+        "music"
+      ]
+    },
+    {
+      "id": "u2",
+      "display": "Member B",
+      "role": "user",
+      "password": "demo-u2",
+      "x": 1,
+      "y": 0,
+      "interests": [
+        "design"
+      ]
+    },
+    {
+      "id": "u3",
+      "display": "Member C",
+      "role": "user",
+      "password": "demo-u3",
+      "x": 2,
+      "y": 0,
+      "interests": [
+        "design",
+        "music"
+      ]
+    },
+    {
+      "id": "u4",
+      "display": "Member D",
+      "role": "user",
+      "password": "demo-u4",
+      "x": 3,
+      "y": 0,
+      "interests": [
+        "design"
+      ]
+    },
+    {
+      "id": "u5",
+      "display": "Member E",
+      "role": "user",
+      "password": "demo-u5",
+      "x": 4,
+      "y": 0,
+      "interests": [
+        "design",
+        "music"
+      ]
+    },
+    {
+      "id": "u6",
+      "display": "Member F",
+      "role": "user",
+      "password": "demo-u6",
+      "x": 5,
+      "y": 0,
+      "interests": [
+        "design"
+      ]
+    },
+    {
+      "id": "u7",
+      "display": "Member G",
+      "role": "user",
+      "password": "demo-u7",
+      "x": 6,
+      "y": 0,
+      "interests": [
+        "design",
+        "music"
+      ]
+    },
+    {
+      "id": "u8",
+      "display": "Member H",
+      "role": "user",
+      "password": "demo-u8",
+      "x": 7,
+      "y": 0,
+      "interests": [
+        "design"
+      ]
+    },
+    {
+      "id": "b1",
+      "display": "Business A",
+      "role": "business",
+      "password": "demo-b1",
+      "x": 0,
+      "y": 2,
+      "interests": [
+        "design"
+      ]
+    },
+    {
+      "id": "b2",
+      "display": "Business B",
+      "role": "business",
+      "password": "demo-b2",
+      "x": 0,
+      "y": 4,
+      "interests": [
+        "design"
+      ]
+    }
+  ],
+  "connections": [
+    [
+      "u1",
+      "u2"
+    ],
+    [
+      "u2",
+      "u3"
+    ],
+    [
+      "u3",
+      "u4"
+    ],
+    [
+      "u4",
+      "u5"
+    ],
+    [
+      "u5",
+      "u6"
+    ],
+    [
+      "u6",
+      "u7"
+    ],
+    [
+      "u7",
+      "u8"
+    ]
+  ],
+  "receipts": [
+    {
+      "id": "u1-free",
+      "user_id": "u1",
+      "plan": "free"
+    },
+    {
+      "id": "u1-plus",
+      "user_id": "u1",
+      "plan": "plus"
+    },
+    {
+      "id": "u1-local",
+      "user_id": "u1",
+      "plan": "local"
+    },
+    {
+      "id": "u1-regional",
+      "user_id": "u1",
+      "plan": "regional"
+    },
+    {
+      "id": "u1-global",
+      "user_id": "u1",
+      "plan": "global"
+    },
+    {
+      "id": "u2-free",
+      "user_id": "u2",
+      "plan": "free"
+    },
+    {
+      "id": "u2-plus",
+      "user_id": "u2",
+      "plan": "plus"
+    },
+    {
+      "id": "u2-local",
+      "user_id": "u2",
+      "plan": "local"
+    },
+    {
+      "id": "u2-regional",
+      "user_id": "u2",
+      "plan": "regional"
+    },
+    {
+      "id": "u2-global",
+      "user_id": "u2",
+      "plan": "global"
+    },
+    {
+      "id": "u3-free",
+      "user_id": "u3",
+      "plan": "free"
+    },
+    {
+      "id": "u3-plus",
+      "user_id": "u3",
+      "plan": "plus"
+    },
+    {
+      "id": "u3-local",
+      "user_id": "u3",
+      "plan": "local"
+    },
+    {
+      "id": "u3-regional",
+      "user_id": "u3",
+      "plan": "regional"
+    },
+    {
+      "id": "u3-global",
+      "user_id": "u3",
+      "plan": "global"
+    },
+    {
+      "id": "u4-free",
+      "user_id": "u4",
+      "plan": "free"
+    },
+    {
+      "id": "u4-plus",
+      "user_id": "u4",
+      "plan": "plus"
+    },
+    {
+      "id": "u4-local",
+      "user_id": "u4",
+      "plan": "local"
+    },
+    {
+      "id": "u4-regional",
+      "user_id": "u4",
+      "plan": "regional"
+    },
+    {
+      "id": "u4-global",
+      "user_id": "u4",
+      "plan": "global"
+    },
+    {
+      "id": "u5-free",
+      "user_id": "u5",
+      "plan": "free"
+    },
+    {
+      "id": "u5-plus",
+      "user_id": "u5",
+      "plan": "plus"
+    },
+    {
+      "id": "u5-local",
+      "user_id": "u5",
+      "plan": "local"
+    },
+    {
+      "id": "u5-regional",
+      "user_id": "u5",
+      "plan": "regional"
+    },
+    {
+      "id": "u5-global",
+      "user_id": "u5",
+      "plan": "global"
+    },
+    {
+      "id": "u6-free",
+      "user_id": "u6",
+      "plan": "free"
+    },
+    {
+      "id": "u6-plus",
+      "user_id": "u6",
+      "plan": "plus"
+    },
+    {
+      "id": "u6-local",
+      "user_id": "u6",
+      "plan": "local"
+    },
+    {
+      "id": "u6-regional",
+      "user_id": "u6",
+      "plan": "regional"
+    },
+    {
+      "id": "u6-global",
+      "user_id": "u6",
+      "plan": "global"
+    },
+    {
+      "id": "u7-free",
+      "user_id": "u7",
+      "plan": "free"
+    },
+    {
+      "id": "u7-plus",
+      "user_id": "u7",
+      "plan": "plus"
+    },
+    {
+      "id": "u7-local",
+      "user_id": "u7",
+      "plan": "local"
+    },
+    {
+      "id": "u7-regional",
+      "user_id": "u7",
+      "plan": "regional"
+    },
+    {
+      "id": "u7-global",
+      "user_id": "u7",
+      "plan": "global"
+    },
+    {
+      "id": "u8-free",
+      "user_id": "u8",
+      "plan": "free"
+    },
+    {
+      "id": "u8-plus",
+      "user_id": "u8",
+      "plan": "plus"
+    },
+    {
+      "id": "u8-local",
+      "user_id": "u8",
+      "plan": "local"
+    },
+    {
+      "id": "u8-regional",
+      "user_id": "u8",
+      "plan": "regional"
+    },
+    {
+      "id": "u8-global",
+      "user_id": "u8",
+      "plan": "global"
+    },
+    {
+      "id": "b1-free",
+      "user_id": "b1",
+      "plan": "free"
+    },
+    {
+      "id": "b1-plus",
+      "user_id": "b1",
+      "plan": "plus"
+    },
+    {
+      "id": "b1-local",
+      "user_id": "b1",
+      "plan": "local"
+    },
+    {
+      "id": "b1-regional",
+      "user_id": "b1",
+      "plan": "regional"
+    },
+    {
+      "id": "b1-global",
+      "user_id": "b1",
+      "plan": "global"
+    },
+    {
+      "id": "b2-free",
+      "user_id": "b2",
+      "plan": "free"
+    },
+    {
+      "id": "b2-plus",
+      "user_id": "b2",
+      "plan": "plus"
+    },
+    {
+      "id": "b2-local",
+      "user_id": "b2",
+      "plan": "local"
+    },
+    {
+      "id": "b2-regional",
+      "user_id": "b2",
+      "plan": "regional"
+    },
+    {
+      "id": "b2-global",
+      "user_id": "b2",
+      "plan": "global"
+    }
+  ]
+}

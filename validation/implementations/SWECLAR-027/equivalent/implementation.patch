@@ -1,0 +1,673 @@
+diff --git a/App.jsx b/App.jsx
+index be4beacbd33325efe2213ef545be141eceb3bb96..dfc8757a199dd2a39061be565bbdf3328d4aaf77 100644
+--- a/App.jsx
++++ b/App.jsx
+@@ -1,49 +1,443 @@
+-import React,{useState,useRef,useEffect} from 'react';
+-import {View,Text,Pressable,ScrollView,Image,PanResponder,StyleSheet} from 'react-native';
+-import {transition,displayRating} from './model';
+-import {decodeImage} from './image';
+-export default function App({config}) {
+- const [state,setState]=useState({route:config.routes[0],openNow:false,error:''});
+- const [dragging,setDragging]=useState(false),[slider,setSlider]=useState(35);
+- const [facilityImage,setFacilityImage]=useState(config.facilityImage),[imageError,setImageError]=useState('');
+- const width=useRef(1),start=useRef(0),value=useRef(35),imageEpoch=useRef(0);
+- const event=e=>setState(old=>transition(old,e,config));
+- const update=v=>{value.current=Math.max(0,Math.min(100,v));setSlider(value.current);};
+- const responder=useRef(PanResponder.create({onStartShouldSetPanResponder:()=>true,
+-  onPanResponderGrant:()=>{start.current=value.current;setDragging(true);},
+-  onPanResponderMove:(_e,g)=>update(start.current+g.dx/width.current*100),
+-  onPanResponderRelease:()=>setDragging(false),onPanResponderTerminate:()=>setDragging(false),
+-  onPanResponderTerminationRequest:()=>true})).current;
+- useEffect(()=>{const lost=()=>setDragging(false);window.addEventListener('blur',lost);return()=>{window.removeEventListener('blur',lost);imageEpoch.current++;};},[]);
+- async function select(e){const file=e.target.files?.[0];e.target.value='';if(!file)return;const epoch=++imageEpoch.current;
+-  try{const data=await decodeImage(file);if(epoch!==imageEpoch.current)return;throw new Error('Image selection not connected');setImageError('');}
+-  catch{if(epoch===imageEpoch.current)setImageError('unsupported_asset');}}
+- return <View style={styles.shell}>
+-  <Text role="heading" aria-level={1} style={styles.title}>Field notebook</Text>
+-  <Text style={styles.subtitle}>Independent navigation and interaction fixture</Text>
+-  <View style={styles.tabs}>{config.routes.map(route=><Pressable key={route} testID={'tab-'+route} accessibilityRole="button" onPress={()=>event({type:'navigate',route})} style={[styles.tab,state.route===route&&styles.active]}><Text>{route}</Text></Pressable>)}
+-  <Pressable testID="unknown-route" accessibilityRole="button" onPress={()=>event({type:'navigate',route:'missing'})} style={styles.tab}><Text>Test missing route</Text></Pressable></View>
+-  <Text testID="route-error" accessibilityRole="alert">{state.error}</Text>
+-  <ScrollView testID="content-scroll" style={styles.scroll} scrollEnabled={true} contentContainerStyle={styles.content}>
+-   <View testID={'screen-'+state.route}>
+-   <Text accessibilityRole="header" style={styles.heading}>{state.route==='home'?'Discover places':state.route==='saved'?'Saved places':'Facility profile'}</Text>
+-   {state.route==='home'&&<>
+-    <Pressable testID="filter-label" accessibilityRole="checkbox" aria-checked={state.openNow} onPress={()=>event({type:'toggle_filter'})} style={styles.filter}>
+-     <View testID="filter-box" style={[styles.box,state.openNow&&styles.checked]}><Text>{state.openNow?'✓':''}</Text></View><Text>Open now — include currently available places</Text>
+-    </Pressable>
+-    <View style={styles.card}><Text style={styles.heading}>{config.placeName}</Text><Text testID="rating" style={styles.rating}>{displayRating(config.rating)}</Text><Text>Visitor rating</Text></View>
+-    <Text style={styles.label}>Search radius</Text>
+-    <View testID="slider" {...responder.panHandlers} onLayout={e=>{width.current=e.nativeEvent.layout.width;}} style={styles.slider}>
+-     <View style={styles.rail}/><View testID="slider-thumb" style={[styles.thumb,{left:slider+'%'}]}/>
+-    </View><Text testID="slider-value">{Math.round(slider)} km</Text>
+-    {Array.from({length:14},(_,i)=><View key={i} style={styles.row}><Text>Sample place {i+1}</Text><Text>Generated local listing</Text></View>)}
+-   </>}
+-   {state.route==='saved'&&<Text>No saved places in this fixture.</Text>}
+-   {state.route==='profile'&&<><Text>Facility image</Text><Image testID="facility-image" source={{uri:facilityImage}} style={styles.photo}/>
+-    <label style={{display:'block',margin:'16px 0'}}>Select facility image<input data-testid="image-picker" type="file" accept="image/png,image/jpeg" onChange={select} style={{display:'block',maxWidth:'100%',marginTop:10}}/></label>
+-    <Text testID="image-error" accessibilityRole="alert">{imageError}</Text><Text>Account avatar</Text><Image testID="account-image" source={{uri:config.accountImage}} style={styles.avatar}/></>}
+-   </View>
+-  </ScrollView>
+- </View>;
++import React, { useEffect, useReducer, useRef, useState } from 'react';
++import {
++  Image,
++  PanResponder,
++  Pressable,
++  ScrollView,
++  StyleSheet,
++  Text,
++  View,
++} from 'react-native';
++import { displayRating, transition } from './model';
++import { decodeImage } from './image';
++
++const DEFAULT_RADIUS = 35;
++
++function initialNavigationState(routeList) {
++  return {
++    route: routeList[0] ?? '',
++    openNow: false,
++    error: '',
++  };
+ }
+-const styles=StyleSheet.create({shell:{maxWidth:760,width:'100%',alignSelf:'center',padding:24},title:{fontSize:30,fontWeight:'700',color:'#173e48'},subtitle:{color:'#577179',marginTop:8,marginBottom:24},tabs:{flexDirection:'row',flexWrap:'wrap',gap:8},tab:{padding:12,backgroundColor:'#e6eeef',borderRadius:7},active:{backgroundColor:'#a9d8d0'},scroll:{height:550,flexGrow:0,marginTop:18,borderWidth:1,borderColor:'#cadbde',borderRadius:8},content:{padding:20},heading:{fontSize:22,fontWeight:'600',marginBottom:16},filter:{flexDirection:'row',alignItems:'center',gap:12,paddingVertical:14,flexWrap:'wrap'},box:{height:24,width:24,borderWidth:2,borderColor:'#42796f',alignItems:'center',justifyContent:'center'},checked:{backgroundColor:'#a9d8d0'},card:{padding:20,backgroundColor:'#f0f6f5',borderRadius:8,marginVertical:14},rating:{fontSize:32,color:'#256258'},label:{fontSize:17,marginVertical:12},slider:{height:44,marginHorizontal:12,touchAction:'none'},rail:{position:'absolute',top:19,left:0,right:0,height:6,borderRadius:3,backgroundColor:'#d2e4df'},thumb:{position:'absolute',top:9,width:26,height:26,marginLeft:-13,borderRadius:13,backgroundColor:'#31786b'},row:{paddingVertical:22,borderBottomWidth:1,borderColor:'#e0e9e9',gap:6},photo:{width:220,height:150,resizeMode:'contain',backgroundColor:'#edf2f2'},avatar:{width:80,height:80,resizeMode:'contain'}});
++
++function missingRouteFor(routeList) {
++  if (!routeList.includes('missing')) return 'missing';
++
++  let suffix = 1;
++  while (routeList.includes(`__unknown_route_${suffix}`)) suffix += 1;
++  return `__unknown_route_${suffix}`;
++}
++
++function headingFor(route) {
++  if (route === 'home') return 'Discover places';
++  if (route === 'saved') return 'Saved places';
++  if (route === 'profile') return 'Facility profile';
++  return `${String(route)} screen`;
++}
++
++export default function App({ config }) {
++  const routes = Array.isArray(config?.routes) ? config.routes : [];
++  const [state, dispatch] = useReducer(
++    (previous, nextEvent) => transition(previous, nextEvent, config),
++    routes,
++    initialNavigationState,
++  );
++  const [dragging, setDragging] = useState(false);
++  const [slider, setSlider] = useState(DEFAULT_RADIUS);
++  const [facilityImage, setFacilityImage] = useState(config?.facilityImage || '');
++  const [imageError, setImageError] = useState('');
++  const unknownRoute = missingRouteFor(routes);
++
++  const sliderWidth = useRef(1);
++  const sliderStart = useRef(DEFAULT_RADIUS);
++  const sliderValue = useRef(DEFAULT_RADIUS);
++  const draggingRef = useRef(false);
++  const imageEpoch = useRef(0);
++
++  const send = (nextEvent) => {
++    dispatch(nextEvent);
++  };
++
++  const updateSlider = (nextValue) => {
++    const bounded = Math.max(0, Math.min(100, nextValue));
++    sliderValue.current = bounded;
++    setSlider(bounded);
++  };
++
++  const stopDragging = () => {
++    draggingRef.current = false;
++    setDragging(false);
++  };
++
++  const preventGestureDefault = (gestureEvent) => {
++    if (typeof gestureEvent?.preventDefault === 'function') {
++      gestureEvent.preventDefault();
++    } else if (typeof gestureEvent?.nativeEvent?.preventDefault === 'function') {
++      gestureEvent.nativeEvent.preventDefault();
++    }
++  };
++
++  // PanResponder handles both browser mouse drags and touch drags.  Keeping
++  // touch-action disabled on the control and disabling the parent ScrollView
++  // while the responder owns the gesture prevents a horizontal drag from
++  // becoming a vertical scroll.
++  const responder = useRef(
++    PanResponder.create({
++      onStartShouldSetPanResponder: () => true,
++      onMoveShouldSetPanResponder: () => true,
++      onPanResponderGrant: (gestureEvent) => {
++        preventGestureDefault(gestureEvent);
++        sliderStart.current = sliderValue.current;
++        draggingRef.current = true;
++        setDragging(true);
++      },
++      onPanResponderMove: (gestureEvent, gestureState) => {
++        preventGestureDefault(gestureEvent);
++        const width = Math.max(1, sliderWidth.current);
++        updateSlider(sliderStart.current + (gestureState.dx / width) * 100);
++      },
++      onPanResponderRelease: (gestureEvent) => {
++        preventGestureDefault(gestureEvent);
++        stopDragging();
++      },
++      onPanResponderTerminate: stopDragging,
++      onPanResponderTerminationRequest: () => false,
++      onShouldBlockNativeResponder: () => true,
++    }),
++  ).current;
++
++  useEffect(() => {
++    // These window-level endings cover a pointer/touch released outside the
++    // slider and browser cancellation/blur, so scrolling cannot remain locked.
++    if (typeof window === 'undefined') return undefined;
++
++    const endGesture = () => stopDragging();
++    const endEvents = [
++      'blur',
++      'pointerup',
++      'pointercancel',
++      'mouseup',
++      'touchend',
++      'touchcancel',
++    ];
++    endEvents.forEach((eventName) => {
++      window.addEventListener(eventName, endGesture);
++    });
++
++    return () => {
++      endEvents.forEach((eventName) => {
++        window.removeEventListener(eventName, endGesture);
++      });
++      imageEpoch.current += 1;
++    };
++  }, []);
++
++  async function selectImage(selectEvent) {
++    const input = selectEvent?.currentTarget || selectEvent?.target;
++    // Increment before checking for a file.  A cancelled newer chooser action
++    // must invalidate an older decode that is still in flight.
++    const epoch = ++imageEpoch.current;
++    const file = input?.files?.[0];
++    if (input) input.value = '';
++    if (!file) return;
++
++    try {
++      const imageData = await decodeImage(file);
++      if (epoch !== imageEpoch.current) return;
++      setFacilityImage(imageData);
++      setImageError('');
++    } catch {
++      if (epoch === imageEpoch.current) setImageError('unsupported_asset');
++    }
++  }
++
++  const renderHome = () => (
++    <>
++      <Pressable
++        testID="filter-label"
++        accessibilityRole="checkbox"
++        aria-checked={state.openNow ? 'true' : 'false'}
++        onPress={() => send({ type: 'toggle_filter' })}
++        style={styles.filter}
++      >
++        <View
++          testID="filter-box"
++          style={[styles.box, state.openNow && styles.checked]}
++        >
++          <Text>{state.openNow ? '✓' : ''}</Text>
++        </View>
++        <Text>Open now — include currently available places</Text>
++      </Pressable>
++
++      <View style={styles.card}>
++        <Text style={styles.heading}>{config?.placeName || ''}</Text>
++        <Text testID="rating" style={styles.rating}>
++          {displayRating(config?.rating)}
++        </Text>
++        <Text>Visitor rating</Text>
++      </View>
++
++      <Text style={styles.label}>Search radius</Text>
++      <View
++        testID="slider"
++        accessibilityRole="slider"
++        accessibilityLabel="Search radius"
++        accessibilityValue={{
++          min: 0,
++          max: 100,
++          now: Math.round(slider),
++        }}
++        {...responder.panHandlers}
++        onLayout={(layoutEvent) => {
++          sliderWidth.current = Math.max(1, layoutEvent.nativeEvent.layout.width);
++        }}
++        style={[styles.slider, dragging && styles.sliderDragging]}
++      >
++        <View style={styles.rail} />
++        <View
++          testID="slider-thumb"
++          style={[styles.thumb, { left: `${slider}%` }]}
++        />
++      </View>
++      <Text testID="slider-value">{Math.round(slider)} km</Text>
++
++      {Array.from({ length: 14 }, (_, index) => (
++        <View key={index} style={styles.row}>
++          <Text>Sample place {index + 1}</Text>
++          <Text>Generated local listing</Text>
++        </View>
++      ))}
++    </>
++  );
++
++  const renderProfile = () => (
++    <>
++      <Text>Facility image</Text>
++      <Image
++        testID="facility-image"
++        source={{ uri: facilityImage }}
++        style={styles.photo}
++      />
++      <label style={styles.fileLabel}>
++        Select facility image
++        <input
++          data-testid="image-picker"
++          type="file"
++          accept="image/png,image/jpeg"
++          onClick={() => {
++            // A real chooser can be cancelled without firing change.  Opening
++            // it still represents a newer selection attempt, so invalidate a
++            // decode from an earlier attempt immediately.
++            imageEpoch.current += 1;
++          }}
++          onChange={selectImage}
++          style={styles.fileInput}
++        />
++      </label>
++      <Text testID="image-error" accessibilityRole="alert">
++        {imageError}
++      </Text>
++      <Text>Account avatar</Text>
++      <Image
++        testID="account-image"
++        source={{ uri: config?.accountImage || '' }}
++        style={styles.avatar}
++      />
++    </>
++  );
++
++  const renderScreen = () => {
++    if (state.route === 'home') return renderHome();
++    if (state.route === 'saved') {
++      return <Text>No saved places in this fixture.</Text>;
++    }
++    if (state.route === 'profile') return renderProfile();
++    return <Text>Content for the {String(state.route)} route.</Text>;
++  };
++
++  return (
++    <View style={styles.shell}>
++      <Text role="heading" aria-level={1} style={styles.title}>
++        Field notebook
++      </Text>
++      <Text style={styles.subtitle}>Independent navigation and interaction fixture</Text>
++
++      <View style={styles.tabs}>
++        {routes.map((route) => (
++          <Pressable
++            key={route}
++            testID={`tab-${route}`}
++            accessibilityRole="button"
++            onPress={() => send({ type: 'navigate', route })}
++            style={[styles.tab, state.route === route && styles.active]}
++          >
++            <Text>{route}</Text>
++          </Pressable>
++        ))}
++        <Pressable
++          testID="unknown-route"
++          accessibilityRole="button"
++          onPress={() => send({ type: 'navigate', route: unknownRoute })}
++          style={styles.tab}
++        >
++          <Text>Test missing route</Text>
++        </Pressable>
++      </View>
++
++      <Text testID="route-error" accessibilityRole="alert">
++        {state.error}
++      </Text>
++
++      <ScrollView
++        testID="content-scroll"
++        style={styles.scroll}
++        scrollEnabled={!dragging}
++        contentContainerStyle={styles.content}
++      >
++        <View testID={`screen-${state.route}`}>
++          <Text style={styles.heading} accessibilityRole="header">
++            {headingFor(state.route)}
++          </Text>
++          {renderScreen()}
++        </View>
++      </ScrollView>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  shell: {
++    maxWidth: 760,
++    width: '100%',
++    alignSelf: 'center',
++    padding: 24,
++  },
++  title: {
++    fontSize: 30,
++    fontWeight: '700',
++    color: '#173e48',
++  },
++  subtitle: {
++    color: '#577179',
++    marginTop: 8,
++    marginBottom: 24,
++  },
++  tabs: {
++    flexDirection: 'row',
++    flexWrap: 'wrap',
++    gap: 8,
++  },
++  tab: {
++    padding: 12,
++    backgroundColor: '#e6eeef',
++    borderRadius: 7,
++  },
++  active: {
++    backgroundColor: '#a9d8d0',
++  },
++  scroll: {
++    height: 550,
++    flexGrow: 0,
++    marginTop: 18,
++    borderWidth: 1,
++    borderColor: '#cadbde',
++    borderRadius: 8,
++  },
++  content: {
++    padding: 20,
++  },
++  heading: {
++    fontSize: 22,
++    fontWeight: '600',
++    marginBottom: 16,
++  },
++  filter: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 12,
++    paddingVertical: 14,
++    flexWrap: 'wrap',
++  },
++  box: {
++    height: 24,
++    width: 24,
++    borderWidth: 2,
++    borderColor: '#42796f',
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  checked: {
++    backgroundColor: '#a9d8d0',
++  },
++  card: {
++    padding: 20,
++    backgroundColor: '#f0f6f5',
++    borderRadius: 8,
++    marginVertical: 14,
++  },
++  rating: {
++    fontSize: 32,
++    color: '#256258',
++  },
++  label: {
++    fontSize: 17,
++    marginVertical: 12,
++  },
++  slider: {
++    height: 44,
++    marginHorizontal: 12,
++    touchAction: 'none',
++    userSelect: 'none',
++  },
++  sliderDragging: {
++    // Retain the visual control while its parent scroll view is temporarily
++    // disabled; this also makes the active gesture obvious to keyboard/visual
++    // inspection without affecting the value calculation.
++    opacity: 0.92,
++  },
++  rail: {
++    position: 'absolute',
++    top: 19,
++    left: 0,
++    right: 0,
++    height: 6,
++    borderRadius: 3,
++    backgroundColor: '#d2e4df',
++  },
++  thumb: {
++    position: 'absolute',
++    top: 9,
++    width: 26,
++    height: 26,
++    marginLeft: -13,
++    borderRadius: 13,
++    backgroundColor: '#31786b',
++  },
++  row: {
++    paddingVertical: 22,
++    borderBottomWidth: 1,
++    borderColor: '#e0e9e9',
++    gap: 6,
++  },
++  photo: {
++    width: 220,
++    height: 150,
++    resizeMode: 'contain',
++    backgroundColor: '#edf2f2',
++  },
++  avatar: {
++    width: 80,
++    height: 80,
++    resizeMode: 'contain',
++  },
++  fileLabel: {
++    display: 'block',
++    margin: '16px 0',
++  },
++  fileInput: {
++    display: 'block',
++    maxWidth: '100%',
++    marginTop: 10,
++  },
++});
+diff --git a/image.js b/image.js
+index bf05df044d59d3d41405d914e970f00841205590..4b4228d858c847f62631bc455df64acf934fdde8 100644
+--- a/image.js
++++ b/image.js
+@@ -1,10 +1,101 @@
++const MAX_FILE_BYTES = 5 * 1024 * 1024;
++const MAX_DIMENSION = 4096;
++const ACCEPTED_TYPES = new Set(['image/png', 'image/jpeg']);
++
++function unsupportedAsset() {
++  return new Error('unsupported_asset');
++}
++
++function validateFile(file) {
++  const type = String(file?.type || '').toLowerCase();
++  if (!ACCEPTED_TYPES.has(type)) throw unsupportedAsset();
++  if (!Number.isFinite(file?.size) || file.size > MAX_FILE_BYTES) {
++    throw unsupportedAsset();
++  }
++}
++
++async function loadDecodedImage(url) {
++  const image = new Image();
++
++  if (typeof image.decode === 'function') {
++    image.src = url;
++    await image.decode();
++    return image;
++  }
++
++  await new Promise((resolve, reject) => {
++    image.onload = resolve;
++    image.onerror = () => reject(unsupportedAsset());
++    image.src = url;
++  });
++  return image;
++}
++
++function dimensionsOf(image) {
++  const width = image.naturalWidth || image.width;
++  const height = image.naturalHeight || image.height;
++  if (
++    !Number.isFinite(width) ||
++    !Number.isFinite(height) ||
++    width <= 0 ||
++    height <= 0 ||
++    width > MAX_DIMENSION ||
++    height > MAX_DIMENSION
++  ) {
++    throw unsupportedAsset();
++  }
++  return { width, height };
++}
++
++function encodePng(image, { width, height }) {
++  const canvas = document.createElement('canvas');
++  canvas.width = width;
++  canvas.height = height;
++  const context = canvas.getContext('2d');
++  if (!context) throw unsupportedAsset();
++
++  // A new canvas contains only the decoded pixels, so container metadata from
++  // the selected PNG/JPEG is not copied into the returned asset.
++  context.drawImage(image, 0, 0, width, height);
++  const png = canvas.toDataURL('image/png');
++  if (typeof png !== 'string' || !png.startsWith('data:image/png')) {
++    throw unsupportedAsset();
++  }
++  return png;
++}
++
++/**
++ * Decode a user-selected image and make a clean PNG copy of its pixels.
++ *
++ * The blob URL is deliberately scoped to this operation.  Drawing through a
++ * canvas both verifies that the browser could decode the source and removes
++ * source-container metadata before the result is handed to the UI.
++ */
+ export async function decodeImage(file) {
+-  if(!file || !['image/png','image/jpeg'].includes(file.type)||file.size>5*1024*1024)throw new Error('unsupported_asset');
+-  const url=URL.createObjectURL(file);
++  validateFile(file);
++
++  let url;
++  try {
++    url = URL.createObjectURL(file);
++  } catch {
++    throw unsupportedAsset();
++  }
++
+   try {
+-    const image=new Image();image.src=url;await image.decode();
+-    if(!image.naturalWidth||!image.naturalHeight||image.naturalWidth>4096||image.naturalHeight>4096)throw new Error('unsupported_asset');
+-    const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+-    canvas.getContext('2d').drawImage(image,0,0);return canvas.toDataURL('image/png');
+-  } finally {URL.revokeObjectURL(url);}
++    const image = await loadDecodedImage(url);
++    return encodePng(image, dimensionsOf(image));
++  } catch (error) {
++    // Keep one stable public error for bad MIME types, corrupt files and
++    // browser decoding/canvas failures.
++    if (error?.message === 'unsupported_asset') throw error;
++    throw unsupportedAsset();
++  } finally {
++    // Cleanup should not turn an otherwise valid selection into an image
++    // error in browsers that make revocation best-effort.
++    try {
++      URL.revokeObjectURL(url);
++    } catch {
++      // The decoded pixels have already been copied to the canvas.
++    }
++  }
+ }
+diff --git a/model.js b/model.js
+index fdad1a503167d5a7748c830932affbb5ea659846..8e783df68393fa085bfc97a10d620dd3503f0490 100644
+--- a/model.js
++++ b/model.js
+@@ -1,10 +1,49 @@
+-export function transition(state,event,config) {
+-  const next=structuredClone(state);
+-  if(event.type==='navigate') {
+-    if(!config.routes.includes(event.route))return {...next,error:'unknown_route'};
+-    if(config.protectedRoutes.includes(event.route)&&!config.authenticated)return {...next,error:'auth_required'};
+-    next.route=event.route;next.error='';
+-  } else if(event.type==='toggle_filter')next.openNow=next.openNow;
+-  return next;
+-}
+-export const displayRating=value=>String(value);
++function configuredList(config, key) {
++  return Array.isArray(config?.[key]) ? config[key] : [];
++}
++
++function copyState(state, changes) {
++  // Object.assign creates a fresh top-level record for every event, including
++  // events that are rejected or not understood.  Values that are not part of
++  // the transition remain untouched and are deliberately carried through.
++  return Object.assign({}, state, changes);
++}
++
++function navigationError(route, config) {
++  const routes = configuredList(config, 'routes');
++  if (!routes.includes(route)) return 'unknown_route';
++
++  const protectedRoutes = configuredList(config, 'protectedRoutes');
++  if (protectedRoutes.includes(route) && config?.authenticated !== true) {
++    return 'auth_required';
++  }
++
++  return '';
++}
++
++export function transition(state, event, config) {
++  const current = copyState(state);
++
++  switch (event?.type) {
++    case 'navigate': {
++      const error = navigationError(event.route, config);
++      return error
++        ? copyState(current, { error })
++        : copyState(current, { route: event.route, error: '' });
++    }
++    case 'toggle_filter':
++      return copyState(current, { openNow: !current.openNow });
++    default:
++      return current;
++  }
++}
++
++export function displayRating(value) {
++  let numeric;
++  try {
++    numeric = Number(value);
++  } catch {
++    numeric = NaN;
++  }
++  return Number.isFinite(numeric) ? numeric.toFixed(1) : '0.0';
++}

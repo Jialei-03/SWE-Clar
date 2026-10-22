@@ -1,0 +1,894 @@
+diff --git a/solution.py b/solution.py
+index 7825412b7667a6b50b794496fb45816e2d5fd991..42f86c7747bb6c8b67d328311743b1f45929b0df 100644
+--- a/solution.py
++++ b/solution.py
+@@ -1,3 +1,887 @@
+-"""Local coaching backend policy starter."""
++"""Reference implementation for the small, local coaching directory backend.
++
++The function in this module deliberately treats the supplied state as a value.  A
++copy is made before an operation is applied, which gives callers a convenient
++atomic/replay-safe boundary and also keeps rejected actions from changing their
++input object.
++"""
++
++from __future__ import annotations
++
++import copy
++import math
++import numbers
++from decimal import Decimal
++from typing import Any, Dict, List, Optional, Tuple
++
++
++# Collections which have a defined shape in the internal record.  The records
++# themselves are intentionally only lightly interpreted: this is a synthetic
++# backend, and callers may keep extra fields in them.
++_DICT_COLLECTIONS = ("users", "credits", "services", "sessions", "plans")
++_LIST_COLLECTIONS = ("checkins", "reviews", "messages")
++
++_MISSING = object()
++_SUPPORTED_MODALITIES = {"online", "in_person", "hybrid"}
++_SUPPORTED_PLAN_TYPES = {"training", "meal", "supplement"}
++_SUPPORTED_PURCHASE_TYPES = {"one_time", "subscription"}
++
++
++# ---------------------------------------------------------------------------
++# Small validation/copy helpers
++
++
++def _error(code: str, **extra: Any) -> Dict[str, Any]:
++    """Return the public error envelope.
++
++    Error wording is not part of the business policy, but keeping a short code
++    for every failure makes the function useful to both the CLI and callers.
++    """
++
++    result: Dict[str, Any] = {"code": code or "invalid"}
++    result.update(extra)
++    return result
++
++
++def _failure(state: Dict[str, Any], code: str, **extra: Any) -> Dict[str, Any]:
++    """Put an error on a copied state and remove a stale action result."""
++
++    state.pop("result", None)
++    state.pop("error", None)
++    state["error"] = _error(code, **extra)
++    return state
++
++
++def _success(state: Dict[str, Any], result: Any) -> Dict[str, Any]:
++    """Put a result on a copied state and remove a stale error."""
++
++    state.pop("result", None)
++    state.pop("error", None)
++    state["result"] = result
++    return state
++
++
++def _copy_and_validate_state(state: Any) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
++    """Deep-copy *state* and validate the public collection shapes."""
++
++    if not isinstance(state, dict):
++        return None, "invalid_state"
++
++    try:
++        result = copy.deepcopy(state)
++    except Exception:
++        # A synthetic state is normally JSON data.  If a caller supplies an
++        # object that cannot be copied, it cannot safely be used as a state.
++        return None, "invalid_state"
++
++    for name in _DICT_COLLECTIONS:
++        if name in result and not isinstance(result[name], dict):
++            return result, "invalid_state"
++    for name in _LIST_COLLECTIONS:
++        if name in result and not isinstance(result[name], list):
++            return result, "invalid_state"
++    return result, None
++
++
++def _is_hashable(value: Any) -> bool:
++    try:
++        hash(value)
++    except (TypeError, ValueError):
++        return False
++    return True
++
++
++def _valid_identifier(value: Any) -> bool:
++    """Whether a value can be used as one of the backend's IDs.
++
++    JSON callers normally use strings.  The internal function is a little less
++    restrictive and also permits other hashable scalar IDs, since the contract
++    specifies nonempty IDs rather than an authentication or string encoding
++    layer.  Blank strings, booleans, null, and non-finite numeric IDs are not
++    useful identities and are rejected.
++    """
++
++    if value is None or isinstance(value, bool):
++        return False
++    if isinstance(value, str):
++        return bool(value.strip())
++    if isinstance(value, float) and not math.isfinite(value):
++        return False
++    return _is_hashable(value)
++
++
++def _dict_get(mapping: Any, key: Any, default: Any = _MISSING) -> Any:
++    """A dict lookup that turns an unhashable external ID into a miss."""
++
++    if not isinstance(mapping, dict):
++        return default
++    try:
++        return mapping.get(key, default)
++    except (TypeError, ValueError):
++        return default
++
++
++def _dict_has(mapping: Any, key: Any) -> bool:
++    if not isinstance(mapping, dict):
++        return False
++    try:
++        return key in mapping
++    except (TypeError, ValueError):
++        return False
++
++
++def _required(action: Dict[str, Any], name: str) -> Any:
++    return action[name] if name in action else _MISSING
++
++
++def _has_nonblank_string(value: Any) -> bool:
++    return isinstance(value, str) and bool(value.strip())
++
++
++def _is_finite_nonnegative_number(value: Any) -> bool:
++    """Validate a price without accepting bool, NaN, or infinity."""
++
++    if isinstance(value, bool):
++        return False
++    if isinstance(value, Decimal):
++        try:
++            return value.is_finite() and value >= 0
++        except (TypeError, ValueError, ArithmeticError):
++            return False
++    if not isinstance(value, numbers.Real):
++        return False
++    try:
++        if value < 0:
++            return False
++    except (TypeError, ValueError, OverflowError):
++        return False
++
++    # Integers are finite by definition and can be larger than float's range.
++    if isinstance(value, numbers.Integral):
++        return True
++    try:
++        return math.isfinite(value)
++    except (TypeError, ValueError, OverflowError):
++        return False
++
++
++def _positive_integer_credit(value: Any) -> bool:
++    return isinstance(value, int) and not isinstance(value, bool) and value > 0
++
++
++def _user_has_role(state: Dict[str, Any], user_id: Any, role: str) -> bool:
++    if not _valid_identifier(user_id):
++        return False
++    profile = _dict_get(state.get("users"), user_id)
++    return isinstance(profile, dict) and profile.get("role") == role
++
++
++def _ensure_dict_collection(state: Dict[str, Any], name: str) -> Dict[Any, Any]:
++    collection = state.get(name)
++    if collection is None:
++        collection = {}
++        state[name] = collection
++    # Collection shapes have already been checked.  This assertion also makes
++    # accidental future uses of this helper obvious during development.
++    return collection
++
++
++def _ensure_list_collection(state: Dict[str, Any], name: str) -> List[Any]:
++    collection = state.get(name)
++    if collection is None:
++        collection = []
++        state[name] = collection
++    return collection
++
++
++def _copy_value(value: Any) -> Any:
++    """Copy values inserted into state/result without aliasing action objects."""
++
++    return copy.deepcopy(value)
++
++
++# ---------------------------------------------------------------------------
++# Action parsing and service/session helpers
++
++
++def _operation_name(action: Any) -> Optional[str]:
++    """Read the operation discriminator.
++
++    ``op`` is the usual spelling.  ``operation`` and the other common spelling
++    are accepted as harmless compatibility aliases because the README names
++    operations but does not prescribe a discriminator field.  Conflicting
++    discriminators are rejected rather than making their precedence implicit.
++    """
++
++    if not isinstance(action, dict):
++        return None
++
++    # Prefer the explicit operation spellings.  ``type``/``name`` are
++    # fallbacks; when an explicit ``op`` is present they may be ordinary extra
++    # metadata and should not make an otherwise valid action fail.
++    primary_values: List[Any] = []
++    for key in ("op", "operation", "action"):
++        if key in action:
++            primary_values.append(action[key])
++    values = primary_values
++    if not values:
++        for key in ("type", "name"):
++            if key in action:
++                values.append(action[key])
++    if not values or any(not isinstance(value, str) for value in values):
++        return None
++    if any(value != values[0] for value in values[1:]):
++        return None
++    return values[0]
++
++
++def _normalize_published_slots(value: Any) -> Optional[List[str]]:
++    if not isinstance(value, list) or not value:
++        return None
++    slots: List[str] = []
++    seen = set()
++    for raw_slot in value:
++        if not isinstance(raw_slot, str):
++            return None
++        slot = raw_slot.strip()
++        if not slot:
++            return None
++        if slot not in seen:
++            seen.add(slot)
++            slots.append(slot)
++    return slots
++
++
++def _normalized_existing_slots(value: Any) -> Optional[List[str]]:
++    """Read the canonical slot list from a stored service.
++
++    Services written by this implementation are already normalized.  Applying
++    the same normalization while reading makes seeded synthetic records safe
++    to use without changing them.
++    """
++
++    if not isinstance(value, list):
++        return None
++    result: List[str] = []
++    seen = set()
++    for raw_slot in value:
++        if not isinstance(raw_slot, str):
++            return None
++        slot = raw_slot.strip()
++        if not slot:
++            return None
++        if slot not in seen:
++            seen.add(slot)
++            result.append(slot)
++    return result
++
++
++def _service_for_booking(state: Dict[str, Any], service_id: Any) -> Optional[Dict[str, Any]]:
++    services = state.get("services")
++    service = _dict_get(services, service_id)
++    if not isinstance(service, dict) or service.get("active") is not True:
++        return None
++    # A service is a useful booking target only if it contains the fields that
++    # publishing guarantees.  Do not attempt to repair a malformed seeded row.
++    if not _valid_identifier(service.get("coach_id")):
++        return None
++    if _normalized_existing_slots(service.get("slots")) is None:
++        return None
++    if "price" not in service:
++        return None
++    return service
++
++
++def _session_id_is_free(sessions: Dict[Any, Any], session_id: Any) -> bool:
++    return not _dict_has(sessions, session_id)
++
++
++def _session_has_service_slot_conflict(
++    sessions: Dict[Any, Any], service_id: Any, slot: Any
++) -> bool:
++    for session in sessions.values():
++        if not isinstance(session, dict):
++            continue
++        if session.get("service_id") == service_id and session.get("slot") == slot:
++            if session.get("status") in ("booked", "completed"):
++                return True
++    return False
++
++
++def _get_session(state: Dict[str, Any], session_id: Any) -> Optional[Dict[str, Any]]:
++    session = _dict_get(state.get("sessions"), session_id)
++    return session if isinstance(session, dict) else None
++
++
++def _same_participant_pair(session: Dict[str, Any], sender_id: Any, recipient_id: Any) -> bool:
++    coach_id = session.get("coach_id", _MISSING)
++    athlete_id = session.get("athlete_id", _MISSING)
++    if coach_id is _MISSING or athlete_id is _MISSING:
++        return False
++    if not _valid_identifier(coach_id) or not _valid_identifier(athlete_id):
++        return False
++    if coach_id == athlete_id:
++        return False
++    if sender_id == recipient_id:
++        return False
++    return (sender_id == coach_id and recipient_id == athlete_id) or (
++        sender_id == athlete_id and recipient_id == coach_id
++    )
++
++
++def _service_result_row(service_id: Any, service: Dict[str, Any]) -> Dict[str, Any]:
++    row = _copy_value(service)
++    # The dictionary key is the authoritative service ID.  A published row does
++    # not store it redundantly, but this also behaves sensibly for seeded rows.
++    if not isinstance(row, dict):
++        row = {}
++    row["service_id"] = _copy_value(service_id)
++    return row
++
++
++def _sortable_id(value: Any) -> Tuple[int, Any, str, str]:
++    # IDs are ordinarily strings.  For strings, retain ordinary service_id
++    # ordering (the contract only case-folds specialty).  The remaining
++    # components make unusual mixed-type synthetic states deterministic without
++    # asking Python 3 to compare unrelated scalar types.
++    if isinstance(value, str):
++        return (0, value, "", "")
++    return (1, type(value).__name__, str(value), repr(value))
++
++
++# ---------------------------------------------------------------------------
++# Individual operations
++
++
++def _publish_service(state: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
++    coach_id = _required(action, "coach_id")
++    service_id = _required(action, "service_id")
++    specialty = _required(action, "specialty")
++    modality = _required(action, "modality")
++    price = _required(action, "price")
++    raw_slots = _required(action, "slots")
++
++    if (
++        coach_id is _MISSING
++        or service_id is _MISSING
++        or specialty is _MISSING
++        or modality is _MISSING
++        or price is _MISSING
++        or raw_slots is _MISSING
++    ):
++        return _failure(state, "invalid_publish_service")
++    if not _user_has_role(state, coach_id, "coach"):
++        return _failure(state, "coach_required")
++    if not _valid_identifier(service_id):
++        return _failure(state, "invalid_service_id")
++    services = state.get("services")
++    if _dict_has(services, service_id):
++        return _failure(state, "duplicate_service_id")
++    if not _has_nonblank_string(specialty):
++        return _failure(state, "invalid_specialty")
++    if not isinstance(modality, str) or modality not in _SUPPORTED_MODALITIES:
++        return _failure(state, "invalid_modality")
++    if not _is_finite_nonnegative_number(price):
++        return _failure(state, "invalid_price")
++    slots = _normalize_published_slots(raw_slots)
++    if slots is None:
++        return _failure(state, "invalid_slots")
++
++    record = {
++        "coach_id": _copy_value(coach_id),
++        "specialty": specialty.strip(),
++        "modality": modality,
++        "price": _copy_value(price),
++        "slots": slots,
++        "active": True,
++    }
++    services = _ensure_dict_collection(state, "services")
++    services[service_id] = record
++    return _success(
++        state,
++        {
++            "service_id": _copy_value(service_id),
++            "service": _copy_value(record),
++        },
++    )
++
++
++def _discover(state: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
++    if "specialty" in action:
++        raw_specialty = action["specialty"]
++        if not isinstance(raw_specialty, str):
++            return _failure(state, "invalid_specialty_filter")
++        specialty_filter = raw_specialty.strip().casefold()
++    else:
++        specialty_filter = ""
++
++    if "modality" in action:
++        modality_filter = action["modality"]
++        if not isinstance(modality_filter, str) or modality_filter not in _SUPPORTED_MODALITIES:
++            return _failure(state, "invalid_modality_filter")
++    else:
++        modality_filter = None
++
++    # A successful discovery is allowed to materialize the optional service
++    # dictionary, just as a write operation would.  This keeps the state shape
++    # useful to callers starting from only a users map.
++    services = _ensure_dict_collection(state, "services")
++    rows: List[Dict[str, Any]] = []
++    for service_id, service in services.items():
++        if not isinstance(service, dict) or service.get("active") is not True:
++            continue
++        service_specialty = service.get("specialty")
++        service_modality = service.get("modality")
++        if not isinstance(service_specialty, str) or not isinstance(service_modality, str):
++            continue
++        if specialty_filter and specialty_filter not in service_specialty.casefold():
++            continue
++        if modality_filter is not None and service_modality != modality_filter:
++            continue
++        rows.append(_service_result_row(service_id, service))
++
++    rows.sort(
++        key=lambda row: (
++            str(row.get("specialty", "")).casefold(),
++            _sortable_id(row.get("service_id")),
++        )
++    )
++    return _success(state, {"services": rows})
++
++
++def _book(state: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
++    athlete_id = _required(action, "athlete_id")
++    service_id = _required(action, "service_id")
++    session_id = _required(action, "session_id")
++    slot = _required(action, "slot")
++    purchase_type = _required(action, "purchase_type")
++
++    if (
++        athlete_id is _MISSING
++        or service_id is _MISSING
++        or session_id is _MISSING
++        or slot is _MISSING
++        or purchase_type is _MISSING
++    ):
++        return _failure(state, "invalid_booking")
++    if not _user_has_role(state, athlete_id, "athlete"):
++        return _failure(state, "athlete_required")
++    if not _valid_identifier(session_id):
++        return _failure(state, "invalid_session_id")
++    if not _valid_identifier(service_id):
++        return _failure(state, "invalid_service_id")
++    if not isinstance(slot, str):
++        return _failure(state, "invalid_slot")
++    if purchase_type not in _SUPPORTED_PURCHASE_TYPES:
++        return _failure(state, "invalid_purchase_type")
++
++    sessions = state.get("sessions")
++    if sessions is not None and not isinstance(sessions, dict):
++        # Normally caught by the common state validation.  Keep the operation
++        # safe if it is called through a future internal path.
++        return _failure(state, "invalid_state")
++    if sessions is None:
++        sessions = {}
++    if not _session_id_is_free(sessions, session_id):
++        return _failure(state, "duplicate_session_id")
++
++    service = _service_for_booking(state, service_id)
++    if service is None:
++        return _failure(state, "service_unavailable")
++    normalized_slots = _normalized_existing_slots(service.get("slots"))
++    if normalized_slots is None or slot not in normalized_slots:
++        return _failure(state, "invalid_slot")
++    if _session_has_service_slot_conflict(sessions, service_id, slot):
++        return _failure(state, "slot_unavailable")
++
++    credit_before: Any = _MISSING
++    if purchase_type == "subscription":
++        credits = state.get("credits")
++        if not isinstance(credits, dict):
++            return _failure(state, "insufficient_credit")
++        credit_before = _dict_get(credits, athlete_id)
++        if not _positive_integer_credit(credit_before):
++            return _failure(state, "insufficient_credit")
++
++    session = {
++        "athlete_id": _copy_value(athlete_id),
++        "coach_id": _copy_value(service.get("coach_id")),
++        "service_id": _copy_value(service_id),
++        "slot": _copy_value(slot),
++        "purchase_type": purchase_type,
++        "status": "booked",
++        "price": _copy_value(service.get("price")),
++    }
++
++    sessions = _ensure_dict_collection(state, "sessions")
++    sessions[session_id] = session
++    if purchase_type == "subscription":
++        # The credit was validated above, and this is the only mutation after
++        # the validation boundary, so a failed booking can never debit it.
++        credits = _ensure_dict_collection(state, "credits")
++        credits[athlete_id] = credit_before - 1
++
++    return _success(
++        state,
++        {
++            "session_id": _copy_value(session_id),
++            "session": _copy_value(session),
++        },
++    )
++
++
++def _assign_plan(state: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
++    coach_id = _required(action, "coach_id")
++    athlete_id = _required(action, "athlete_id")
++    plan_id = _required(action, "plan_id")
++    plan_type = _required(action, "plan_type")
++    content = _required(action, "content")
++
++    if (
++        coach_id is _MISSING
++        or athlete_id is _MISSING
++        or plan_id is _MISSING
++        or plan_type is _MISSING
++        or content is _MISSING
++    ):
++        return _failure(state, "invalid_plan")
++    if not _user_has_role(state, coach_id, "coach") or not _user_has_role(
++        state, athlete_id, "athlete"
++    ):
++        return _failure(state, "participant_required")
++    if not _valid_identifier(plan_id):
++        return _failure(state, "invalid_plan_id")
++    plans = state.get("plans")
++    if _dict_has(plans, plan_id):
++        return _failure(state, "duplicate_plan_id")
++    if plan_type not in _SUPPORTED_PLAN_TYPES:
++        return _failure(state, "invalid_plan_type")
++    if not isinstance(content, (str, list, dict)) or len(content) == 0:
++        return _failure(state, "invalid_plan_content")
++
++    sessions = state.get("sessions")
++    authorized = False
++    if isinstance(sessions, dict):
++        for session in sessions.values():
++            if (
++                isinstance(session, dict)
++                and session.get("coach_id") == coach_id
++                and session.get("athlete_id") == athlete_id
++                and session.get("status") == "booked"
++            ):
++                authorized = True
++                break
++    if not authorized:
++        return _failure(state, "booking_required")
++
++    record = {
++        "coach_id": _copy_value(coach_id),
++        "athlete_id": _copy_value(athlete_id),
++        "plan_type": plan_type,
++        "content": _copy_value(content),
++    }
++    plans = _ensure_dict_collection(state, "plans")
++    plans[plan_id] = record
++    return _success(
++        state,
++        {"plan_id": _copy_value(plan_id), "plan": _copy_value(record)},
++    )
++
++
++def _has_nonempty_content(value: Any) -> bool:
++    """Apply the content notion used by check-ins.
++
++    Check-in content is intentionally not assigned a narrower schema by the
++    contract.  Empty strings/containers and null are empty; other JSON scalar
++    values remain valid supplied content.
++    """
++
++    if value is None:
++        return False
++    if isinstance(value, (str, list, dict, tuple, set)):
++        return len(value) > 0
++    return bool(value)
++
++
++def _checkin(state: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
++    athlete_id = _required(action, "athlete_id")
++    plan_id = _required(action, "plan_id")
++    week = _required(action, "week")
++    content = _required(action, "content")
++
++    if athlete_id is _MISSING or plan_id is _MISSING or week is _MISSING or content is _MISSING:
++        return _failure(state, "invalid_checkin")
++    if not _valid_identifier(athlete_id) or not _valid_identifier(plan_id):
++        return _failure(state, "invalid_checkin")
++    if not isinstance(week, str) or not week.strip():
++        return _failure(state, "invalid_week")
++    if not _has_nonempty_content(content):
++        return _failure(state, "invalid_checkin_content")
++
++    plan = _dict_get(state.get("plans"), plan_id)
++    if not isinstance(plan, dict) or plan.get("athlete_id") != athlete_id:
++        return _failure(state, "plan_access_denied")
++    normalized_week = week.strip()
++
++    checkins = state.get("checkins")
++    if isinstance(checkins, list):
++        for existing in checkins:
++            if not isinstance(existing, dict):
++                continue
++            existing_week = existing.get("week")
++            if isinstance(existing_week, str):
++                existing_week = existing_week.strip()
++            if (
++                existing.get("plan_id") == plan_id
++                and existing.get("athlete_id") == athlete_id
++                and existing_week == normalized_week
++            ):
++                return _failure(state, "duplicate_checkin")
++
++    record = {
++        "plan_id": _copy_value(plan_id),
++        "athlete_id": _copy_value(athlete_id),
++        "week": normalized_week,
++        "content": _copy_value(content),
++    }
++    checkins = _ensure_list_collection(state, "checkins")
++    checkins.append(record)
++    return _success(state, {"checkin": _copy_value(record)})
++
++
++def _complete_session(state: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
++    coach_id = _required(action, "coach_id")
++    session_id = _required(action, "session_id")
++    if coach_id is _MISSING or session_id is _MISSING:
++        return _failure(state, "invalid_completion")
++    if not _valid_identifier(coach_id) or not _valid_identifier(session_id):
++        return _failure(state, "invalid_completion")
++
++    session = _get_session(state, session_id)
++    if session is None:
++        return _failure(state, "session_not_found")
++    if session.get("coach_id") != coach_id or session.get("status") != "booked":
++        return _failure(state, "session_not_completable")
++
++    session["status"] = "completed"
++    return _success(
++        state,
++        {
++            "session_id": _copy_value(session_id),
++            "status": "completed",
++            "session": _copy_value(session),
++        },
++    )
++
++
++def _review(state: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
++    athlete_id = _required(action, "athlete_id")
++    session_id = _required(action, "session_id")
++    review_id = _required(action, "review_id")
++    rating = _required(action, "rating")
++
++    if (
++        athlete_id is _MISSING
++        or session_id is _MISSING
++        or review_id is _MISSING
++        or rating is _MISSING
++    ):
++        return _failure(state, "invalid_review")
++    if not _valid_identifier(athlete_id) or not _valid_identifier(session_id):
++        return _failure(state, "invalid_review")
++    if not _valid_identifier(review_id):
++        return _failure(state, "invalid_review_id")
++    if not isinstance(rating, int) or isinstance(rating, bool) or not 1 <= rating <= 5:
++        return _failure(state, "invalid_rating")
++
++    session = _get_session(state, session_id)
++    if session is None or session.get("athlete_id") != athlete_id:
++        return _failure(state, "session_access_denied")
++    if session.get("status") != "completed":
++        return _failure(state, "session_not_completed")
++
++    reviews = state.get("reviews")
++    if isinstance(reviews, list):
++        for existing in reviews:
++            if not isinstance(existing, dict):
++                continue
++            if existing.get("review_id") == review_id:
++                return _failure(state, "duplicate_review_id")
++            if existing.get("session_id") == session_id:
++                return _failure(state, "session_already_reviewed")
++
++    record = {
++        "review_id": _copy_value(review_id),
++        "session_id": _copy_value(session_id),
++        "rating": rating,
++    }
++    reviews = _ensure_list_collection(state, "reviews")
++    reviews.append(record)
++    return _success(state, {"review_id": _copy_value(review_id), "review": _copy_value(record)})
++
++
++def _message(state: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
++    session_id = _required(action, "session_id")
++    message_id = _required(action, "message_id")
++    sender_id = _required(action, "sender_id")
++    recipient_id = _required(action, "recipient_id")
++    text = _required(action, "text")
++
++    if (
++        session_id is _MISSING
++        or message_id is _MISSING
++        or sender_id is _MISSING
++        or recipient_id is _MISSING
++        or text is _MISSING
++    ):
++        return _failure(state, "invalid_message")
++    if not _valid_identifier(session_id) or not _valid_identifier(message_id):
++        return _failure(state, "invalid_message")
++    if not _valid_identifier(sender_id) or not _valid_identifier(recipient_id):
++        return _failure(state, "invalid_message_participant")
++    if not isinstance(text, str) or not text.strip():
++        return _failure(state, "invalid_message_text")
++
++    session = _get_session(state, session_id)
++    if session is None or session.get("status") not in ("booked", "completed"):
++        return _failure(state, "session_not_messaging")
++    if not _same_participant_pair(session, sender_id, recipient_id):
++        return _failure(state, "message_participant_denied")
++
++    normalized_text = text.strip()
++    messages = state.get("messages")
++    if isinstance(messages, list):
++        for existing in messages:
++            if not isinstance(existing, dict) or existing.get("message_id") != message_id:
++                continue
++            existing_text = existing.get("text")
++            if isinstance(existing_text, str):
++                existing_text = existing_text.strip()
++            same = (
++                existing.get("session_id") == session_id
++                and existing.get("sender_id") == sender_id
++                and existing.get("recipient_id") == recipient_id
++                and existing_text == normalized_text
++            )
++            if same:
++                return _success(
++                    state,
++                    {
++                        "message_id": _copy_value(message_id),
++                        "duplicate": True,
++                        "message": _copy_value(existing),
++                    },
++                )
++            return _failure(state, "conflicting_message_id")
++
++    record = {
++        "message_id": _copy_value(message_id),
++        "session_id": _copy_value(session_id),
++        "sender_id": _copy_value(sender_id),
++        "recipient_id": _copy_value(recipient_id),
++        "text": normalized_text,
++    }
++    messages = _ensure_list_collection(state, "messages")
++    messages.append(record)
++    return _success(
++        state,
++        {
++            "message_id": _copy_value(message_id),
++            "duplicate": False,
++            "message": _copy_value(record),
++        },
++    )
++
++
++def _view_session(state: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
++    actor_id = _required(action, "actor_id")
++    session_id = _required(action, "session_id")
++    if actor_id is _MISSING or session_id is _MISSING:
++        return _failure(state, "invalid_view")
++    if not _valid_identifier(actor_id) or not _valid_identifier(session_id):
++        return _failure(state, "invalid_view")
++
++    session = _get_session(state, session_id)
++    if session is None:
++        return _failure(state, "session_not_found")
++    if actor_id not in (session.get("coach_id"), session.get("athlete_id")):
++        return _failure(state, "session_access_denied")
++
++    messages: List[Any] = []
++    stored_messages = state.get("messages")
++    if isinstance(stored_messages, list):
++        messages = [
++            _copy_value(item)
++            for item in stored_messages
++            if isinstance(item, dict) and item.get("session_id") == session_id
++        ]
++    reviews: List[Any] = []
++    stored_reviews = state.get("reviews")
++    if isinstance(stored_reviews, list):
++        reviews = [
++            _copy_value(item)
++            for item in stored_reviews
++            if isinstance(item, dict) and item.get("session_id") == session_id
++        ]
++
++    return _success(
++        state,
++        {
++            "session_id": _copy_value(session_id),
++            "session": _copy_value(session),
++            "messages": messages,
++            "reviews": reviews,
++        },
++    )
++
++
++# ---------------------------------------------------------------------------
++# Public entry point
++
++
+ def process_coaching_action(state: dict, action: dict) -> dict:
+-    raise NotImplementedError("Implement the disclosed coaching policies")
++    """Apply one supported coaching action and return the complete next state.
++
++    A failure is represented in the returned copy by a nonempty ``error.code``;
++    no business collection in the caller's object is changed.  A successful
++    action has a ``result`` instead.  Unknown operations follow the same error
++    path as malformed operations.
++    """
++
++    next_state, state_error = _copy_and_validate_state(state)
++    if next_state is None:
++        return {"error": _error(state_error or "invalid_state")}
++    if state_error is not None:
++        return _failure(next_state, state_error)
++    if not isinstance(action, dict):
++        return _failure(next_state, "invalid_action")
++
++    operation = _operation_name(action)
++    if operation is None:
++        return _failure(next_state, "invalid_action")
++
++    try:
++        if operation == "publish_service":
++            return _publish_service(next_state, action)
++        if operation == "discover":
++            return _discover(next_state, action)
++        if operation == "book":
++            return _book(next_state, action)
++        if operation == "assign_plan":
++            return _assign_plan(next_state, action)
++        if operation == "checkin":
++            return _checkin(next_state, action)
++        if operation == "complete_session":
++            return _complete_session(next_state, action)
++        if operation == "review":
++            return _review(next_state, action)
++        if operation == "message":
++            return _message(next_state, action)
++        if operation == "view_session":
++            return _view_session(next_state, action)
++    except Exception:
++        # Malformed synthetic records must still produce an atomic public
++        # failure, not an exception that could make a CLI transaction unclear.
++        return _failure(next_state, "invalid_action")
++
++    return _failure(next_state, "unknown_action")

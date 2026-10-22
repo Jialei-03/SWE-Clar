@@ -1,0 +1,1 @@
+Five independent requirement gates use actual HTTP/SQLite, independent scrypt and PDF/image decoding, and desktop/mobile Chromium. Candidate service, public invocation helper and Chromium run as UID 1000 with explicit environment allowlists; private assertions stay outside their filesystem boundary.

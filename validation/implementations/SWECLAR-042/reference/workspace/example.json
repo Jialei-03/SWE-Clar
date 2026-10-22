@@ -1,0 +1,8 @@
+{
+  "seed": {
+    "users": {"author": {"profile_image": "asset-author"}, "reviewer": {"profile_image": "asset-reviewer"}},
+    "sessions": ["author", "reviewer"],
+    "fee_rate": 0.15
+  },
+  "action": {"type": "create_listing", "listing_id": "listing-a", "owner_id": "author", "price": 100}
+}

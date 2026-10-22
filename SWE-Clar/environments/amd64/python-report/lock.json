@@ -1,0 +1,32 @@
+{
+  "platform": "linux/amd64",
+  "base": {
+    "profile": "python-vision",
+    "arg": "WEB_IMAGE"
+  },
+  "wheels": [
+    {
+      "name": "reportlab",
+      "version": "4.4.9",
+      "filename": "reportlab-4.4.9-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/17/77/546e50edfaba6a0e58e8ec5fdc4446510227cec9e8f40172b60941d5a633/reportlab-4.4.9-py3-none-any.whl",
+      "sha256": "68e2d103ae8041a37714e8896ec9b79a1c1e911d68c3bd2ea17546568cf17bfd"
+    },
+    {
+      "name": "pypdf",
+      "version": "6.10.0",
+      "filename": "pypdf-6.10.0-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/55/f2/7ebe366f633f30a6ad105f650f44f24f98cb1335c4157d21ae47138b3482/pypdf-6.10.0-py3-none-any.whl",
+      "sha256": "90005e959e1596c6e6c84c8b0ad383285b3e17011751cedd17f2ce8fcdfc86de"
+    },
+    {
+      "name": "charset-normalizer",
+      "version": "3.4.7",
+      "filename": "charset_normalizer-3.4.7-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/db/8f/61959034484a4a7c527811f4721e75d02d653a35afb0b6054474d8185d4c/charset_normalizer-3.4.7-py3-none-any.whl",
+      "sha256": "3dce51d0f5e7951f8bb4900c257dad282f49190fdbebecd4ba99bcc41fef404d"
+    }
+  ],
+  "deb_packages": [],
+  "npm_lock": null
+}

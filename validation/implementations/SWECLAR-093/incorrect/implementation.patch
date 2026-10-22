@@ -1,0 +1,703 @@
+--- a/lib/api.dart
++++ b/lib/api.dart
+@@ -1,30 +1,150 @@
+ import 'dart:async';
+ import 'dart:convert';
+ import 'dart:io';
++
+ abstract class ShopApi {
+- Future<List<Map<String,dynamic>>> catalog();
+- Future<List<Map<String,dynamic>>> inbox();
+- Future<Map<String,dynamic>> cart();
+- Future<Map<String,dynamic>> action(Map<String,dynamic> value);
+- Future<Stream<Map<String,dynamic>>> connect();
+- Future<void> close();
++  Future<List<Map<String, dynamic>>> catalog();
++  Future<List<Map<String, dynamic>>> inbox();
++  Future<Map<String, dynamic>> cart();
++  Future<Map<String, dynamic>> action(Map<String, dynamic> value);
++  Future<Stream<Map<String, dynamic>>> connect();
++  Future<void> close();
+ }
++
++/// An HTTP/API failure with the structured error returned by the service.
++class ShopApiException implements Exception {
++  final int statusCode;
++  final String code;
++
++  const ShopApiException(this.statusCode, this.code);
++
++  @override
++  String toString() => 'ShopApiException($statusCode, $code)';
++}
++
+ class HttpShopApi implements ShopApi {
+- final Uri base;final String token;final HttpClient client=HttpClient();WebSocket? socket;
+- HttpShopApi(this.base,this.token);
+- Future<dynamic> request(String method,String path,[Map<String,dynamic>? body]) async {
+-  final r=await client.openUrl(method,base.resolve(path));r.headers.set('Authorization','Bearer $token');
+-  if(body!=null){r.headers.contentType=ContentType.json;r.write(jsonEncode(body));}
+-  final response=await r.close();final data=jsonDecode(await utf8.decoder.bind(response).join());
+-  if(response.statusCode<200||response.statusCode>=300)throw StateError(data['error']?.toString()??'request_failed');return data;
+- }
+- @override Future<List<Map<String,dynamic>>> catalog() async =>(await request('GET','/catalog') as List).map((x)=>Map<String,dynamic>.from(x)).toList();
+- @override Future<List<Map<String,dynamic>>> inbox() async =>(await request('GET','/inbox') as List).map((x)=>Map<String,dynamic>.from(x)).toList();
+- @override Future<Map<String,dynamic>> cart() async =>Map<String,dynamic>.from(await request('GET','/cart'));
+- @override Future<Map<String,dynamic>> action(Map<String,dynamic> value) async =>Map<String,dynamic>.from(await request('POST','/actions',value));
+- @override Future<Stream<Map<String,dynamic>>> connect() async {
+-  socket=await WebSocket.connect(base.resolve('/events').replace(scheme:base.scheme=='https'?'wss':'ws').toString(),headers:{'Authorization':'Bearer $token'});
+-  return socket!.map((value)=>Map<String,dynamic>.from(jsonDecode(value as String)));
+- }
+- @override Future<void> close() async {await socket?.close();client.close(force:true);}
++  final Uri base;
++  final String token;
++  final HttpClient client = HttpClient();
++  WebSocket? socket;
++
++  HttpShopApi(this.base, this.token);
++
++  Uri _endpoint(String path) => base.resolve(path);
++
++  Future<dynamic> request(
++    String method,
++    String path, [
++    Map<String, dynamic>? body,
++  ]) async {
++    final request = await client.openUrl(method, _endpoint(path));
++    request.headers.set('Authorization', 'Bearer $token');
++    if (body != null) {
++      request.headers.contentType = ContentType.json;
++      request.write(jsonEncode(body));
++    }
++
++    final response = await request.close();
++    final text = await response.transform(utf8.decoder).join();
++    dynamic data;
++    if (text.trim().isNotEmpty) {
++      try {
++        data = jsonDecode(text);
++      } on FormatException {
++        throw const ShopApiException(0, 'invalid_response');
++      }
++    }
++
++    if (response.statusCode < 200 || response.statusCode >= 300) {
++      final code = data is Map && data['error'] is String
++          ? data['error'] as String
++          : 'request_failed';
++      throw ShopApiException(response.statusCode, code);
++    }
++    return data;
++  }
++
++  @override
++  Future<List<Map<String, dynamic>>> catalog() async {
++    final value = await request('GET', '/catalog');
++    if (value is! List) throw const ShopApiException(0, 'invalid_response');
++    return value
++        .map<Map<String, dynamic>>((item) => _mapCopy(item))
++        .toList(growable: true);
++  }
++
++  @override
++  Future<List<Map<String, dynamic>>> inbox() async {
++    final value = await request('GET', '/inbox');
++    if (value is! List) throw const ShopApiException(0, 'invalid_response');
++    return value
++        .map<Map<String, dynamic>>((item) => _mapCopy(item))
++        .toList(growable: true);
++  }
++
++  @override
++  Future<Map<String, dynamic>> cart() async {
++    final value = await request('GET', '/cart');
++    if (value is! Map) throw const ShopApiException(0, 'invalid_response');
++    return _mapCopy(value);
++  }
++
++  @override
++  Future<Map<String, dynamic>> action(Map<String, dynamic> value) async {
++    final response = await request('POST', '/actions', value);
++    if (response is! Map) throw const ShopApiException(0, 'invalid_response');
++    return _mapCopy(response);
++  }
++
++  @override
++  Future<Stream<Map<String, dynamic>>> connect() async {
++    // A controller normally has one connection.  Closing an old one here also
++    // prevents a reconnect from leaving a second delivery path behind.
++    final previous = socket;
++    socket = null;
++    await previous?.close();
++
++    final endpoint = _endpoint('/events');
++    final scheme = endpoint.scheme == 'https' || endpoint.scheme == 'wss' ? 'wss' : 'ws';
++    final connected = await WebSocket.connect(
++      endpoint.replace(scheme: scheme).toString(),
++      headers: <String, dynamic>{'Authorization': 'Bearer $token'},
++    );
++    socket = connected;
++
++    return connected.map<Map<String, dynamic>>((value) {
++      dynamic decoded;
++      if (value is String) {
++        decoded = jsonDecode(value);
++      } else if (value is List<int>) {
++        decoded = jsonDecode(utf8.decode(value));
++      } else {
++        throw const FormatException('invalid websocket message');
++      }
++      if (decoded is! Map) throw const FormatException('invalid websocket message');
++      return _mapCopy(decoded);
++    });
++  }
++
++  @override
++  Future<void> close() async {
++    final current = socket;
++    socket = null;
++    await current?.close();
++    client.close(force: true);
++  }
+ }
++
++Map<String, dynamic> _mapCopy(Map value) {
++  final result = <String, dynamic>{};
++  value.forEach((key, item) {
++    if (key is String) result[key] = _valueCopy(item);
++  });
++  return result;
++}
++
++dynamic _valueCopy(dynamic value) {
++  if (value is Map) return _mapCopy(value);
++  if (value is List) return value.map(_valueCopy).toList(growable: true);
++  return value;
++}
+--- a/lib/controller.dart
++++ b/lib/controller.dart
+@@ -1,20 +1,166 @@
+ import 'dart:async';
++
+ import 'package:flutter/foundation.dart';
++
+ import 'api.dart';
++
++const int _maxSafeInteger = 9007199254740991;
++
+ class ShopController extends ChangeNotifier {
+- final ShopApi api;List<Map<String,dynamic>> products=[],messages=[];Map<String,dynamic> basket={'lines':<dynamic>[],'total_cents':0};
+- String? error;bool loaded=false;StreamSubscription<Map<String,dynamic>>? subscription;bool stopped=false;
+- ShopController(this.api);
+- Future<void> load() async {
+-  try {
+-   final stream=await api.connect();subscription=stream.listen(receive,onError:(_){if(!stopped){error='Connection failed';notifyListeners();}});
+-   products=await api.catalog();final existing=await api.inbox();for(final message in existing)receive(message);basket=await api.cart();loaded=true;error=null;
+-  }catch(e){error='Unable to load';}if(!stopped)notifyListeners();
+- }
+- void receive(Map<String,dynamic> message){if(stopped||messages.any((x)=>x['id']==message['id']))return;messages.add(Map<String,dynamic>.from(message));}
+- Future<void> channel(String value,bool enabled) async {try{await api.action({'type':enabled?'subscribe':'unsubscribe','channel':value});error=null;}catch(e){error='Invalid channel';}if(!stopped)notifyListeners();}
+- Future<void> change(String product,int quantity,bool add) async {
+-  try{final next=await api.action({'type':add?'add':'remove','product_id':product,'quantity':quantity});if(!stopped){basket=next;error=null;}}catch(e){error='Cart update failed';}if(!stopped)notifyListeners();
+- }
+- @override void dispose(){stopped=true;subscription?.cancel();api.close();super.dispose();}
++  final ShopApi api;
++
++  List<Map<String, dynamic>> products = <Map<String, dynamic>>[];
++  List<Map<String, dynamic>> messages = <Map<String, dynamic>>[];
++  Map<String, dynamic> basket = <String, dynamic>{
++    'lines': <dynamic>[],
++    'total_cents': 0,
++  };
++
++  String? error;
++  bool loaded = false;
++  StreamSubscription<Map<String, dynamic>>? subscription;
++  bool stopped = false;
++
++  ShopController(this.api);
++
++  Future<void> load() async {
++    if (stopped) return;
++
++    try {
++      final oldSubscription = subscription;
++      subscription = null;
++      await oldSubscription?.cancel();
++
++      // Connect before reading the initial inbox.  An event published during
++      // the HTTP reads is then either received here or found in the snapshot,
++      // and receive() deduplicates the two paths.
++      final stream = await api.connect();
++      if (stopped) return;
++      subscription = stream.listen(
++        receive,
++        onError: (_) {
++          if (!stopped) {
++            error = 'Connection failed';
++            notifyListeners();
++          }
++        },
++      );
++
++      final loadedProducts = await api.catalog();
++      final existingMessages = await api.inbox();
++      final loadedBasket = await api.cart();
++      if (stopped) return;
++
++      // The API implementations are allowed to return their configured
++      // records directly.  Keep controller-owned copies so displaying or
++      // updating state never mutates a fixture or a caller-owned object.
++      products = loadedProducts.map(_copyMap).toList(growable: true);
++      for (final message in existingMessages) {
++        _addMessage(message, notify: false);
++      }
++      basket = _copyBasket(loadedBasket);
++      loaded = true;
++      error = null;
++    } catch (_) {
++      if (!stopped) error = 'Unable to load';
++    }
++
++    if (!stopped) notifyListeners();
++  }
++
++  /// Adds a notification from the WebSocket or an initial inbox snapshot.
++  /// Delivery is idempotent by notification id.
++  void receive(Map<String, dynamic> message) {
++    _addMessage(message, notify: true);
++  }
++
++  void _addMessage(Map<String, dynamic> message, {required bool notify}) {
++    if (stopped) return;
++    final id = message['id'];
++    if (messages.any((existing) => existing['id'] == id)) return;
++    messages.add(_copyMap(message));
++    if (notify && !stopped) notifyListeners();
++  }
++
++  Future<void> channel(String value, bool enabled) async {
++    if (stopped) return;
++    if (value.trim().isEmpty) {
++      error = 'Invalid channel';
++      notifyListeners();
++      return;
++    }
++
++    try {
++      final result = await api.action(<String, dynamic>{
++        'type': enabled ? 'subscribe' : 'unsubscribe',
++        'channel': value,
++      });
++      if (result.containsKey('error')) throw StateError('channel_failed');
++      error = null;
++    } catch (_) {
++      error = 'Invalid channel';
++    }
++    if (!stopped) notifyListeners();
++  }
++
++  Future<void> change(String product, int quantity, bool add) async {
++    if (stopped) return;
++    if (quantity <= 0 || quantity > _maxSafeInteger) {
++      error = 'Invalid quantity';
++      notifyListeners();
++      return;
++    }
++
++    try {
++      final next = await api.action(<String, dynamic>{
++        'type': add ? 'add' : 'remove',
++        'product_id': product,
++        'quantity': quantity,
++      });
++      if (next.containsKey('error') ||
++          next['lines'] is! List ||
++          !next.containsKey('total_cents')) {
++        throw StateError('invalid_cart_response');
++      }
++      if (!stopped) {
++        basket = _copyBasket(next);
++        error = null;
++      }
++    } catch (_) {
++      // In particular, do not replace basket with a failed/partial response.
++      error = 'Cart update failed';
++    }
++    if (!stopped) notifyListeners();
++  }
++
++  @override
++  void dispose() {
++    stopped = true;
++    final active = subscription;
++    subscription = null;
++    if (active != null) unawaited(active.cancel());
++    unawaited(api.close());
++    super.dispose();
++  }
+ }
++
++Map<String, dynamic> _copyMap(Map value) {
++  final copy = <String, dynamic>{};
++  value.forEach((key, item) {
++    if (key is String) copy[key] = _copyValue(item);
++  });
++  return copy;
++}
++
++dynamic _copyValue(dynamic value) {
++  if (value is Map) return _copyMap(value);
++  if (value is List) return value.map(_copyValue).toList(growable: true);
++  return value;
++}
++
++Map<String, dynamic> _copyBasket(Map<String, dynamic> value) {
++  final copy = _copyMap(value);
++  final lines = copy['lines'];
++  copy['lines'] = lines is List ? lines.toList(growable: true) : <dynamic>[];
++  return copy;
++}
+--- a/server/server.cjs
++++ b/server/server.cjs
+@@ -1,43 +1,298 @@
+-const fs=require('node:fs'),http=require('node:http');
+-const req=require('node:module').createRequire(process.env.SWECLAR_NODE_REQUIRE_ROOT||__filename);
+-const {WebSocketServer,WebSocket}=req('ws');
+-const config=JSON.parse(fs.readFileSync(process.env.SHOP_CONFIG,'utf8'));
+-const subscriptions=new Map(),inboxes=new Map(),carts=new Map(),notifications=new Map(),sockets=new Map();
+-const own=(object,key)=>typeof key==='string'&&Object.hasOwn(object,key);
+-function auth(header){if(!header?.startsWith('Bearer '))return null;const id=config.sessions[header.slice(7)];return own(config.users,id)?id:null;}
+-function cart(user){const rows=[...(carts.get(user)||new Map())].map(([product_id,quantity])=>({product_id,quantity,price_cents:config.products[product_id].price_cents,line_total_cents:quantity*config.products[product_id].price_cents}));return {lines:rows,total_cents:rows.reduce((sum,row)=>sum+row.line_total_cents,0)};}
+-function action(user,input){const type=input.type;
+- if(type==='subscribe'||type==='unsubscribe'){
+-  const channel=input.channel;if(typeof channel!=='string'||!channel.trim())throw Error('invalid_channel');
+-  const set=subscriptions.get(user)||new Set();if(type==='subscribe')set.add(channel);else set.delete(channel);subscriptions.set(user,set);return {channels:[...set].sort()};
+- }
+- if(type==='publish'){
+-  if(config.users[user].role!=='manager')throw Error('forbidden');
+-  const {id,channel,title}=input;if(typeof id!=='string'||!id.trim()||typeof channel!=='string'||!channel.trim()||typeof title!=='string'||!title.trim())throw Error('invalid_notification');
+-  const record={id,channel,title};if(notifications.has(id)){if(JSON.stringify(notifications.get(id))!==JSON.stringify(record))throw Error('notification_conflict');return {duplicate:true};}
+-  notifications.set(id,record);
+-  for(const [uid,channels] of subscriptions){if(!channels.has(channel))continue;const rows=inboxes.get(uid)||[];rows.push(record);inboxes.set(uid,rows);for(const socket of sockets.get(uid)||[])if(false)socket.send(JSON.stringify(record));}
+-  return {duplicate:false};
+- }
+- if(type==='add'||type==='remove'){
+-  const id=input.product_id,quantity=input.quantity;if(!own(config.products,id))throw Error('unknown_product');if(!Number.isSafeInteger(quantity)||quantity<=0)throw Error('invalid_quantity');
+-  const prior=carts.get(user)||new Map(),next=new Map(prior);const old=next.get(id)||0;const count=type==='add'?quantity:0;
+-  if(!Number.isSafeInteger(count)||!Number.isSafeInteger(count*config.products[id].price_cents))throw Error('invalid_quantity');
+-  if(count)next.set(id,count);else next.delete(id);
+-  const total=[...next].reduce((sum,[key,value])=>sum+value*config.products[key].price_cents,0);if(!Number.isSafeInteger(total))throw Error('invalid_quantity');
+-  carts.set(user,next);return cart(user);
+- }
+- throw Error('unknown_action');
+-}
+-const server=http.createServer(async(request,response)=>{
+- const reply=(status,value)=>{const body=JSON.stringify(value);response.writeHead(status,{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)});response.end(body);};
+- const user=auth(request.headers.authorization);if(!user)return reply(401,{error:'unauthenticated'});
+- if(request.method==='GET'&&request.url==='/catalog')return reply(200,Object.entries(config.products).map(([id,p])=>({id,...p})));
+- if(request.method==='GET'&&request.url==='/inbox')return reply(200,inboxes.get(user)||[]);
+- if(request.method==='GET'&&request.url==='/cart')return reply(200,cart(user));
+- if(request.method!=='POST'||request.url!=='/actions')return reply(404,{error:'not_found'});
+- try {let data='';for await(const chunk of request){data+=chunk;if(data.length>65536)throw Error('invalid_request');}const input=JSON.parse(data);if(!input||typeof input!=='object'||Array.isArray(input))throw Error('invalid_request');reply(200,action(user,input));}catch(error){reply(400,{error:error.message});}
++const fs = require('node:fs');
++const http = require('node:http');
++const req = require('node:module').createRequire(process.env.SWECLAR_NODE_REQUIRE_ROOT || __filename);
++const { WebSocketServer, WebSocket } = req('ws');
++
++const config = JSON.parse(fs.readFileSync(process.env.SHOP_CONFIG, 'utf8'));
++const users = config && config.users && typeof config.users === 'object' ? config.users : {};
++const sessions = config && config.sessions && typeof config.sessions === 'object' ? config.sessions : {};
++const products = config && config.products && typeof config.products === 'object' ? config.products : {};
++
++// All state below is indexed by the authenticated user id.  Nothing in an
++// action payload is used as an identity.
++const subscriptions = new Map();
++const inboxes = new Map();
++const carts = new Map();
++const notifications = new Map();
++const sockets = new Map();
++
++const hasOwn = (object, key) =>
++  object !== null && object !== undefined &&
++  (typeof object === 'object' || typeof object === 'function') &&
++  Object.prototype.hasOwnProperty.call(object, key);
++
++class ShopError extends Error {
++  constructor(code, status = 400) {
++    super(code);
++    this.name = 'ShopError';
++    this.code = code;
++    this.status = status;
++  }
++}
++
++function authenticatedUser(authorization) {
++  if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) return null;
++  const token = authorization.slice('Bearer '.length);
++  if (!token || !hasOwn(sessions, token)) return null;
++  const userId = sessions[token];
++  return typeof userId === 'string' && userRecord(userId) ? userId : null;
++}
++
++function userRecord(userId) {
++  return hasOwn(users, userId) && users[userId] && typeof users[userId] === 'object'
++    ? users[userId]
++    : null;
++}
++
++function productRecord(productId) {
++  if (typeof productId !== 'string' ||
++      !hasOwn(products, productId) ||
++      !products[productId] ||
++      typeof products[productId] !== 'object') {
++    throw new ShopError('unknown_product');
++  }
++  return products[productId];
++}
++
++function productPrice(productId) {
++  const product = productRecord(productId);
++  // Products are part of the trusted fixture, but refusing an invalid price is
++  // preferable to allowing an unsafe value into a user's cart.
++  if (!Number.isSafeInteger(product.price_cents) || product.price_cents < 0) {
++    throw new ShopError('invalid_product_price');
++  }
++  return product.price_cents;
++}
++
++function validNonemptyString(value) {
++  return typeof value === 'string' && value.trim().length > 0;
++}
++
++function validQuantity(value) {
++  // Number.isSafeInteger also rejects booleans, strings, fractions, Infinity,
++  // and numbers outside JavaScript's exact integer range.
++  return Number.isSafeInteger(value) && value > 0;
++}
++
++function cartFor(userId) {
++  const rows = [];
++  let total = 0;
++  const lines = carts.get(userId) || new Map();
++
++  for (const [productId, quantity] of lines) {
++    if (!Number.isSafeInteger(quantity) || quantity <= 0) {
++      throw new ShopError('invalid_quantity');
++    }
++    const price = productPrice(productId);
++    const lineTotal = quantity * price;
++    if (!Number.isSafeInteger(lineTotal)) throw new ShopError('invalid_quantity');
++    const nextTotal = total + lineTotal;
++    if (!Number.isSafeInteger(nextTotal)) throw new ShopError('invalid_quantity');
++    total = nextTotal;
++    rows.push({
++      product_id: productId,
++      quantity,
++      price_cents: price,
++      line_total_cents: lineTotal,
++    });
++  }
++
++  return { lines: rows, total_cents: total };
++}
++
++function publish(userId, input) {
++  const currentUser = userRecord(userId);
++  if (!currentUser || currentUser.role !== 'manager') throw new ShopError('forbidden', 403);
++
++  const { id, channel, title } = input;
++  if (!validNonemptyString(id) || !validNonemptyString(channel) || !validNonemptyString(title)) {
++    throw new ShopError('invalid_notification');
++  }
++
++  const record = { id, channel, title };
++  const existing = notifications.get(id);
++  if (existing) {
++    if (existing.id === record.id && existing.channel === record.channel && existing.title === record.title) {
++      return { duplicate: true };
++    }
++    throw new ShopError('notification_conflict');
++  }
++
++  // Take the recipient decision before changing any inbox.  JavaScript runs
++  // this action synchronously, so this is the complete subscription snapshot
++  // for the publication.
++  const recipients = [];
++  for (const [recipient, channels] of subscriptions) {
++    if (channels.has(channel)) recipients.push(recipient);
++  }
++
++  notifications.set(id, record);
++  for (const recipient of recipients) {
++    const rows = inboxes.get(recipient) || [];
++    rows.push({ ...record });
++    inboxes.set(recipient, rows);
++
++    // A user may have more than one authenticated connection.  A failed send
++    // on an already-closing socket must not undo the durable in-memory inbox
++    // delivery or affect the other connections.
++    const active = sockets.get(recipient);
++    if (!active) continue;
++    // Only the first connection in the set receives the live delivery.
++    // Other connections still remain active and can receive later events.
++    for (const socket of [...active].slice(0, 1)) {
++      if (socket.readyState !== WebSocket.OPEN) continue;
++      try {
++        socket.send(JSON.stringify(record));
++      } catch (_) {
++        // The close event removes the socket from the active set.  There is no
++        // useful action for a send that loses a race with that close.
++      }
++    }
++  }
++
++  return { duplicate: false };
++}
++
++function changeCart(userId, input) {
++  const productId = input.product_id;
++  const quantity = input.quantity;
++  // Validate every input before making a candidate state.  In particular,
++  // price_cents supplied by a caller is intentionally ignored.
++  productPrice(productId);
++  if (!validQuantity(quantity)) throw new ShopError('invalid_quantity');
++
++  const previous = carts.get(userId) || new Map();
++  const next = new Map(previous);
++  const oldQuantity = next.get(productId) || 0;
++
++  let nextQuantity;
++  if (input.type === 'add') {
++    nextQuantity = oldQuantity + quantity;
++    if (!Number.isSafeInteger(nextQuantity)) throw new ShopError('invalid_quantity');
++    next.set(productId, nextQuantity);
++  } else {
++    nextQuantity = oldQuantity - quantity;
++    if (nextQuantity > 0) {
++      // oldQuantity and quantity are safe positive integers, so a positive
++      // subtraction is safe as well.
++      next.set(productId, nextQuantity);
++    } else {
++      next.delete(productId);
++    }
++  }
++
++  // Calculate the entire candidate cart before committing it.  This makes an
++  // overflow (or a malformed existing fixture) a no-op.
++  const oldCart = carts.get(userId);
++  carts.set(userId, next);
++  try {
++    const result = cartFor(userId);
++    return result;
++  } catch (error) {
++    if (oldCart) carts.set(userId, oldCart);
++    else carts.delete(userId);
++    throw error;
++  }
++}
++
++function performAction(userId, input) {
++  const type = input.type;
++
++  if (type === 'subscribe' || type === 'unsubscribe') {
++    const channel = input.channel;
++    if (!validNonemptyString(channel)) throw new ShopError('invalid_channel');
++
++    // Work on a copy so a future validation or failure cannot partially alter
++    // an existing subscription set.
++    const next = new Set(subscriptions.get(userId) || []);
++    if (type === 'subscribe') next.add(channel);
++    else next.delete(channel);
++    subscriptions.set(userId, next);
++    return { channels: [...next].sort() };
++  }
++
++  if (type === 'publish') return publish(userId, input);
++  if (type === 'add' || type === 'remove') return changeCart(userId, input);
++  throw new ShopError('unknown_action');
++}
++
++function catalog() {
++  return Object.entries(products).map(([id, product]) => ({
++    ...(product && typeof product === 'object' ? product : {}),
++    id,
++  }));
++}
++
++const server = http.createServer(async (request, response) => {
++  const reply = (status, value) => {
++    const body = JSON.stringify(value);
++    response.writeHead(status, {
++      'Content-Type': 'application/json',
++      'Content-Length': Buffer.byteLength(body),
++    });
++    response.end(body);
++  };
++
++  const userId = authenticatedUser(request.headers.authorization);
++  if (!userId) return reply(401, { error: 'unauthenticated' });
++
++  if (request.method === 'GET' && request.url === '/catalog') return reply(200, catalog());
++  if (request.method === 'GET' && request.url === '/inbox') return reply(200, inboxes.get(userId) || []);
++  if (request.method === 'GET' && request.url === '/cart') {
++    try {
++      return reply(200, cartFor(userId));
++    } catch (error) {
++      const status = error instanceof ShopError ? error.status : 400;
++      const code = error instanceof ShopError ? error.code : 'invalid_cart';
++      return reply(status, { error: code });
++    }
++  }
++  if (request.method !== 'POST' || request.url !== '/actions') return reply(404, { error: 'not_found' });
++
++  try {
++    let body = '';
++    let bytes = 0;
++    for await (const chunk of request) {
++      bytes += Buffer.byteLength(chunk);
++      if (bytes > 65536) throw new ShopError('invalid_request');
++      body += chunk.toString();
++    }
++    const input = JSON.parse(body);
++    if (!input || typeof input !== 'object' || Array.isArray(input)) {
++      throw new ShopError('invalid_request');
++    }
++    return reply(200, performAction(userId, input));
++  } catch (error) {
++    const status = error instanceof ShopError ? error.status : 400;
++    const code = error instanceof ShopError ? error.code : 'invalid_request';
++    return reply(status, { error: code });
++  }
+ });
+-const wss=new WebSocketServer({noServer:true});
+-server.on('upgrade',(request,socket,head)=>{const user=auth(request.headers.authorization);if(!user||request.url!=='/events'){socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n');return;}wss.handleUpgrade(request,socket,head,ws=>{const set=sockets.get(user)||new Set();set.add(ws);sockets.set(user,set);ws.on('close',()=>set.delete(ws));});});
+-server.listen(Number(process.env.PORT||0),'127.0.0.1',()=>console.log(JSON.stringify({port:server.address().port})));
++
++const wss = new WebSocketServer({ noServer: true });
++server.on('upgrade', (request, socket, head) => {
++  const userId = authenticatedUser(request.headers.authorization);
++  if (!userId || request.url !== '/events') {
++    socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
++    return;
++  }
++
++  wss.handleUpgrade(request, socket, head, ws => {
++    const active = sockets.get(userId) || new Set();
++    active.add(ws);
++    sockets.set(userId, active);
++    const remove = () => {
++      active.delete(ws);
++      if (active.size === 0 && sockets.get(userId) === active) sockets.delete(userId);
++    };
++    ws.on('close', remove);
++    ws.on('error', () => {
++      // close normally follows an error; keeping this handler prevents an
++      // unhandled ws error from taking down the service.
++    });
++  });
++});
++
++server.listen(Number(process.env.PORT || 0), '127.0.0.1', () => {
++  console.log(JSON.stringify({ port: server.address().port }));
++});

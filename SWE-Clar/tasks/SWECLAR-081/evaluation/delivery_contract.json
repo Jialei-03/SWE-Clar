@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-081",
+  "public": {
+    "readme": "# Offline directory page planner\nImplement `directory_planner.py: plan_directory_update(records, changed_ids, query=None, immediate_ids=None)` without mutating inputs. Return pages, suggestions and cache_queue; metadata is permitted. Invalid inputs raise ValueError. This component generates real local page content and work plans, not a complete directory site or external CDN deployment.\n\nRecord fields: unique nonempty string id, business_name,country_code,state_name,state_code,main_city; other_cities/services lists of nonempty strings; sponsored boolean. Empty lists/record collection allowed. changed_ids and optional immediate_ids are lists of known IDs; repeated IDs allowed. query string or None. Exact route normalization and refresh policies may be clarified.\n\nGenerate state, state_service, city, city_service and business pages. Both main and other cities contribute; every offered service contributes at state/city levels. Deduplicate equivalent normalized cities/services and business memberships. Page fields: route,kind,label,business_ids. Labels: state+' Movers', state+' '+service+' Movers', city+' '+state_code+' Movers', city+' '+state_code+' '+service+' Movers', business_name. For normalized equivalent labels choose lexicographically smallest trimmed label. Sponsored businesses sort first, then ID; pages sort by route.\n\nSearch normalized ASCII text across all page labels, including businesses. Exact/prefix/substring scores are300/200/100; sort by descending score then route; at most10 unique target routes. Each suggestion exposes target,kind,label,score. Empty normalized query yields none. Token normalization uses NFKD ASCII transliteration, lowercase alphanumeric runs with single spaces.\n\nRun `python cli.py --offset 0 --limit 20` with one JSON object containing function arguments on stdin. offset>=0,limit>=1. Only pages paginate; total_pages is full count and suggestions/cache_queue remain complete. CLI produces actual escaped HTML containing page heading and matching business names in membership order. It writes JSON to stdout and publishes nothing. Python standard library only.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "directory_planner.py",
+          "function": "plan_directory_update"
+        },
+        "inputs": {
+          "request": "records,changed_ids,query,immediate_ids"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "Offline page content/search/cache plan"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "directory_planner.py",
+        "function": "plan_directory_update"
+      },
+      "inputs": {
+        "request": "records,changed_ids,query,immediate_ids"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Offline page content/search/cache plan"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "directory_planner.py",
+        "function": "plan_directory_update"
+      },
+      "inputs": {
+        "request": "records,changed_ids,query,immediate_ids"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Offline page content/search/cache plan"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "directory_planner.py",
+        "function": "plan_directory_update"
+      },
+      "inputs": {
+        "request": "records,changed_ids,query,immediate_ids"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Offline page content/search/cache plan"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "directory_planner.py",
+        "function": "plan_directory_update"
+      },
+      "inputs": {
+        "request": "records,changed_ids,query,immediate_ids"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Offline page content/search/cache plan"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "directory_planner.py",
+        "function": "plan_directory_update"
+      },
+      "inputs": {
+        "request": "records,changed_ids,query,immediate_ids"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Offline page content/search/cache plan"
+      },
+      "operations": []
+    },
+    "RU-006": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "directory_planner.py",
+        "function": "plan_directory_update"
+      },
+      "inputs": {
+        "request": "records,changed_ids,query,immediate_ids"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Offline page content/search/cache plan"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "52967f4948049a7f57db1488c24d59471ae5c705d426400a3ecd747e5a948978",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "e46c945ae2b1b9c1a6b9a6702fef6fbecc5662b5696339f853c25d05aece1341",
+    "evaluation/tests/candidate_proxy.py": "789fff5836904f844d65c3361881f1c4eccf00c84c4f198f3d117edcc91a97c4",
+    "evaluation/tests/conftest.py": "8b7860e7d8d0902169fab1abc22d2daff6c02906e44d3d565cdd16e3cb0ac45f",
+    "evaluation/tests/evaluate.py": "a355552a3e7a2495944c8ba1b216950ff4baddd0a4bbb256329b771a12a12531",
+    "evaluation/tests/expected_gates.json": "49a3bdda09306b6b94730354e69c330d11a0fbf2d8598e8fdf9befd55096bc1b",
+    "evaluation/tests/official_verifier.py": "3e49fbb6a6e3cfe753b2819336980048e157b0437efb7700ad80c441be129562",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "97f24504bb6249220988a3c3ebfc6f2ace159ed7fd2e4194a7b838f6c339e6ce"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

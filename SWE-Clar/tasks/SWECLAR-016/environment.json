@@ -1,0 +1,44 @@
+{
+  "profile": "python-vision",
+  "platform": "linux/amd64",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "network": "none except loopback",
+    "workspace_mb": 512,
+    "evaluation_wall_seconds": 300
+  },
+  "workdir": "/workspace",
+  "public_test": [
+    "python",
+    "/public_tests/test_public.py"
+  ],
+  "start": [
+    "python",
+    "server.py",
+    "--host",
+    "0.0.0.0",
+    "--port",
+    "8080",
+    "--db",
+    "/workspace/data/workspace.sqlite3",
+    "--uploads",
+    "/workspace/data/images",
+    "--fixture",
+    "/public_tests/accounts.json",
+    "--provider",
+    "http://127.0.0.1:8081",
+    "--provider-token",
+    "synthetic-provider-token"
+  ],
+  "preflight": [
+    "python",
+    "/opt/sweclar/preflight.py"
+  ],
+  "task_preflight": [
+    "python",
+    "/public_tests/preflight.py"
+  ],
+  "prepare_owner": "benchmark before candidate budget"
+}

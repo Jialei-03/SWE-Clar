@@ -1,0 +1,240 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-091",
+  "public": {
+    "readme": "# Native workspace shell\n\nRepair this existing wxWidgets MVC project on the prepared Linux/GCC platform. Build with `cmake -S . -B build && cmake --build build`; launch `xvfb-run -a ./build/workspace_gui --smoke` for an unattended smoke check or run the binary on an X11 display. No business operations or dialogs are required.\n\nThis is an independent Linux C++11 adaptation. It does not establish compatibility with the original job\u2019s Visual Studio 2013 environment. The fixed pane identifiers, menu labels and perspective APIs are synthetic contracts; no original screenshot, design file or customer code is provided.\n\nPublic native observation helpers collect real wxWidgets objects; protected tests evaluate observations outside the candidate process. If custom perspective naming is requested, use an inline text control named `perspective_name`, with Windows menu actions `Save perspective` and `Default perspective`; these are independent interaction conventions, not original customer API claims.",
+    "interfaces": [
+      {
+        "type": "command",
+        "entry": {
+          "language": "cpp",
+          "file": "CMakeLists.txt",
+          "executable": "build/workspace_gui",
+          "command": "xvfb-run -a ./build/workspace_gui --smoke"
+        },
+        "inputs": {
+          "display": "X11-compatible display supplied by the evaluator"
+        },
+        "output": {
+          "type": "native_window_and_exit_status",
+          "meaning": "a real wxWidgets frame and a clean smoke exit",
+          "asserted_field_paths": [
+            "cmake_entry_present",
+            "build_succeeded",
+            "executable_present"
+          ],
+          "exact_values": {
+            "cmake_entry_present": true,
+            "build_succeeded": true,
+            "executable_present": true
+          }
+        },
+        "operations": []
+      },
+      {
+        "type": "command",
+        "entry": {
+          "language": "cpp",
+          "class": "workspace::MainWindowV",
+          "constructor": "MainWindowV(const MainWindowM&)"
+        },
+        "inputs": {
+          "display": "X11-compatible display supplied by the evaluator"
+        },
+        "output": {
+          "type": "wx_window_tree",
+          "meaning": "Native panes, toolbar, and status bar observed by the evaluator-owned probe."
+        },
+        "operations": []
+      },
+      {
+        "type": "command",
+        "entry": {
+          "language": "cpp",
+          "directory": "src",
+          "classes": [
+            "workspace::MainWindowM",
+            "workspace::MainWindowV",
+            "workspace::MainWindowC"
+          ]
+        },
+        "inputs": {
+          "source_tree": "src directory"
+        },
+        "output": {
+          "type": "compile_time_and_runtime_observations",
+          "meaning": "portable MVC visual shell with controller-owned dynamic bindings",
+          "asserted_field_paths": [
+            "source_directory_present",
+            "required_files_present"
+          ],
+          "exact_values": {
+            "source_directory_present": true,
+            "required_files_present": true
+          }
+        },
+        "operations": []
+      },
+      {
+        "type": "command",
+        "entry": {
+          "language": "cpp",
+          "command": "c++ -std=c++11 -pedantic-errors"
+        },
+        "inputs": null,
+        "output": {
+          "description": "All application source files compile successfully with the declared C++11 toolchain; the model independently compiles without GUI flags."
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "command",
+      "entry": {
+        "language": "cpp",
+        "file": "CMakeLists.txt",
+        "executable": "build/workspace_gui",
+        "command": "xvfb-run -a ./build/workspace_gui --smoke"
+      },
+      "inputs": {
+        "display": "X11-compatible display supplied by the evaluator"
+      },
+      "output": {
+        "type": "native_window_and_exit_status",
+        "meaning": "a real wxWidgets frame and a clean smoke exit",
+        "asserted_field_paths": [
+          "cmake_entry_present",
+          "build_succeeded",
+          "executable_present"
+        ],
+        "exact_values": {
+          "cmake_entry_present": true,
+          "build_succeeded": true,
+          "executable_present": true
+        }
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "command",
+      "entry": {
+        "language": "cpp",
+        "class": "workspace::MainWindowV",
+        "constructor": "MainWindowV(const MainWindowM&)"
+      },
+      "inputs": {
+        "display": "X11-compatible display supplied by the evaluator"
+      },
+      "output": {
+        "type": "wx_window_tree",
+        "meaning": "Native panes, toolbar, and status bar observed by the evaluator-owned probe."
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "command",
+      "entry": {
+        "language": "cpp",
+        "directory": "src",
+        "classes": [
+          "workspace::MainWindowM",
+          "workspace::MainWindowV",
+          "workspace::MainWindowC"
+        ]
+      },
+      "inputs": {
+        "source_tree": "src directory"
+      },
+      "output": {
+        "type": "compile_time_and_runtime_observations",
+        "meaning": "portable MVC visual shell with controller-owned dynamic bindings",
+        "asserted_field_paths": [
+          "source_directory_present",
+          "required_files_present"
+        ],
+        "exact_values": {
+          "source_directory_present": true,
+          "required_files_present": true
+        }
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "command",
+      "entry": {
+        "language": "cpp",
+        "class": "workspace::MainWindowV",
+        "constructor": "MainWindowV(const MainWindowM&)"
+      },
+      "inputs": {
+        "display": "X11-compatible display supplied by the evaluator"
+      },
+      "output": {
+        "type": "native_menu_and_toolbar_items",
+        "meaning": "labels and tooltip text read from the constructed wxWidgets objects"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "command",
+      "entry": {
+        "language": "cpp",
+        "class": "workspace::MainWindowV",
+        "method": "void reset_default_perspective()"
+      },
+      "inputs": {
+        "mutation": "evaluator changes a native wxAUI pane before calling reset"
+      },
+      "output": {
+        "type": "native_wxaui_state",
+        "meaning": "actual pane placement and visibility return to the captured default"
+      },
+      "operations": []
+    },
+    "RU-006": {
+      "type": "command",
+      "entry": {
+        "language": "cpp",
+        "class": "workspace::MainWindowV",
+        "methods": [
+          "wxString save_perspective()",
+          "bool load_perspective(const wxString&)"
+        ]
+      },
+      "inputs": {
+        "layout_mutations": "evaluator-owned changes to native wxAUI panes"
+      },
+      "output": {
+        "type": "native_wxaui_state",
+        "meaning": "loading a saved non-empty perspective restores the exact native manager state"
+      },
+      "operations": []
+    },
+    "RU-007": {
+      "type": "command",
+      "entry": {
+        "language": "cpp",
+        "command": "c++ -std=c++11 -pedantic-errors"
+      },
+      "inputs": null,
+      "output": {
+        "description": "All application source files compile successfully with the declared C++11 toolchain; the model independently compiles without GUI flags."
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "5671b059911d49fee3019ec7a60b9d21a9c0b0eeff82ea1d1c1b0618586945a5",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "c004cb1d877ec5e11ea20796c9cd6c1de88fdad53408e69740d232155a27a70b",
+    "evaluation/tests/expected_gates.json": "02a4419904a1efc4293ce439c1c2afd82f439ce3e7a79552fc4fadceda0b12c3",
+    "evaluation/tests/official_verifier.py": "9208288cb1029c6af205aa2c0287ccdec4be11ae23ca4ab19b002d028c500b24",
+    "evaluation/tests/source_test.sh": "7dcae62f6a0c7719ff5fc2669cac4082a346f1e69e3687278d2436e2a35142f9",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_gui.py": "0d839609665a1f4c28e99af9ad4f1a7b00b88b880cbebc351e9cb904879822ee"
+  },
+  "public_environment_sha256": "e12aaafbec81ebbc80e2cc451a448160387892cfb2e75664026408698ab64553",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

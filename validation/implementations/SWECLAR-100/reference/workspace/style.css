@@ -1,0 +1,173 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: #f5f2ea;
+  color: #263830;
+  font: 17px/1.45 system-ui, sans-serif;
+  overflow-x: hidden;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 28px;
+  background: #dfe7d5;
+  flex-wrap: wrap;
+}
+
+header label {
+  margin-left: auto;
+}
+
+button,
+input,
+select {
+  max-width: 100%;
+  font: inherit;
+  padding: 10px;
+  border: 1px solid #a7b5a0;
+  border-radius: 5px;
+  background: #fff;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+main {
+  width: min(100%, 1060px);
+  margin: auto;
+  padding: 26px;
+}
+
+h1 {
+  max-width: 100%;
+  font-size: 32px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+#version {
+  min-height: 1.4em;
+  font-size: 14px;
+  color: #536551;
+  overflow-wrap: anywhere;
+}
+
+#content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 20px;
+  min-height: 260px;
+  min-width: 0;
+}
+
+.card {
+  min-width: 0;
+  width: 100%;
+  padding: 22px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  align-self: start;
+}
+
+.card img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: 170px;
+  object-fit: contain;
+}
+
+.detail {
+  display: block;
+  width: min(100%, 500px);
+  max-width: 100%;
+  height: auto;
+  max-height: 420px;
+  object-fit: contain;
+  grid-column: 1 / -1;
+}
+
+.product-text {
+  max-width: 72ch;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  grid-column: 1 / -1;
+}
+
+details {
+  margin-top: 40px;
+  border-top: 1px solid #c3cbbf;
+  padding-top: 18px;
+}
+
+form {
+  display: flex;
+  align-items: end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+#status {
+  min-height: 24px;
+  overflow-wrap: anywhere;
+}
+
+input {
+  width: min(100%, 420px);
+}
+
+@media (max-width: 640px) {
+  main {
+    padding: 18px 16px;
+  }
+
+  header {
+    padding: 16px;
+    gap: 10px;
+  }
+
+  header label {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  header select {
+    width: 100%;
+  }
+
+  #content {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .card {
+    padding: 18px;
+  }
+}

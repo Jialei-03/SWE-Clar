@@ -1,0 +1,336 @@
+schema_version: 1
+task_id: SWECLAR-042
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Review assignment, fee allocation and approval-ledger module
+requirement_units:
+- ru_id: RU-001
+  name: Review workflow entry point
+  content: Process one listing, review application, acceptance, submission, payment, approval, profile-image,
+    or deletion action into a new state without mutating inputs or exposing payment credentials. Preserve
+    the provided SQLite console adapter, which commits each successful state transition atomically and
+    restores it on the next invocation. The JSON interface and all field names are specified in the public
+    README. Rejected actions return an error.code and do not change saved state. This is a local ledger,
+    not an external money-transfer or authentication service. Actor identity fields are trusted upstream
+    identity inputs. An acting user must exist in users and sessions; inactive or unknown actors are rejected.
+    This check does not implement authentication itself.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for review workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_review_action
+      signature: 'process_review_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        profile_image:
+          fields:
+          - image_ref
+          - type
+          - user_id
+      protocol_fields:
+      - fee_rate
+      - image_ref
+      - sessions
+      - type
+      - user_id
+      - users
+    output:
+      type: dict
+      meaning: Next workflow state or error.code; public README defines record keys and envelopes. Additional
+        nonconflicting metadata is allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Source-grounded workflow with independent synthetic IDs, state schema, configurable fee, decimal
+    rounding and replay policy. Image references and payment records are local domain data, not evidence
+    of photo storage or real transfers. No client records or original code are supplied.
+- ru_id: RU-002
+  name: Listing and review state flow
+  content: A reviewer may apply to an open listing; only the lister may accept one pending application,
+    after which the listing waits for payment and the accepted review becomes the active review for that
+    listing. The lister cannot apply as the reviewer of their own listing. Creation produces an open listing;
+    applications are pending until accepted. Acceptance creates the associated review with the application
+    ID and records active_review_id on the listing.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for listing and review state flow.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_review_action
+      signature: 'process_review_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        accept:
+          fields:
+          - application_id
+          - owner_id
+          - type
+        apply:
+          fields:
+          - application_id
+          - listing_id
+          - reviewer_id
+          - type
+        create_listing:
+          fields:
+          - listing_id
+          - owner_id
+          - price
+          - type
+      protocol_fields:
+      - application_id
+      - fee_rate
+      - listing_id
+      - owner_id
+      - price
+      - reviewer_id
+      - sessions
+      - type
+      - users
+    output:
+      type: dict
+      meaning: Next workflow state or error.code; public README defines record keys and envelopes. Additional
+        nonconflicting metadata is allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Source-grounded workflow with independent synthetic IDs, state schema, configurable fee, decimal
+    rounding and replay policy. Image references and payment records are local domain data, not evidence
+    of photo storage or real transfers. No client records or original code are supplied.
+- ru_id: RU-003
+  name: Review submission attachments
+  content: The accepted reviewer may submit a review with zero to five supplied image references from
+    gallery or camera, while the optional URL may be omitted without blocking the workflow. Submission
+    requires the accepted review to be active and its listing payment to be held. Submission changes the
+    review to submitted; this is required before approval.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for review submission attachments.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_review_action
+      signature: 'process_review_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        accept:
+          fields:
+          - application_id
+          - owner_id
+          - type
+        apply:
+          fields:
+          - application_id
+          - listing_id
+          - reviewer_id
+          - type
+        create_listing:
+          fields:
+          - listing_id
+          - owner_id
+          - price
+          - type
+        submit_review:
+          fields:
+          - images
+          - review_id
+          - reviewer_id
+          - type
+      protocol_fields:
+      - application_id
+      - fee_rate
+      - images
+      - listing_id
+      - owner_id
+      - price
+      - review_id
+      - reviewer_id
+      - sessions
+      - type
+      - users
+    output:
+      type: dict
+      meaning: Next workflow state or error.code; public README defines record keys and envelopes. Additional
+        nonconflicting metadata is allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Source-grounded workflow with independent synthetic IDs, state schema, configurable fee, decimal
+    rounding and replay policy. Image references and payment records are local domain data, not evidence
+    of photo storage or real transfers. No client records or original code are supplied.
+- ru_id: RU-004
+  name: Linked payment and approval payout
+  content: A payment records the listing, payer, reviewer, gross amount, eligible reviewer amount, and
+    platform fee using the supplied fee rate; approval releases the eligible amount exactly once and preserves
+    the transaction linkage. Only the owning lister may pay the agreed listing price or approve its submitted
+    review. Payment moves the listing to in_review. Approval moves it to completed and releases the linked
+    held payment into one local payout record. A duplicate identical payment event is a no-op; a reused
+    event ID with different payment details is rejected. Round the platform fee to two decimal places
+    using decimal half-up rounding, then subtract from gross for the eligible amount. Repeated completed
+    approval creates no additional payout.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for linked payment and approval payout.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_review_action
+      signature: 'process_review_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        accept:
+          fields:
+          - application_id
+          - owner_id
+          - type
+        apply:
+          fields:
+          - application_id
+          - listing_id
+          - reviewer_id
+          - type
+        approve_review:
+          fields:
+          - listing_id
+          - owner_id
+          - type
+        create_listing:
+          fields:
+          - listing_id
+          - owner_id
+          - price
+          - type
+        payment:
+          fields:
+          - amount
+          - event_id
+          - listing_id
+          - payer_id
+          - type
+      protocol_fields:
+      - amount
+      - application_id
+      - event_id
+      - fee_rate
+      - listing_id
+      - owner_id
+      - payer_id
+      - price
+      - reviewer_id
+      - sessions
+      - type
+      - users
+    output:
+      type: dict
+      meaning: Next workflow state or error.code; public README defines record keys and envelopes. Additional
+        nonconflicting metadata is allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Source-grounded workflow with independent synthetic IDs, state schema, configurable fee, decimal
+    rounding and replay policy. Image references and payment records are local domain data, not evidence
+    of photo storage or real transfers. No client records or original code are supplied.
+- ru_id: RU-005
+  name: Per-user identity isolation and deletion
+  content: Updating a profile image affects only the selected user, and an authenticated deletion request
+    removes that user's profile and sessions without changing other users.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for per-user identity isolation and deletion.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_review_action
+      signature: 'process_review_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        delete_account:
+          fields:
+          - type
+          - user_id
+        profile_image:
+          fields:
+          - image_ref
+          - type
+          - user_id
+      protocol_fields:
+      - fee_rate
+      - image_ref
+      - sessions
+      - type
+      - user_id
+      - users
+    output:
+      type: dict
+      meaning: Next workflow state or error.code; public README defines record keys and envelopes. Additional
+        nonconflicting metadata is allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Source-grounded workflow with independent synthetic IDs, state schema, configurable fee, decimal
+    rounding and replay policy. Image references and payment records are local domain data, not evidence
+    of photo storage or real transfers. No client records or original code are supplied.

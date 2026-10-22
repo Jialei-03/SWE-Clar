@@ -1,0 +1,196 @@
+schema_version: 1
+task_id: SWECLAR-035
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Membership cart, coupon and credit-ledger policy module
+requirement_units:
+- ru_id: RU-001
+  name: Membership workflow entry point
+  content: Provide the documented function and JSON CLI. Return deterministic JSON without mutating inputs,
+    preserve unrelated state and replace transient result/error envelopes. Ignore accidental card data
+    on account creation. Follow the public README schemas and rejection protocol. Missing empty containers
+    may be initialized. Reject invalid commerce users, unavailable products, nonpositive quantities, missing
+    carts and unknown orders without changing business state.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for membership workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_membership_action
+      signature: 'process_membership_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+    output:
+      type: dict
+      meaning: Public wire contract in raw/starter_code/README.md; extra nonconflicting fields allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Business-scenario-derived independent policy module. Exact wire protocol, idempotency and date
+    boundaries are reconstruction decisions, not quoted customer instructions. Provided account behavior
+    is public baseline; payment records do not prove external charges.
+- ru_id: RU-002
+  name: Healthy account and fast-checkout lifecycle
+  content: 'Preserve the provided account lifecycle: email, social and fast-checkout accounts use supplied
+    stable IDs; repeat creation never overwrites email or phone. Deletion marks the account inactive and
+    subsequent creation with the same ID does not reactivate it. New accounts are active free members
+    with zero credits.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for healthy account and fast-checkout lifecycle.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_membership_action
+      signature: 'process_membership_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+    output:
+      type: dict
+      meaning: Public wire contract in raw/starter_code/README.md; extra nonconflicting fields allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Business-scenario-derived independent policy module. Exact wire protocol, idempotency and date
+    boundaries are reconstruction decisions, not quoted customer instructions. Provided account behavior
+    is public baseline; payment records do not prove external charges.
+- ru_id: RU-003
+  name: Backend-priced role-aware cart
+  content: Cart quantities are multiplied by prices read from state.products. Free users use price_tl
+    and currency TL, with coupon_visible true; paid users use credits and currency credits, with coupon_visible
+    false. Missing product.active means available, false means unavailable. Ignore client-provided item
+    price fields. Preserve required product_id and quantity in result.items and carts[user_id].
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for backend-priced role-aware cart.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_membership_action
+      signature: 'process_membership_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+    output:
+      type: dict
+      meaning: Public wire contract in raw/starter_code/README.md; extra nonconflicting fields allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Business-scenario-derived independent policy module. Exact wire protocol, idempotency and date
+    boundaries are reconstruction decisions, not quoted customer instructions. Provided account behavior
+    is public baseline; payment records do not prove external charges.
+- ru_id: RU-004
+  name: Idempotent zero-TL and paid checkout
+  content: Checkout snapshots the existing cart into a pending order. For free-user TL orders an active
+    coupon reduces total by amount_tl, clamped at zero; inactive/unknown coupons have no effect. Paid
+    credit orders ignore coupons. Route a coupon-reduced-to-zero TL order to coupon, otherwise kind membership
+    to membership, otherwise credits to credit, otherwise regular. payment_required is true only for a
+    positive TL total. Checkout of an existing order ID preserves its order and returns its established
+    route. Settlement marks the order settled and writes exactly one settlement ledger entry. A settled
+    order cannot be applied again even under another event ID; reuse of a processed settlement event on
+    another order is a no-op. Positive TL settlement creates one regular_payment record; zero-TL settlement
+    creates none. Replays do not change business records.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for idempotent zero-tl and paid checkout.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_membership_action
+      signature: 'process_membership_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+    output:
+      type: dict
+      meaning: Public wire contract in raw/starter_code/README.md; extra nonconflicting fields allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Business-scenario-derived independent policy module. Exact wire protocol, idempotency and date
+    boundaries are reconstruction decisions, not quoted customer instructions. Provided account behavior
+    is public baseline; payment records do not prove external charges.
+- ru_id: RU-005
+  name: Membership rollover and insufficient-credit charge
+  content: Renewal expires the old credit balance when credit_expiry is equal to or earlier than date,
+    otherwise keeps it; then adds package_credits, sets membership paid and credit_expiry to new_expiry,
+    and records one renewal entry. Replaying a renewal event is a business-state no-op. Credit-order settlement
+    deducts the order total; if balance is insufficient, emit exactly one saved_payment_topup record for
+    the shortfall and leave balance at zero. Sufficient balances create no payment record. Replays never
+    charge or deduct again.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for membership rollover and insufficient-credit
+    charge.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_membership_action
+      signature: 'process_membership_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+    output:
+      type: dict
+      meaning: Public wire contract in raw/starter_code/README.md; extra nonconflicting fields allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Business-scenario-derived independent policy module. Exact wire protocol, idempotency and date
+    boundaries are reconstruction decisions, not quoted customer instructions. Provided account behavior
+    is public baseline; payment records do not prove external charges.

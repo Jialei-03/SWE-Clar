@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-094",
+  "readme": "# Transaction and note API\n\nComplete this independently reconstructed ASP.NET Core project. The HTTP host, /health endpoint and SQLite schema already run. Implement TransactionsService.cs using the supplied Storage connection. Use .NET SDK 8.0 and Microsoft.Data.Sqlite 8.0.11. Start with `dotnet run --project TransactionsApi.csproj -- --urls http://127.0.0.1:5080`; TRANSACTIONS_DB selects a database path outside the source tree.\n\nImplement actual POST /transactions, POST /transactions/{id}/notes and GET /transactions/{id} endpoints with JSON request/response bodies. Transaction fields are transaction_id, numeric amount and type; note fields are note_id and text. Persist transactions, notes and response records in SQLite across process restarts. Idempotency-Key is the optional request identifier header. AUTO_REMOVE_NOTE_TYPES is a comma-separated configuration list for note policy. Unknown routes return JSON error=route_not_found with status 404.\n\nThe local HTTP interface, SQLite schema and environment configuration are disclosed reconstruction choices for the API component. Fixtures contain invented IDs and text. No customer database, original .NET source, production endpoint or credential is included. This task does not claim the original production database engine or deployment has been reproduced.\n\nPrepared workspace: /workspace. Run `python build.py`, `python start.py`, or `python /public_tests/test_public.py`. Dependencies restore offline from the supplied NuGet feed. Stop the service and delete the chosen TRANSACTIONS_DB file to reset synthetic local state. No external server or credentials are required.",
+  "interfaces": [
+    {
+      "type": "api",
+      "entry": {
+        "language": "csharp",
+        "file": "TransactionsApi.csproj",
+        "command": "dotnet run --project TransactionsApi.csproj -- --urls http://127.0.0.1:5080"
+      },
+      "inputs": {
+        "transport": "Real HTTP JSON",
+        "storage": "TRANSACTIONS_DB SQLite path",
+        "configuration": "AUTO_REMOVE_NOTE_TYPES comma-separated type tokens",
+        "request_id": "Optional Idempotency-Key header"
+      },
+      "output": {
+        "type": "http",
+        "meaning": "Actual status/body plus persistent transactions, notes and response cache"
+      },
+      "operations": []
+    }
+  ]
+}

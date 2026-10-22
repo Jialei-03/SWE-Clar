@@ -1,0 +1,1367 @@
+diff --git a/app.js b/app.js
+index e1196c3e851ed6f4b6623466cc1c5288d9973102..37804625588c1f2f02139a8ade172f4812147092 100644
+--- a/app.js
++++ b/app.js
+@@ -1,5 +1,56 @@
+-const q=s=>document.querySelector(s);let generation=0;
+-async function json(url){const r=await fetch(url);if(!r.ok)throw Error('Unable to load videos.');return r.json();}
+-async function load(){const mark=++generation,rows=await json('/archives?q='+encodeURIComponent(q('#query').value));if(mark!==generation)return;q('#archives').replaceChildren();for(const row of rows){const button=document.createElement('button');button.className='archive';button.dataset.event=row.event_id;button.textContent=row.title;button.onclick=()=>{q('#now-playing').textContent=row.title;q('#player').src=row.media_url;q('#player').hidden=false;q('#player').onplaying=()=>fetch('/view',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_id:row.event_id})}).catch(()=>{});};q('#archives').append(button);}}
+-q('#search').onsubmit=e=>{e.preventDefault();load().catch(e=>q('#status').textContent=e.message);};
+-json('/calendar').then(rows=>{for(const row of rows){const li=document.createElement('li');li.textContent=row.title+' · '+new Date(row.start).toLocaleString();q('#events').append(li);}}).catch(e=>q('#status').textContent=e.message);load().catch(e=>q('#status').textContent=e.message);
++const q = selector => document.querySelector(selector);
++let generation = 0;
++
++async function json(url) {
++  const response = await fetch(url, { credentials: 'same-origin' });
++  if (!response.ok) throw Error('Unable to load videos.');
++  return response.json();
++}
++
++async function load() {
++  const mark = ++generation;
++  const rows = await json('/archives?q=' + encodeURIComponent(q('#query').value));
++  if (mark !== generation) return;
++  const list = q('#archives');
++  list.replaceChildren();
++  for (const row of rows) {
++    const button = document.createElement('button');
++    button.className = 'archive';
++    button.dataset.event = row.event_id;
++    button.textContent = row.title;
++    button.onclick = () => {
++      const player = q('#player');
++      q('#now-playing').textContent = row.title;
++      // The view request is tied to the browser's real playback event.  No
++      // viewer/session identity is accepted from page data or the caller.
++      player.onplaying = () => {
++        fetch('/view', {
++          method: 'POST',
++          credentials: 'same-origin',
++          headers: { 'Content-Type': 'application/json' },
++          body: JSON.stringify({ event_id: row.event_id })
++        }).catch(() => {});
++      };
++      player.src = row.media_url;
++      player.hidden = false;
++      const play = player.play();
++      if (play && play.catch) play.catch(() => {});
++    };
++    list.append(button);
++  }
++}
++
++q('#search').onsubmit = event => {
++  event.preventDefault();
++  load().catch(error => { q('#status').textContent = error.message; });
++};
++
++json('/calendar').then(rows => {
++  for (const row of rows) {
++    const li = document.createElement('li');
++    li.textContent = row.title + ' · ' + new Date(row.start).toLocaleString();
++    q('#events').append(li);
++  }
++}).catch(error => { q('#status').textContent = error.message; });
++
++load().catch(error => { q('#status').textContent = error.message; });
+diff --git a/media.py b/media.py
+index 1d79dfc466d02fbeb804e2d149eb7f373a9ced31..4097468b201009e1213c82b5507993de74d14056 100644
+--- a/media.py
++++ b/media.py
+@@ -1,15 +1,427 @@
++"""MediaMTX/FFmpeg integration for direct, loopback-only event streams.
++
++The media process is deliberately owned by this application.  A start creates a
++small, per-event MediaMTX instance with one exact path.  MediaMTX records the
++publisher's stream; no URL supplied by an HTTP caller is ever used as a source.
++"""
++
++from __future__ import annotations
++
++import errno
++import hashlib
++import json
++import math
++import os
++import secrets
++import shutil
++import socket
++import subprocess
++import tempfile
++import time
+ from pathlib import Path
+-import os,json,socket,subprocess,time,urllib.request,urllib.parse,hashlib
+-def port():
+-    with socket.socket() as s:s.bind(('127.0.0.1',0));return s.getsockname()[1]
+-def get_json(url):
+-    with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url,timeout=2) as r:return json.load(r)
++from typing import Any
++from urllib.parse import quote
++
++
++class MediaError(RuntimeError):
++    """Raised when an actual stream cannot be started or finalized."""
++
++
++def _free_port() -> int:
++    """Return an unused loopback TCP port.
++
++    The socket is released before MediaMTX starts.  The short race is harmless:
++    begin() checks that the child successfully owns the port before returning.
++    """
++
++    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
++        sock.bind(("127.0.0.1", 0))
++        return int(sock.getsockname()[1])
++
++
++def _wait_for_listener(process: subprocess.Popen[bytes], port: int, timeout: float = 10.0) -> None:
++    deadline = time.monotonic() + timeout
++    while time.monotonic() < deadline:
++        if process.poll() is not None:
++            raise MediaError("media_service_stopped")
++        try:
++            with socket.create_connection(("127.0.0.1", port), timeout=0.25):
++                return
++        except OSError:
++            time.sleep(0.05)
++    raise MediaError("media_service_timeout")
++
++
++def _stop_process(process: subprocess.Popen[bytes], timeout: float = 15.0) -> None:
++    if process.poll() is not None:
++        return
++    try:
++        process.terminate()
++    except ProcessLookupError:
++        return
++    try:
++        process.wait(timeout=timeout)
++    except subprocess.TimeoutExpired:
++        try:
++            process.kill()
++        except ProcessLookupError:
++            pass
++        try:
++            process.wait(timeout=5)
++        except subprocess.TimeoutExpired as exc:  # pragma: no cover - pathological OS failure
++            raise MediaError("media_service_wont_stop") from exc
++
++
++def _run_checked(command: list[str], timeout: float, error: str) -> subprocess.CompletedProcess[str]:
++    try:
++        result = subprocess.run(
++            command,
++            stdin=subprocess.DEVNULL,
++            stdout=subprocess.PIPE,
++            stderr=subprocess.PIPE,
++            text=True,
++            timeout=timeout,
++            check=False,
++        )
++    except (OSError, subprocess.TimeoutExpired) as exc:
++        raise MediaError(error) from exc
++    if result.returncode != 0:
++        raise MediaError(error)
++    return result
++
++
+ class Media:
+-    def __init__(self,root):self.root=Path(root);self.root.mkdir(parents=True,exist_ok=True);self.active={}
+-    def begin(self,event,key):raise NotImplementedError('Start actual authenticated RTMP ingest')
+-    def end(self,event):raise NotImplementedError('Finalize and inspect actual recorded media')
+-    def close(self):
+-        for event,(p,log,conf) in list(self.active.items()):
+-            if p.poll() is None:p.terminate();p.wait(timeout=10)
+-            log.close();conf.unlink(missing_ok=True)
+-        self.active.clear()
++    """Own MediaMTX children and turn their recordings into immutable MP4s."""
++
++    def __init__(self, root: str | os.PathLike[str]):
++        self.root = Path(root).expanduser()
++        self.root.mkdir(parents=True, exist_ok=True)
++        # Do not put configuration or active recordings in the public storage
++        # namespace.  Finalized files are moved beneath self.root only after
++        # they have been decoded and measured.
++        self.root = self.root.resolve()
++        self.active: dict[str, dict[str, Any]] = {}
++        self._workspace = Path(tempfile.mkdtemp(prefix="event-video-media-"))
++        self._workspace.chmod(0o700)
++        self._closed = False
++
++    @staticmethod
++    def _safe_component(value: str) -> str:
++        if not isinstance(value, str) or not value or len(value) > 128:
++            raise MediaError("invalid_event")
++        if value in {".", ".."} or "/" in value or "\\" in value or "\x00" in value:
++            raise MediaError("invalid_event")
++        return value
++
++    def begin(self, event: str, key: str) -> dict[str, str]:
++        """Start an authenticated direct publisher path for *event*."""
++
++        if self._closed:
++            raise MediaError("media_closed")
++        event = self._safe_component(event)
++        if not isinstance(key, str) or not key:
++            raise MediaError("invalid_stream_key")
++        if event in self.active:
++            raise MediaError("already_live")
++
++        rtmp_port = _free_port()
++        hls_port = _free_port()
++        while hls_port == rtmp_port:
++            hls_port = _free_port()
++        # A path capability prevents arbitrary path publishing even before the
++        # RTMP username/password check.  The configured stream key is never put
++        # in a URL or in a MediaMTX configuration.
++        path_capability = secrets.token_hex(24)
++        username = "publisher"
++        password = secrets.token_hex(32)
++        work = self._workspace / event / path_capability
++        records = work / "records"
++        records.mkdir(parents=True, exist_ok=True)
++        config_path = work / "mediamtx.json"
++        log_path = work / "mediamtx.log"
++
++        # The anonymous read identity is limited to this exact path.  The
++        # publisher identity has publish permission only for the same path.
++        # MediaMTX's RTMP listener therefore rejects an omitted, wrong, or
++        # modified publisher credential at the actual handshake.
++        config = {
++            "logLevel": "warn",
++            "rtsp": False,
++            "rtmp": True,
++            "rtmpAddress": f"127.0.0.1:{rtmp_port}",
++            "hls": True,
++            "hlsAddress": f"127.0.0.1:{hls_port}",
++            "hlsVariant": "mpegts",
++            "hlsAlwaysRemux": True,
++            "hlsSegmentDuration": "1s",
++            "webrtc": False,
++            "srt": False,
++            "moq": False,
++            "api": False,
++            "metrics": False,
++            "pprof": False,
++            "authMethod": "internal",
++            "authInternalUsers": [
++                # Put the credentialed publisher before the anonymous `any`
++                # reader: MediaMTX evaluates the first matching identity.
++                {
++                    "user": username,
++                    "pass": password,
++                    "ips": [],
++                    "permissions": [{"action": "publish", "path": path_capability}],
++                },
++                {
++                    "user": "any",
++                    "pass": "",
++                    "ips": [],
++                    "permissions": [{"action": "read", "path": path_capability}],
++                },
++            ],
++            "pathDefaults": {
++                "record": True,
++                "recordPath": str(records / "%path" / "%Y-%m-%d_%H-%M-%S-%f"),
++                "recordDeleteAfter": "0s",
++                # Use short owned segments so even a brief but real synthetic
++                # stream leaves finalized media before the child is stopped.
++                # end() joins those MP4 segments into one archive.
++                "recordSegmentDuration": "500ms",
++            },
++            "paths": {path_capability: {"source": "publisher"}},
++        }
++        config_path.write_text(json.dumps(config), encoding="utf-8")
++        config_path.chmod(0o600)
++        log = log_path.open("ab")
++        binary = os.environ.get("MEDIAMTX_BIN", "mediamtx")
++        process: subprocess.Popen[bytes] | None = None
++        try:
++            process = subprocess.Popen(
++                [binary, str(config_path)],
++                stdin=subprocess.DEVNULL,
++                stdout=log,
++                stderr=log,
++            )
++            _wait_for_listener(process, rtmp_port)
++        except Exception:
++            if process is not None:
++                _stop_process(process)
++            log.close()
++            shutil.rmtree(work, ignore_errors=True)
++            raise
++
++        self.active[event] = {
++            "process": process,
++            "log": log,
++            "config": config_path,
++            "work": work,
++            "records": records,
++            "capability": path_capability,
++            "username": username,
++            "password": password,
++            "rtmp_port": rtmp_port,
++            "hls_port": hls_port,
++        }
++        return {
++            # MediaMTX's RTMP challenge reads credentials from these query
++            # fields (rather than URL userinfo, which FFmpeg does not forward
++            # as RTMP connect parameters).  They are random capabilities, not
++            # the configured event key.
++            "ingest_url": (
++                f"rtmp://127.0.0.1:{rtmp_port}/{path_capability}"
++                f"?user={quote(username, safe='')}&pass={quote(password, safe='')}"
++            ),
++            "hls_url": f"http://127.0.0.1:{hls_port}/{path_capability}/index.m3u8",
++        }
++
++    def _raw_files(self, item: dict[str, Any]) -> list[Path]:
++        records = item["records"]
++        # MediaMTX writes finalized recordings with an .mp4 suffix even though
++        # recordPath is a timestamp template without one.
++        return sorted(
++            (p for p in records.rglob("*.mp4") if p.is_file() and not p.is_symlink()),
++            # The timestamp template is the recording order.  File mtimes can
++            # be inverted when MediaMTX closes two short segments together.
++            key=lambda p: p.name,
++        )
++
++    def _measure_and_validate(self, path: Path) -> dict[str, Any]:
++        if not path.is_file() or path.is_symlink() or path.stat().st_size <= 0:
++            raise MediaError("empty_recording")
++        ffprobe = os.environ.get("FFPROBE_BIN", "ffprobe")
++        ffmpeg = os.environ.get("FFMPEG_BIN", "ffmpeg")
++        probe = _run_checked(
++            [
++                ffprobe,
++                "-v",
++                "error",
++                "-count_frames",
++                "-show_streams",
++                "-show_format",
++                "-of",
++                "json",
++                str(path),
++            ],
++            30,
++            "invalid_recording",
++        )
++        try:
++            document = json.loads(probe.stdout)
++            streams = document.get("streams") or []
++            video = next(stream for stream in streams if stream.get("codec_type") == "video")
++            frames_value = video.get("nb_read_frames", video.get("nb_frames"))
++            frames = int(frames_value) if frames_value not in (None, "N/A", "") else 0
++            fmt_duration = (document.get("format") or {}).get("duration")
++            stream_duration = video.get("duration")
++            duration_value = fmt_duration if fmt_duration not in (None, "N/A", "") else stream_duration
++            duration = float(duration_value) if duration_value not in (None, "N/A", "") else 0.0
++        except (ValueError, TypeError, StopIteration, json.JSONDecodeError) as exc:
++            raise MediaError("invalid_recording") from exc
++        if frames <= 0 or duration <= 0 or not math.isfinite(duration):
++            raise MediaError("empty_recording")
++
++        # ffprobe metadata alone is not evidence of a decodable recording.
++        _run_checked(
++            [
++                ffmpeg,
++                "-nostdin",
++                "-v",
++                "error",
++                "-xerror",
++                "-i",
++                str(path),
++                "-map",
++                "0:v:0",
++                "-f",
++                "null",
++                "-",
++            ],
++            60,
++            "undecodable_recording",
++        )
++        size = path.stat().st_size
++        digest = hashlib.sha256()
++        with path.open("rb") as source:
++            for block in iter(lambda: source.read(1024 * 1024), b""):
++                digest.update(block)
++        return {
++            "path": str(path),
++            "bytes": int(size),
++            "sha256": digest.hexdigest(),
++            "duration": duration,
++            "frames": frames,
++        }
++
++    def end(self, event: str) -> dict[str, Any]:
++        event = self._safe_component(event)
++        item = self.active.pop(event, None)
++        if item is None:
++            raise MediaError("not_live")
++        process = item["process"]
++        try:
++            _stop_process(process)
++            item["log"].close()
++
++            raw = self._raw_files(item)
++            if not raw:
++                raise MediaError("empty_recording")
++
++            # A normal event is one record segment.  If a very long stream was
++            # split by MediaMTX, concatenate its independently finalized MP4
++            # segments before measuring the archive.
++            source = raw[0]
++            if len(raw) > 1:
++                ffmpeg = os.environ.get("FFMPEG_BIN", "ffmpeg")
++                concat_list = item["work"] / "concat.txt"
++                concat_list.write_text(
++                    "".join(
++                        "file '" + str(path).replace("'", "'\\''") + "'\n"
++                        for path in raw
++                    ),
++                    encoding="utf-8",
++                )
++                combined = item["work"] / "combined.mp4"
++                try:
++                    _run_checked(
++                        [
++                            ffmpeg,
++                            "-nostdin",
++                            "-v",
++                            "error",
++                            "-f",
++                            "concat",
++                            "-safe",
++                            "0",
++                            "-i",
++                            str(concat_list),
++                            "-c",
++                            "copy",
++                            "-movflags",
++                            "+faststart",
++                            str(combined),
++                        ],
++                        60,
++                        "recording_join_failed",
++                    )
++                    source = combined
++                except MediaError:
++                    # A publisher can disconnect while a final short segment
++                    # is being closed.  A single valid segment is still real,
++                    # decodable captured media; never manufacture metadata for
++                    # an invalid join.
++                    source = max(raw, key=lambda path: path.stat().st_size)
++
++            measured = self._measure_and_validate(source)
++            final_dir = self.root / "archives"
++            final_dir.mkdir(parents=True, exist_ok=True)
++            final = final_dir / f"{event}-{secrets.token_hex(16)}.mp4"
++            try:
++                os.replace(source, final)
++            except OSError as exc:
++                if exc.errno != errno.EXDEV:
++                    raise
++                # The service workspace is intentionally in private /tmp,
++                # while a host may configure durable storage on /workspace or
++                # another mount.  Install through a same-filesystem staging
++                # file without ever publishing a partial MP4.
++                staging = final.with_name(final.name + ".part")
++                try:
++                    with source.open("rb") as source_file, staging.open("wb") as target:
++                        shutil.copyfileobj(source_file, target, length=1024 * 1024)
++                        target.flush()
++                        os.fsync(target.fileno())
++                    os.replace(staging, final)
++                    source.unlink()
++                finally:
++                    staging.unlink(missing_ok=True)
++            measured["path"] = str(final)
++            return measured
++        finally:
++            # The process is no longer needed, and raw media/configuration is
++            # not part of the durable archive namespace.
++            try:
++                item["log"].close()
++            except Exception:
++                pass
++            shutil.rmtree(item["work"], ignore_errors=True)
++
++    def abort(self, event: str) -> None:
++        """Stop and discard a stream when its DB transition cannot commit."""
++
++        item = self.active.pop(event, None)
++        if item is None:
++            return
++        try:
++            _stop_process(item["process"])
++        finally:
++            try:
++                item["log"].close()
++            except Exception:
++                pass
++            shutil.rmtree(item["work"], ignore_errors=True)
++
++    def close(self) -> None:
++        if self._closed:
++            return
++        self._closed = True
++        for event in list(self.active):
++            self.abort(event)
++        shutil.rmtree(self._workspace, ignore_errors=True)
+diff --git a/server.py b/server.py
+index 02f21e050fcd56f44f00307c50384aa6c37bc786..e1abbbcebad3bb2bee4210949425abe6780e719a 100644
+--- a/server.py
++++ b/server.py
+@@ -1,63 +1,291 @@
+-from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
+-from http.cookies import SimpleCookie
++"""HTTP entry point for the direct event video service."""
++
++from __future__ import annotations
++
++import json
++import os
++import re
++import signal
++from datetime import datetime, timezone
++from http.cookies import CookieError, SimpleCookie
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
+-from datetime import datetime,timezone
+-import os,json,urllib.parse,secrets,signal
+-from store import Store
+-ROOT=Path(__file__).parent;config=json.loads(Path(os.environ['STREAM_CONFIG']).read_text());store=Store(os.environ['STREAM_DATABASE'],config)
+-with store.db() as db:db.execute('CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,viewer TEXT)')
++from typing import Any
++from urllib.parse import parse_qs, unquote, urlsplit
++
++from store import NotFoundError, Store
++
++
++ROOT = Path(__file__).resolve().parent
++with Path(os.environ["STREAM_CONFIG"]).open(encoding="utf-8") as config_file:
++    config = json.load(config_file)
++store = Store(os.environ["STREAM_DATABASE"], config)
++
++
++class RequestError(ValueError):
++    pass
++
++
+ class Handler(BaseHTTPRequestHandler):
+-    def log_message(self,*a):pass
+-    def session(self):
+-        cookies=SimpleCookie();cookies.load(self.headers.get('Cookie',''));token=cookies['session'].value if 'session' in cookies else None
+-        with store.db() as db:
+-            row=db.execute('SELECT viewer FROM sessions WHERE token=?',(token,)).fetchone()
+-            if row:return row[0],token,False
+-            token=secrets.token_hex(24);viewer=secrets.token_hex(16);db.execute('INSERT INTO sessions VALUES (?,?)',(token,viewer));return viewer,token,True
+-    def send(self,status,data,mime='application/json',headers=None):
+-        if not isinstance(data,bytes):data=json.dumps(data).encode()
+-        self.send_response(status);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(data)))
+-        for k,v in (headers or {}).items():self.send_header(k,v)
+-        self.end_headers();self.wfile.write(data)
+-    def do_GET(self):
+-        url=urllib.parse.urlsplit(self.path);params=urllib.parse.parse_qs(url.query);files={'/':('index.html','text/html'),'/app.js':('app.js','text/javascript'),'/style.css':('style.css','text/css')}
++    # Runtime media credentials and administration credentials are never logged.
++    def log_message(self, *_args: Any) -> None:
++        return
++
++    def _session(self) -> tuple[str, str, bool]:
++        cookies = SimpleCookie()
+         try:
+-            if url.path in files:
+-                name,mime=files[url.path];_,token,new=self.session();return self.send(200,(ROOT/name).read_bytes(),mime,{'Set-Cookie':f'session={token}; HttpOnly; SameSite=Strict; Path=/'} if new else {})
+-            if url.path=='/calendar':return self.send(200,store.calendar(params.get('now',[datetime.now(timezone.utc).isoformat()])[0]))
+-            if url.path=='/archives':return self.send(200,store.search(params.get('q',[''])[0],params.get('start',[None])[0],params.get('end',[None])[0]))
+-            if url.path.startswith('/media/'):
+-                event=url.path.removeprefix('/media/')
+-                path=store.media_path(event)
+-                if path is None:return self.send(404,{})
+-                raw=path.read_bytes();header=self.headers.get('Range')
+-                if header:
+-                    import re
+-                    match=re.fullmatch(r'bytes=(\d+)-(\d*)',header)
+-                    if not match:return self.send(416,b'')
+-                    start=int(match[1]);end=int(match[2]) if match[2] else len(raw)-1
+-                    if start>=len(raw) or end<start:return self.send(416,b'')
+-                    end=min(end,len(raw)-1);return self.send(206,raw[start:end+1],'video/mp4',{'Accept-Ranges':'bytes','Content-Range':f'bytes {start}-{end}/{len(raw)}'})
+-                return self.send(200,raw,'video/mp4',{'Accept-Ranges':'bytes'})
+-            self.send(404,{})
+-        except Exception:self.send(400,{'error':'request_failed'})
+-    def do_POST(self):
++            cookies.load(self.headers.get("Cookie", ""))
++        except (ValueError, CookieError):  # pragma: no cover - parser variation
++            cookies = SimpleCookie()
++        token = cookies["session"].value if "session" in cookies else None
++        return store.session(token)
++
++    @staticmethod
++    def _cookie(token: str) -> str:
++        return f"session={token}; HttpOnly; SameSite=Strict; Path=/"
++
++    def _send(
++        self,
++        status: int,
++        data: bytes | dict[str, Any] | list[Any],
++        mime: str = "application/json",
++        headers: dict[str, str] | None = None,
++        head_only: bool = False,
++    ) -> None:
++        if not isinstance(data, bytes):
++            data = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
++        self.send_response(status)
++        self.send_header("Content-Type", mime)
++        self.send_header("Content-Length", str(len(data)))
++        for key, value in (headers or {}).items():
++            self.send_header(key, value)
++        self.end_headers()
++        if not head_only:
++            try:
++                self.wfile.write(data)
++            except (BrokenPipeError, ConnectionResetError):
++                pass
++
++    def _error(self, status: int, code: str, head_only: bool = False) -> None:
++        self._send(status, {"error": code}, headers={"Cache-Control": "no-store"}, head_only=head_only)
++
++    def _path(self) -> str:
++        return urlsplit(self.path).path
++
++    def _parse_body(self) -> dict[str, Any]:
+         try:
+-            if self.path!='/view':store.admin(self.headers.get('Authorization','').removeprefix('Bearer '))
+-            n=int(self.headers.get('Content-Length',0))
+-            if not 0<n<=20000:raise ValueError('size')
+-            a=json.loads(self.rfile.read(n))
+-            if not isinstance(a,dict):raise ValueError('body')
+-            if self.path=='/view':
+-                viewer,session,new=self.session();return self.send(200,store.view(a,viewer,session),headers={'Set-Cookie':f'session={session}; HttpOnly; SameSite=Strict; Path=/'} if new else {})
+-            store.admin(self.headers.get('Authorization','').removeprefix('Bearer '));methods={'/event':store.create,'/cancel':store.cancel,'/start':store.start,'/end':store.end,'/publish':store.publish}
+-            if self.path not in methods:return self.send(404,{})
+-            self.send(200,methods[self.path](a))
+-        except PermissionError:self.send(403,{'error':'denied'})
+-        except Exception:self.send(400,{'error':'request_failed'})
+-server=ThreadingHTTPServer(('127.0.0.1',int(os.environ.get('PORT','0'))),Handler)
+-def stop(*a):raise SystemExit(0)
+-signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
+-print(json.dumps({'port':server.server_port}),flush=True)
+-try:server.serve_forever()
+-finally:store.media.close();server.server_close()
++            length = int(self.headers.get("Content-Length", "0"))
++        except ValueError as exc:
++            raise RequestError("invalid_body") from exc
++        if length <= 0 or length > 20000:
++            raise RequestError("invalid_body")
++        try:
++            raw = self.rfile.read(length)
++            body = json.loads(raw)
++        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
++            raise RequestError("invalid_body") from exc
++        if not isinstance(body, dict):
++            raise RequestError("invalid_body")
++        return body
++
++    def _admin(self) -> None:
++        header = self.headers.get("Authorization", "")
++        if not header.startswith("Bearer "):
++            raise PermissionError("admin_required")
++        # Store performs constant-time comparison against the protected config
++        # token.  No body field can act as an administrative credential.
++        store.admin(header[7:])
++
++    def _static(self, filename: str, mime: str, head_only: bool) -> None:
++        viewer, token, new = self._session()
++        del viewer
++        data = (ROOT / filename).read_bytes()
++        headers = {"Cache-Control": "no-store"}
++        if new:
++            headers["Set-Cookie"] = self._cookie(token)
++        self._send(200, data, mime, headers, head_only=head_only)
++
++    def _media_response(self, ident: str, head_only: bool) -> None:
++        path = store.media_path(ident)
++        if path is None:
++            self._error(404, "not_found", head_only)
++            return
++        size = path.stat().st_size
++        if size <= 0:
++            self._error(404, "not_found", head_only)
++            return
++        range_header = self.headers.get("Range")
++        start = 0
++        end = size - 1
++        status = 200
++        headers = {"Accept-Ranges": "bytes", "Cache-Control": "no-store"}
++        if range_header:
++            match = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header.strip())
++            if not match or (not match.group(1) and not match.group(2)) or "," in range_header:
++                self._send(
++                    416,
++                    b"",
++                    "video/mp4",
++                    {"Accept-Ranges": "bytes", "Content-Range": f"bytes */{size}"},
++                    head_only,
++                )
++                return
++            try:
++                if match.group(1):
++                    start = int(match.group(1))
++                    end = int(match.group(2)) if match.group(2) else size - 1
++                else:
++                    suffix = int(match.group(2))
++                    if suffix <= 0:
++                        raise ValueError
++                    start = max(0, size - suffix)
++                    end = size - 1
++            except ValueError:
++                self._send(
++                    416,
++                    b"",
++                    "video/mp4",
++                    {"Accept-Ranges": "bytes", "Content-Range": f"bytes */{size}"},
++                    head_only,
++                )
++                return
++            if start >= size or start > end:
++                self._send(
++                    416,
++                    b"",
++                    "video/mp4",
++                    {"Accept-Ranges": "bytes", "Content-Range": f"bytes */{size}"},
++                    head_only,
++                )
++                return
++            end = min(end, size - 1)
++            status = 206
++            headers["Content-Range"] = f"bytes {start}-{end}/{size}"
++
++        length = end - start + 1
++        headers["Content-Length"] = str(length)
++        self.send_response(status)
++        self.send_header("Content-Type", "video/mp4")
++        # _send normally emits Content-Length; the media path is streamed to
++        # avoid loading a recording into memory for every browser range read.
++        for key, value in headers.items():
++            self.send_header(key, value)
++        self.end_headers()
++        if head_only:
++            return
++        try:
++            with path.open("rb") as source:
++                source.seek(start)
++                remaining = length
++                while remaining:
++                    block = source.read(min(1024 * 1024, remaining))
++                    if not block:
++                        break
++                    self.wfile.write(block)
++                    remaining -= len(block)
++        except (BrokenPipeError, ConnectionResetError, OSError):
++            return
++
++    def _get(self, head_only: bool = False) -> None:
++        parsed = urlsplit(self.path)
++        path = parsed.path
++        params = parse_qs(parsed.query, keep_blank_values=True)
++        if path == "/":
++            return self._static("index.html", "text/html; charset=utf-8", head_only)
++        if path == "/app.js":
++            return self._static("app.js", "text/javascript; charset=utf-8", head_only)
++        if path == "/style.css":
++            return self._static("style.css", "text/css; charset=utf-8", head_only)
++        if path == "/calendar":
++            now = params.get("now", [datetime.now(timezone.utc).isoformat()])[0]
++            return self._send(200, store.calendar(now), head_only=head_only)
++        if path == "/archives":
++            query = params.get("q", [""])[0]
++            start = params.get("start", [None])[0] or None
++            end = params.get("end", [None])[0] or None
++            return self._send(200, store.search(query, start, end), head_only=head_only)
++        if path.startswith("/media/"):
++            encoded = path[len("/media/") :]
++            if not encoded or "/" in encoded:
++                return self._error(404, "not_found", head_only)
++            try:
++                ident = unquote(encoded)
++            except Exception:
++                return self._error(404, "not_found", head_only)
++            return self._media_response(ident, head_only)
++        self._error(404, "not_found", head_only)
++
++    def do_GET(self) -> None:
++        try:
++            self._get(False)
++        except NotFoundError:
++            self._error(404, "not_found")
++        except (ValueError, KeyError, TypeError):
++            self._error(400, "request_failed")
++        except (OSError, json.JSONDecodeError):
++            self._error(400, "request_failed")
++        except Exception:
++            self._error(400, "request_failed")
++
++    def do_HEAD(self) -> None:
++        try:
++            self._get(True)
++        except (ValueError, KeyError, TypeError, OSError, json.JSONDecodeError):
++            self._error(400, "request_failed", True)
++        except Exception:
++            self._error(400, "request_failed", True)
++
++    def do_POST(self) -> None:
++        path = self._path()
++        methods = {
++            "/event": store.create,
++            "/cancel": store.cancel,
++            "/start": store.start,
++            "/end": store.end,
++            "/publish": store.publish,
++        }
++        if path != "/view" and path not in methods:
++            self._error(404, "not_found")
++            return
++        try:
++            # Authenticate management requests before parsing their body.  A
++            # caller without the admin credential cannot probe validation
++            # behavior through malformed management payloads.
++            if path != "/view":
++                self._admin()
++            body = self._parse_body()
++            if path == "/view":
++                viewer, session, new = self._session()
++                result = store.view(body, viewer, session)
++                headers = {"Cache-Control": "no-store"}
++                if new:
++                    headers["Set-Cookie"] = self._cookie(session)
++                self._send(200, result, headers=headers)
++                return
++            self._send(200, methods[path](body), headers={"Cache-Control": "no-store"})
++        except PermissionError:
++            self._error(403, "denied")
++        except NotFoundError:
++            self._error(404, "not_found")
++        except (RequestError, ValueError, KeyError, TypeError, OSError, json.JSONDecodeError):
++            self._error(400, "request_failed")
++        except Exception:
++            self._error(400, "request_failed")
++
++
++server = ThreadingHTTPServer(("127.0.0.1", int(os.environ.get("PORT", "0"))), Handler)
++server.daemon_threads = True
++
++
++def stop(*_args: Any) -> None:
++    raise SystemExit(0)
++
++
++signal.signal(signal.SIGTERM, stop)
++signal.signal(signal.SIGINT, stop)
++print(json.dumps({"port": server.server_port}), flush=True)
++try:
++    server.serve_forever()
++finally:
++    store.close()
++    server.server_close()
+diff --git a/store.py b/store.py
+index 5a9b12882add949f13fcaa275cbe47d712a2a8cb..8d9541868fae1ed77b65d6a8080d868f71b96e61 100644
+--- a/store.py
++++ b/store.py
+@@ -1,61 +1,440 @@
+-import json,sqlite3,re,hashlib,threading
+-from datetime import datetime,timezone
++"""Durable event, archive, and anonymous-view state."""
++
++from __future__ import annotations
++
++import hashlib
++import hmac
++import json
++import sqlite3
++import threading
++from datetime import datetime, timezone
+ from pathlib import Path
++from typing import Any
++from urllib.parse import quote
++
+ from media import Media
+-def instant(value):
+-    d=datetime.fromisoformat(value.replace('Z','+00:00'))
+-    if d.tzinfo is None:raise ValueError('timezone_required')
+-    return d.astimezone(timezone.utc).isoformat(timespec='microseconds')
++
++
++class NotFoundError(LookupError):
++    pass
++
++
++def instant(value: Any) -> str:
++    """Parse an explicit-timezone ISO-8601 value and normalize it to UTC."""
++
++    if not isinstance(value, str) or not value:
++        raise ValueError("timezone_required")
++    try:
++        # datetime.fromisoformat accepts a literal Z on current supported
++        # Python versions, but replacing it also keeps this compatible with
++        # older Python releases.
++        parsed = datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
++    except (TypeError, ValueError) as exc:
++        raise ValueError("invalid_timestamp") from exc
++    if parsed.tzinfo is None or parsed.utcoffset() is None:
++        raise ValueError("timezone_required")
++    return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds")
++
++
++def _event_id(value: Any) -> str:
++    if not isinstance(value, str) or not value or len(value) > 128:
++        raise ValueError("invalid_event")
++    # IDs are configured host values, but must not be usable as path
++    # components.  Other punctuation and Unicode remain valid configured IDs.
++    if value in {".", ".."} or "/" in value or "\\" in value or "\x00" in value:
++        raise ValueError("invalid_event")
++    return value
++
++
+ class Store:
+-    def __init__(self,path,config):
+-        self.path=path;self.config=config;self.media=Media(config['media_root']);self.lock=threading.RLock()
++    def __init__(self, path: str, config: dict[str, Any]):
++        self.path = str(path)
++        database_parent = Path(self.path).expanduser().parent
++        database_parent.mkdir(parents=True, exist_ok=True)
++        self.config = config
++        self.media = Media(config["media_root"])
++        self.lock = threading.RLock()
+         with self.db() as db:
+-            db.executescript('CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY,title TEXT,start TEXT,end TEXT,status TEXT);CREATE TABLE IF NOT EXISTS archives(event TEXT PRIMARY KEY REFERENCES events(id),payload TEXT,published INTEGER,terms TEXT);CREATE TABLE IF NOT EXISTS views(event TEXT REFERENCES archives(event),viewer TEXT,session TEXT,PRIMARY KEY(event,viewer,session));')
++            db.executescript(
++                """
++                CREATE TABLE IF NOT EXISTS events(
++                    id TEXT PRIMARY KEY,
++                    title TEXT NOT NULL,
++                    start TEXT NOT NULL,
++                    end TEXT NOT NULL,
++                    status TEXT NOT NULL
++                );
++                CREATE TABLE IF NOT EXISTS archives(
++                    event TEXT PRIMARY KEY REFERENCES events(id),
++                    payload TEXT NOT NULL,
++                    published INTEGER NOT NULL DEFAULT 0,
++                    terms TEXT NOT NULL DEFAULT '[]'
++                );
++                CREATE TABLE IF NOT EXISTS views(
++                    event TEXT REFERENCES archives(event),
++                    viewer TEXT NOT NULL,
++                    session TEXT NOT NULL,
++                    PRIMARY KEY(event,viewer,session)
++                );
++                CREATE TABLE IF NOT EXISTS sessions(
++                    token TEXT PRIMARY KEY,
++                    viewer TEXT NOT NULL
++                );
++                """
++            )
++            # A process restart cannot safely continue a child MediaMTX that
++            # it no longer owns.  It is not an ended recording evidence.
+             db.execute("UPDATE events SET status='interrupted' WHERE status='live'")
+-    def db(self):
+-        db=sqlite3.connect(self.path,timeout=10);db.execute('PRAGMA foreign_keys=ON');return db
+-    def admin(self,token):
+-        if token!=self.config['admin_token']:raise PermissionError('admin_required')
+-    def create(self,a):
+-        ident=a.get('event_id');title=a.get('title');start=instant(a['start']);end=instant(a['end'])
+-        if not isinstance(ident,str) or not re.fullmatch('[a-z0-9_-]{1,60}',ident) or not isinstance(title,str) or not title.strip() or end<=start:raise ValueError('invalid_event')
+-        if ident not in self.config['stream_keys']:raise ValueError('unconfigured_event')
+-        with self.db() as db:db.execute('INSERT INTO events VALUES (?,?,?,?,?)',(ident,title.strip(),start,end,'scheduled'))
+-        return {'event_id':ident}
+-    def calendar(self,now):
+-        now=instant(now)
+-        with self.db() as db:rows=db.execute("SELECT id,title,start,end FROM events WHERE status='scheduled' AND start>=? ORDER BY start,id",(now,)).fetchall()
+-        return [dict(zip(['event_id','title','start','end'],r)) for r in rows]
+-    def cancel(self,a):
+-        with self.lock,self.db() as db:
+-            row=db.execute('SELECT status FROM events WHERE id=?',(a['event_id'],)).fetchone()
+-            if not row or row[0]!='scheduled':raise ValueError('not_scheduled')
+-            db.execute("UPDATE events SET status='cancelled' WHERE id=?",(a['event_id'],))
+-        return {'cancelled':True}
+-    def start(self,a):
+-        event=a['event_id']
+-        with self.lock,self.db() as db:
+-            row=db.execute('SELECT status FROM events WHERE id=?',(event,)).fetchone()
+-            if not row or row[0]!='scheduled' or a.get('stream_key')!=self.config['stream_keys'].get(event):raise ValueError('start_denied')
+-            result=self.media.begin(event,a['stream_key']);db.execute("UPDATE events SET status='live' WHERE id=?",(event,));return result
+-    def end(self,a):
+-        event=a['event_id']
+-        with self.lock,self.db() as db:
+-            row=db.execute('SELECT status FROM events WHERE id=?',(event,)).fetchone()
+-            if not row or row[0]!='live':raise ValueError('not_live')
+-            try:info=self.media.end(event)
+-            except Exception:db.execute("UPDATE events SET status='interrupted' WHERE id=?",(event,));db.commit();raise
+-            db.execute('INSERT INTO archives VALUES (?,?,0,?)',(event,json.dumps(info),'[]'));db.execute("UPDATE events SET status='ended' WHERE id=?",(event,));return {k:v for k,v in info.items() if k!='path'}
+-    def publish(self,a):
+-        raise NotImplementedError('Complete archive validation and publication')
+-    def media_path(self,event):
+-        with self.db() as db:row=db.execute('SELECT payload FROM archives WHERE event=? AND published=1',(event,)).fetchone()
+-        if not row:return None
+-        path=Path(json.loads(row[0])['path'])
+-        return path if path.is_file() else None
+-    def search(self,query='',start=None,end=None):
+-        start=instant(start) if start else None;end=instant(end) if end else None
+-        with self.db() as db:rows=db.execute('SELECT e.id,e.title,e.start,a.terms,a.payload FROM events e JOIN archives a ON e.id=a.event WHERE a.published=1 ORDER BY e.start,e.id').fetchall()
+-        return [{'event_id':r[0],'title':r[1],'start':r[2],'media_url':'/media/'+r[0],'duration':json.loads(r[4])['duration']} for r in rows if (not query or query.casefold() in (r[1]+' '+' '.join(json.loads(r[3]))).casefold()) and (not start or r[2]>=start) and (not end or r[2]<end)]
+-    def view(self,a,viewer,session):
+-        raise NotImplementedError('Complete playback counting')
++
++    def db(self) -> sqlite3.Connection:
++        db = sqlite3.connect(self.path, timeout=10)
++        db.execute("PRAGMA foreign_keys=ON")
++        db.execute("PRAGMA busy_timeout=10000")
++        return db
++
++    def close(self) -> None:
++        with self.lock:
++            self.media.close()
++            with self.db() as db:
++                db.execute("UPDATE events SET status='interrupted' WHERE status='live'")
++
++    def admin(self, token: Any) -> None:
++        expected = self.config.get("admin_token")
++        if (
++            not isinstance(token, str)
++            or not isinstance(expected, str)
++            or not expected
++            or not hmac.compare_digest(token, expected)
++        ):
++            raise PermissionError("admin_required")
++
++    def _configured_key(self, event: str) -> str:
++        keys = self.config.get("stream_keys")
++        if not isinstance(keys, dict) or event not in keys or not isinstance(keys[event], str) or not keys[event]:
++            raise ValueError("unconfigured_event")
++        return keys[event]
++
++    def create(self, body: dict[str, Any]) -> dict[str, str]:
++        if not isinstance(body, dict):
++            raise ValueError("invalid_event")
++        # Parse and validate everything before opening the transaction.  A bad
++        # edit therefore cannot leave a partially-created row.
++        ident = _event_id(body.get("event_id"))
++        title = body.get("title")
++        if not isinstance(title, str) or not title.strip():
++            raise ValueError("invalid_event")
++        title = title.strip()
++        start = instant(body.get("start"))
++        end = instant(body.get("end"))
++        if end <= start:
++            raise ValueError("invalid_event")
++        self._configured_key(ident)
++        with self.lock, self.db() as db:
++            try:
++                db.execute(
++                    "INSERT INTO events(id,title,start,end,status) VALUES (?,?,?,?,?)",
++                    (ident, title, start, end, "scheduled"),
++                )
++            except sqlite3.IntegrityError as exc:
++                raise ValueError("event_exists") from exc
++        return {"event_id": ident}
++
++    def calendar(self, now: Any) -> list[dict[str, str]]:
++        normalized = instant(now)
++        with self.db() as db:
++            rows = db.execute(
++                """
++                SELECT id,title,start,end FROM events
++                WHERE status='scheduled' AND start>=?
++                ORDER BY start ASC,id ASC
++                """,
++                (normalized,),
++            ).fetchall()
++        return [
++            {"event_id": row[0], "title": row[1], "start": row[2], "end": row[3]}
++            for row in rows
++        ]
++
++    def cancel(self, body: dict[str, Any]) -> dict[str, bool]:
++        if not isinstance(body, dict):
++            raise ValueError("invalid_event")
++        ident = _event_id(body.get("event_id"))
++        with self.lock, self.db() as db:
++            row = db.execute("SELECT status FROM events WHERE id=?", (ident,)).fetchone()
++            if not row or row[0] != "scheduled":
++                raise ValueError("not_scheduled")
++            db.execute("UPDATE events SET status='cancelled' WHERE id=?", (ident,))
++        return {"cancelled": True}
++
++    def start(self, body: dict[str, Any]) -> dict[str, str]:
++        if not isinstance(body, dict):
++            raise ValueError("start_denied")
++        ident = _event_id(body.get("event_id"))
++        supplied = body.get("stream_key")
++        expected = self._configured_key(ident)
++        if not isinstance(supplied, str) or not hmac.compare_digest(supplied, expected):
++            raise ValueError("start_denied")
++        with self.lock:
++            with self.db() as db:
++                row = db.execute("SELECT status FROM events WHERE id=?", (ident,)).fetchone()
++                if not row or row[0] != "scheduled":
++                    raise ValueError("start_denied")
++                try:
++                    result = self.media.begin(ident, expected)
++                except Exception as exc:
++                    # A failed child/configuration start leaves the event
++                    # scheduled and does not retain a live media process.
++                    self.media.abort(ident)
++                    raise ValueError("stream_start_failed") from exc
++                try:
++                    db.execute("UPDATE events SET status='live' WHERE id=?", (ident,))
++                except Exception:
++                    self.media.abort(ident)
++                    raise
++                return result
++
++    def end(self, body: dict[str, Any]) -> dict[str, Any]:
++        if not isinstance(body, dict):
++            raise ValueError("not_live")
++        ident = _event_id(body.get("event_id"))
++        with self.lock:
++            with self.db() as db:
++                row = db.execute("SELECT status FROM events WHERE id=?", (ident,)).fetchone()
++                if not row or row[0] != "live":
++                    raise ValueError("not_live")
++                try:
++                    info = self.media.end(ident)
++                except Exception as exc:
++                    db.execute("UPDATE events SET status='interrupted' WHERE id=?", (ident,))
++                    # The surrounding connection context would otherwise
++                    # roll this transition back when the public error is
++                    # raised.
++                    db.commit()
++                    raise ValueError("recording_failed") from exc
++                try:
++                    db.execute(
++                        "INSERT INTO archives(event,payload,published,terms) VALUES (?,?,0,?)",
++                        (ident, json.dumps(info, separators=(",", ":"), sort_keys=True), "[]"),
++                    )
++                    db.execute("UPDATE events SET status='ended' WHERE id=?", (ident,))
++                except Exception:
++                    # The archive is not made public without its durable DB
++                    # record; leave the event non-publishable if persistence
++                    # itself fails.
++                    db.execute("UPDATE events SET status='interrupted' WHERE id=?", (ident,))
++                    db.commit()
++                    raise ValueError("archive_save_failed")
++        return {key: info[key] for key in ("bytes", "sha256", "duration", "frames")}
++
++    @staticmethod
++    def _terms(value: Any) -> list[str]:
++        if isinstance(value, str):
++            # A string is accepted as a compact form; whitespace-separated
++            # words are independently searchable while the original phrase is
++            # still represented by the same inclusive search behavior.
++            values = value.split()
++        elif isinstance(value, list):
++            values = value
++        else:
++            raise ValueError("invalid_terms")
++        if not values:
++            raise ValueError("invalid_terms")
++        result: list[str] = []
++        seen: set[str] = set()
++        for term in values:
++            if not isinstance(term, str):
++                raise ValueError("invalid_terms")
++            clean = term.strip()
++            if not clean:
++                raise ValueError("invalid_terms")
++            folded = clean.casefold()
++            if folded not in seen:
++                seen.add(folded)
++                result.append(clean)
++        if not result:
++            raise ValueError("invalid_terms")
++        return result
++
++    def _rooted_file(self, value: Any) -> Path | None:
++        if not isinstance(value, str) or not value:
++            return None
++        try:
++            root = self.media.root.resolve()
++            candidate = Path(value)
++            if candidate.is_symlink():
++                return None
++            resolved = candidate.resolve(strict=False)
++            resolved.relative_to(root)
++        except (OSError, ValueError):
++            return None
++        if resolved.is_symlink() or not resolved.is_file():
++            return None
++        return resolved
++
++    @staticmethod
++    def _digest(path: Path) -> tuple[int, str]:
++        digest = hashlib.sha256()
++        size = 0
++        with path.open("rb") as source:
++            for block in iter(lambda: source.read(1024 * 1024), b""):
++                size += len(block)
++                digest.update(block)
++        return size, digest.hexdigest()
++
++    def _verified_payload(self, payload: Any) -> tuple[dict[str, Any], Path] | None:
++        if not isinstance(payload, dict):
++            return None
++        path = self._rooted_file(payload.get("path"))
++        if path is None:
++            return None
++        try:
++            expected_bytes = int(payload["bytes"])
++            expected_hash = payload["sha256"]
++        except (KeyError, TypeError, ValueError):
++            return None
++        if expected_bytes <= 0 or not isinstance(expected_hash, str):
++            return None
++        try:
++            actual_bytes, actual_hash = self._digest(path)
++        except OSError:
++            return None
++        if actual_bytes != expected_bytes or not hmac.compare_digest(actual_hash, expected_hash):
++            return None
++        return payload, path
++
++    def _archive_row(self, db: sqlite3.Connection, ident: str) -> tuple[Any, ...] | None:
++        return db.execute(
++            "SELECT payload,published,terms FROM archives WHERE event=?", (ident,)
++        ).fetchone()
++
++    def publish(self, body: dict[str, Any]) -> dict[str, bool]:
++        if not isinstance(body, dict):
++            raise ValueError("invalid_publish")
++        ident = _event_id(body.get("event_id"))
++        terms = self._terms(body.get("terms"))
++        with self.lock, self.db() as db:
++            row = self._archive_row(db, ident)
++            if not row:
++                raise NotFoundError("archive_missing")
++            payload_raw, published, _old_terms = row
++            if published:
++                raise ValueError("already_published")
++            try:
++                payload = json.loads(payload_raw)
++            except (TypeError, json.JSONDecodeError) as exc:
++                raise ValueError("invalid_archive") from exc
++            if self._verified_payload(payload) is None:
++                raise ValueError("media_missing_or_changed")
++            db.execute(
++                "UPDATE archives SET published=1,terms=? WHERE event=? AND published=0",
++                (json.dumps(terms, ensure_ascii=False, separators=(",", ":")), ident),
++            )
++        return {"published": True}
++
++    def _public_rows(self, query: str, start: Any, end: Any) -> list[dict[str, Any]]:
++        normalized_start = instant(start) if start not in (None, "") else None
++        normalized_end = instant(end) if end not in (None, "") else None
++        if normalized_start and normalized_end and normalized_end < normalized_start:
++            raise ValueError("invalid_date_range")
++        query = query.strip() if isinstance(query, str) else ""
++        with self.db() as db:
++            rows = db.execute(
++                """
++                SELECT e.id,e.title,e.start,a.payload,a.terms
++                FROM events e JOIN archives a ON e.id=a.event
++                WHERE a.published=1
++                ORDER BY e.start ASC,e.id ASC
++                """
++            ).fetchall()
++        result: list[dict[str, Any]] = []
++        folded_query = query.casefold()
++        for ident, title, event_start, payload_raw, terms_raw in rows:
++            try:
++                payload = json.loads(payload_raw)
++                terms = json.loads(terms_raw)
++            except (TypeError, json.JSONDecodeError):
++                continue
++            if not isinstance(terms, list) or not all(isinstance(term, str) for term in terms):
++                continue
++            if self._verified_payload(payload) is None:
++                # A damaged/lost archive is not advertised as playable.
++                continue
++            haystack = (str(title) + " " + " ".join(terms)).casefold()
++            if folded_query and folded_query not in haystack:
++                continue
++            if normalized_start and event_start < normalized_start:
++                continue
++            if normalized_end and event_start >= normalized_end:
++                continue
++            try:
++                duration = float(payload["duration"])
++            except (KeyError, TypeError, ValueError):
++                continue
++            result.append(
++                {
++                    "event_id": ident,
++                    "title": title,
++                    "start": event_start,
++                    "media_url": "/media/" + quote(ident, safe=""),
++                    "duration": duration,
++                }
++            )
++        return result
++
++    def search(self, query: str = "", start: Any = None, end: Any = None) -> list[dict[str, Any]]:
++        return self._public_rows(query, start, end)
++
++    def media_path(self, ident: str) -> Path | None:
++        ident = _event_id(ident)
++        with self.db() as db:
++            row = db.execute(
++                "SELECT payload FROM archives WHERE event=? AND published=1", (ident,)
++            ).fetchone()
++        if not row:
++            return None
++        try:
++            payload = json.loads(row[0])
++        except (TypeError, json.JSONDecodeError):
++            return None
++        checked = self._verified_payload(payload)
++        return checked[1] if checked else None
++
++    def session(self, token: Any = None) -> tuple[str, str, bool]:
++        with self.lock, self.db() as db:
++            if isinstance(token, str) and len(token) <= 128:
++                row = db.execute("SELECT viewer FROM sessions WHERE token=?", (token,)).fetchone()
++                if row and isinstance(row[0], str):
++                    return row[0], token, False
++            # Both values are server-issued.  A body field named viewer or
++            # session is never consulted by view().
++            import secrets
++
++            new_token = secrets.token_hex(32)
++            viewer = secrets.token_hex(24)
++            db.execute("INSERT INTO sessions(token,viewer) VALUES (?,?)", (new_token, viewer))
++            return viewer, new_token, True
++
++    def view(self, body: dict[str, Any], viewer: str, session: str) -> dict[str, int]:
++        if not isinstance(body, dict):
++            raise ValueError("invalid_view")
++        ident = _event_id(body.get("event_id"))
++        if not isinstance(viewer, str) or not isinstance(session, str):
++            raise ValueError("invalid_view")
++        with self.lock, self.db() as db:
++            row = db.execute(
++                "SELECT payload FROM archives WHERE event=? AND published=1", (ident,)
++            ).fetchone()
++            if not row:
++                raise NotFoundError("archive_missing")
++            try:
++                payload = json.loads(row[0])
++            except (TypeError, json.JSONDecodeError) as exc:
++                raise NotFoundError("archive_missing") from exc
++            if self._verified_payload(payload) is None:
++                raise NotFoundError("archive_missing")
++            db.execute(
++                "INSERT OR IGNORE INTO views(event,viewer,session) VALUES (?,?,?)",
++                (ident, viewer, session),
++            )
++            count = db.execute("SELECT COUNT(*) FROM views WHERE event=?", (ident,)).fetchone()[0]
++        return {"views": int(count)}

@@ -1,0 +1,15 @@
+{
+  "routes": [
+    "home",
+    "saved",
+    "profile"
+  ],
+  "protectedRoutes": [
+    "profile"
+  ],
+  "authenticated": true,
+  "rating": 4.26,
+  "placeName": "Synthetic clearing",
+  "facilityImage": "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22220%22%20height%3D%22150%22%3E%3Crect%20width%3D%22220%22%20height%3D%22150%22%20fill%3D%22%23bfdad2%22/%3E%3Ccircle%20cx%3D%22110%22%20cy%3D%2275%22%20r%3D%2238%22%20fill%3D%22%23397967%22/%3E%3C/svg%3E",
+  "accountImage": "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2280%22%20height%3D%2280%22%3E%3Crect%20width%3D%2280%22%20height%3D%2280%22%20fill%3D%22%23e7d6b4%22/%3E%3Cpath%20d%3D%22M15%2060L40%2015L65%2060Z%22%20fill%3D%22%238f642c%22/%3E%3C/svg%3E"
+}

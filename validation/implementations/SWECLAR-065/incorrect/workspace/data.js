@@ -1,0 +1,1 @@
+window.DASHBOARD_DATA=window.DASHBOARD_DATA || {metrics:{patients:12,liabilities:0,completed:8,chart_series:[2,5,3,8]},onboarding_steps:['Choose a section','Review the metrics','Complete the guide']};

@@ -1,0 +1,187 @@
+schema_version: 1
+task_id: SWECLAR-063
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual photo upload/storage, authenticated social feed, save controls and synthetic Leaflet
+  map web component
+requirement_units:
+- ru_id: RU-001
+  name: Food-app workflow entry point
+  content: Repair the supplied Python/SQLite/Pillow and browser component. Runtime tokens identify the
+    actor; never trust caller user IDs or timestamps. Retain real image and post records across restart,
+    reject invalid operations without partial posts, and prevent access to private server files, unposted
+    foreign photos and unrelated users’ images. The README defines the independent runtime and synthetic
+    test boundary.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for food-app workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.post
+      signature: Store.post(user_id,action) -> dict
+    inputs:
+      user_id: trusted runtime actor
+      action: meal post
+    output:
+      type: dict
+      meaning: persisted post
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Job supports photos/venues/feed/maps. Manual venue and save/chronological behavior were agency-reported,
+    not direct client confirmations. Exact auth, retries and sorting ties are reconstruction choices.
+    Existing feed/save/session guard code remains public.
+- ru_id: RU-002
+  name: Validated meal posting
+  content: Accept actual PNG/JPEG upload bytes, decode them, remove source metadata and store a fresh
+    PNG owned by the authenticated user. A post requires a stable ID, that user’s stored image, food name,
+    caption and either a configured venue or complete manual venue with finite geographic coordinates.
+    Save the host clock timestamp and allow identical post retries only for their owner; conflicting IDs
+    or foreign images fail. Manual venue details adapt agency-reported behavior; precise validation is
+    a reconstruction convention.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for validated meal posting.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.post
+      signature: Store.post(user_id,action) -> dict
+    inputs:
+      user_id: trusted runtime actor
+      action: meal post
+    output:
+      type: dict
+      meaning: persisted post
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Job supports photos/venues/feed/maps. Manual venue and save/chronological behavior were agency-reported,
+    not direct client confirmations. Exact auth, retries and sorting ties are reconstruction choices.
+    Existing feed/save/session guard code remains public.
+- ru_id: RU-003
+  name: Chronological friend feed
+  content: Return only the viewer’s posts and followed users’ posts, ordered by descending stored creation
+    instant then ascending post ID. Display the actual authorized images and text. An unrelated user cannot
+    retrieve image bytes simply by knowing an image ID; unpublished foreign images are also private. Late
+    requests from a previous access session must not replace the current feed or images.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for chronological friend feed.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.post
+      signature: Store.post(user_id,action) -> dict
+    inputs:
+      user_id: trusted runtime actor
+      action: meal post
+    output:
+      type: dict
+      meaning: persisted post
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Job supports photos/venues/feed/maps. Manual venue and save/chronological behavior were agency-reported,
+    not direct client confirmations. Exact auth, retries and sorting ties are reconstruction choices.
+    Existing feed/save/session guard code remains public.
+- ru_id: RU-004
+  name: Save and unsave behavior
+  content: Allow save/unsave of a visible other user’s post idempotently, restrict saved state to the
+    active user, and update the displayed control after success. Own posts have no save control and direct
+    own-post save calls reject. The precise save behavior adapts agency-reported behavior, not a verified
+    client quotation.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for save and unsave behavior.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.post
+      signature: Store.post(user_id,action) -> dict
+    inputs:
+      user_id: trusted runtime actor
+      action: meal post
+    output:
+      type: dict
+      meaning: persisted post
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Job supports photos/venues/feed/maps. Manual venue and save/chronological behavior were agency-reported,
+    not direct client confirmations. Exact auth, retries and sorting ties are reconstruction choices.
+    Existing feed/save/session guard code remains public.
+- ru_id: RU-005
+  name: Personal and friends maps
+  content: Draw one actual Leaflet point per visible post at its stored venue coordinates. Personal mode
+    contains only the active user’s posts; friends mode contains only followed users’ posts, excluding
+    the active user and unrelated users. Changing mode updates geometry, and resizing preserves visible
+    points without horizontal overflow. The map is synthetic local geometry, not a claim to have integrated
+    Google Maps tiles or Places.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for personal and friends maps.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.post
+      signature: Store.post(user_id,action) -> dict
+    inputs:
+      user_id: trusted runtime actor
+      action: meal post
+    output:
+      type: dict
+      meaning: persisted post
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Job supports photos/venues/feed/maps. Manual venue and save/chronological behavior were agency-reported,
+    not direct client confirmations. Exact auth, retries and sorting ties are reconstruction choices.
+    Existing feed/save/session guard code remains public.

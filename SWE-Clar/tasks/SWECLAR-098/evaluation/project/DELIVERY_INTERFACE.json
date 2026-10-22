@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-098",
+  "readme": "# Responsive website workspace\n\nThis independently reconstructed static project contains two local pages, three fictional offer cards, shared assets, and a mobile navigation menu. Open `index.html` in a browser; no build or network is required. Repair its responsive layout while preserving those features. This is a synthetic substitute for the original project, not customer source code or a reproduction of its visual design.",
+  "interfaces": [
+    {
+      "type": "web_ui",
+      "entry": {
+        "language": "html",
+        "pages": [
+          "index.html",
+          "cookie-policy.html"
+        ]
+      },
+      "inputs": {
+        "viewport_width_px": "integer"
+      },
+      "output": {
+        "type": "rendered_pages",
+        "meaning": "both existing pages and their local navigation remain usable"
+      },
+      "operations": []
+    },
+    {
+      "type": "web_ui",
+      "entry": {
+        "language": "html_css",
+        "pages": [
+          "index.html"
+        ]
+      },
+      "inputs": {
+        "viewport_width_px": "representative widths below 992px"
+      },
+      "output": {
+        "type": "computed_layout",
+        "meaning": "stacked responsive content without desktop-only geometry"
+      },
+      "operations": []
+    }
+  ]
+}

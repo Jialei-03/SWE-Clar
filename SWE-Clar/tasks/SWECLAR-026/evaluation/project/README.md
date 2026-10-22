@@ -1,0 +1,47 @@
+# Local curve editor
+
+Complete the existing curve-editing application. Its browser plot, ordinary point edits, SQLite storage, local TCP driver and license panel already run. Finish the Shift interaction, robust driver acknowledgement handling and synthetic license rules after clarifying them with the client. The application is an independent reconstruction and does not require a commercial host, real device, customer account or Windows installation.
+
+## Prepared environment and operation
+
+The benchmark supplies Python 3.12, SQLite, Playwright/Chromium and isolated loopback networking before the attempt. Work in `/workspace`; dependencies are already installed. Budgeted resources: 2 CPUs, 2 GiB memory, 256 processes and 512 MiB workspace. No package installation or external network is required.
+
+Start: `python server.py --host 0.0.0.0 --port 8000 --db /tmp/curves.sqlite`. With `--port 0`, the first stdout line is `{"port": <integer>}`. A working local driver starts automatically. The manager may instead supply an existing driver using `--driver-port <port>`. The default `licenses.json` contains only synthetic demo data; `--licenses <JSON path>` selects a manager-provided fixture. The manager prepares these services and files before launching the candidate application. Stop the server to close its child driver; start with a fresh database path to reset state. Each test uses isolated state and dynamically assigned ports.
+
+Public test: `python -I /public_tests/test_public.py`. Syntax check: `python -m py_compile server.py geometry.py adapter.py driver.py licensing.py`. No build step is needed. The driver protocol and UI interface below are fixed; implementation structure and rendering style can change.
+
+## HTTP and browser interface
+
+All POSTs accept JSON objects up to 65536 bytes. Successful calls return 200 JSON. Invalid request shapes/values return 400 `{error: <explanation>}`. Unknown routes return 404. Numbers must be finite and booleans are not numbers. Avoid changing stored state on rejected edits.
+
+- `GET /api/curve`: `{points, revision, terminal_angle_degrees, next_sequence, last_acknowledged}`. Points are objects `{x,y}`. Initial points are `[{x:0,y:0},{x:40,y:30},{x:80,y:30}]`, initial revision is 0, next_sequence is 1, last_acknowledged is 0. The angle describes the last segment in degrees using increasing X to the right and increasing Y upward. State persists across restart.
+- `POST /api/curve`, `{points:[...]}`: replace the curve with 2..32 points, each coordinate in inclusive 0..100 and X values strictly increasing. Return the complete curve state. Preserve all points in the provided order; do not sort invalid input into validity.
+- `POST /api/move`, `{index:<integer>,x:<number>,y:<number>,shift:<boolean>}`: index selects an existing point. Ordinary moves change that point directly; coordinates must remain within 0..100 and strictly between neighboring X values. Reject crossings/equal X and malformed input atomically. The exact Shift interaction is a client decision. Return the complete curve state.
+- A successful edit increments revision exactly once only when the points actually change. Repeating the same edit is a no-op. Earlier points remain unchanged when editing the last point.
+- `POST /api/send`, `{positions:[...]}`: sample the current curve using the supplied local driver. Positions are 1..64 finite values in inclusive 0..100; preserve order and duplicates. Return `{sequence,samples:[{x,y},...],receipt}`. The driver defines samples, so the adapter must communicate with it. Driver fault behavior and acknowledgement validation are available through clarification.
+- `POST /api/license`, `{uuid:<string>,product_key:<string>}`: return `{valid:<boolean>}`. The synthetic entitlement file is an array of `{uuid,product_key,active}` records. Exact matching/normalization and inactive-record behavior can be clarified. This is a local check, not authentication for the other APIs.
+
+`GET /` must provide the actual interactive plot and controls. Keep SVG `#plot` with `viewBox="0 0 600 400"`; X pixels map as `20+5.6*x`, Y pixels as `380-3.6*y`. Keep each visible draggable circle as `#point-<index>` with numeric `cx`,`cy`, curve polyline `#curve-line`, angle text `#angle`, JSON file input `#curve-file`, and status `#status`. Pointer down on a point and pointer up at the desired coordinate makes one edit; Shift state at pointer down chooses the Shift interaction. Rejected drags preserve the rendered curve.
+
+Keep sample positions input `#positions`, button `#send`, table body `#samples` and receipt text `#receipt`. A successful send displays actual returned X/Y samples in order. Keep `#license-uuid`, password input `#license-key`, button `#check-license` and result `#license-result`; show `Valid` or `Invalid` for the returned boolean. No stored product key is rendered. Other markup and styling may change.
+
+## Prepared local-driver protocol
+
+Connect to `127.0.0.1:<driver-port>` using TCP. Send one UTF-8 JSON line ending in LF:
+
+```json
+{"sequence":1,"points":[{"x":0,"y":0},{"x":100,"y":50}],"positions":[25,75]}
+```
+
+Read one UTF-8 JSON line ending in LF, at most 65536 bytes:
+
+```json
+{"sequence":1,"samples":[{"x":25,"y":12.5},{"x":75,"y":37.5}],"receipt":"local-driver"}
+```
+
+The normal driver performs piecewise-linear interpolation, clamps outside the curve's endpoint X range, and preserves query order. Receipts are arbitrary strings produced by the driver, not fixed constants. A new connection per request is allowed. Use a 2-second socket timeout to bound a stalled driver. The provided worker supports this contract; the evaluator may supply protocol-fault responses to test the clarified recovery rules. Tests do not require a proprietary driver or hardware. Validate protocol integrity without rejecting otherwise valid worker-specific sample values within the agreed schema.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

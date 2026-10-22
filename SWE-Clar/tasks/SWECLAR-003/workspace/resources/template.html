@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="{{LOCALE}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{TITLE}}</title><meta name="description" content="{{DESCRIPTION}}"><link rel="stylesheet" href="site.css"></head>
+<body><main><section id="hero"><div><p class="eyebrow">Independent local campaigns</p><h1>{{TITLE}}</h1><p>{{DESCRIPTION}}</p><a class="button" href="#campaigns">Explore campaigns</a></div><img src="assets/{{HERO}}" alt="Synthetic campaign illustration"></section>
+<section id="campaigns" aria-label="Campaigns">{{CARDS}}</section>
+<section id="contact"><div><p class="eyebrow">Keep a local request</p><h2>Contact the campaign team</h2><p>This demonstration saves requests in this browser only.</p></div><form novalidate><label>Name<input name="name" autocomplete="name"></label><label>Email<input name="email" type="email" autocomplete="email"></label><label>Message<textarea name="message" rows="4"></textarea></label><button type="submit">Save request</button><p id="form-status" role="status"></p><p id="outbox-count"></p></form></section>
+<footer id="footer">{{LINKS}}</footer><div class="legal-pages">{{LEGAL}}</div></main>
+<aside id="consent" aria-label="Local consent preference"><p>Choose whether to accept or decline this demonstration's optional preference.</p><button id="accept" type="button">Accept</button><button id="decline" type="button">Decline</button></aside>
+<script id="site-config" type="application/json">{{CONFIG}}</script><script src="interactions.js"></script></body></html>

@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-098",
+  "public": {
+    "readme": "# Responsive website workspace\n\nThis independently reconstructed static project contains two local pages, three fictional offer cards, shared assets, and a mobile navigation menu. Open `index.html` in a browser; no build or network is required. Repair its responsive layout while preserving those features. This is a synthetic substitute for the original project, not customer source code or a reproduction of its visual design.",
+    "interfaces": [
+      {
+        "type": "web_ui",
+        "entry": {
+          "language": "html",
+          "pages": [
+            "index.html",
+            "cookie-policy.html"
+          ]
+        },
+        "inputs": {
+          "viewport_width_px": "integer"
+        },
+        "output": {
+          "type": "rendered_pages",
+          "meaning": "both existing pages and their local navigation remain usable"
+        },
+        "operations": []
+      },
+      {
+        "type": "web_ui",
+        "entry": {
+          "language": "html_css",
+          "pages": [
+            "index.html"
+          ]
+        },
+        "inputs": {
+          "viewport_width_px": "representative widths below 992px"
+        },
+        "output": {
+          "type": "computed_layout",
+          "meaning": "stacked responsive content without desktop-only geometry"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "web_ui",
+      "entry": {
+        "language": "html",
+        "pages": [
+          "index.html",
+          "cookie-policy.html"
+        ]
+      },
+      "inputs": {
+        "viewport_width_px": "integer"
+      },
+      "output": {
+        "type": "rendered_pages",
+        "meaning": "both existing pages and their local navigation remain usable"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "web_ui",
+      "entry": {
+        "language": "html_css",
+        "pages": [
+          "index.html",
+          "cookie-policy.html"
+        ]
+      },
+      "inputs": {
+        "viewport_width_px": "representative widths from 992px through 1380px"
+      },
+      "output": {
+        "type": "computed_layout",
+        "meaning": "a centered content shell no wider than 1240px whose existing desktop card composition remains aligned, separated, and free of collisions"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "web_ui",
+      "entry": {
+        "language": "html_css",
+        "pages": [
+          "index.html",
+          "cookie-policy.html"
+        ]
+      },
+      "inputs": {
+        "viewport_width_px": "representative responsive, desktop, and wide-desktop widths"
+      },
+      "output": {
+        "type": "computed_layout",
+        "meaning": "no visible horizontal page scrollbar"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "web_ui",
+      "entry": {
+        "language": "html_css",
+        "pages": [
+          "index.html"
+        ]
+      },
+      "inputs": {
+        "viewport_width_px": "representative widths below 992px"
+      },
+      "output": {
+        "type": "computed_layout",
+        "meaning": "stacked responsive content without desktop-only geometry"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "68e5d477ceb379fc254089867d29ec7c275fa20bae2d073112627ed21a8bea96",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "dbaba76cb000c3ea293b53ae8480fc7290e96248e16d3b35b399a03e9228a494",
+    "evaluation/tests/browser_contract.py": "09653b31a3738c13c3ee5ecaa852a506325271b77a2dbc9bbb1458d495950f17",
+    "evaluation/tests/expected_gates.json": "63eda4ae00b70e32372cd53305feda34565b46c07e4ce1f3bde89bf8fbffe51e",
+    "evaluation/tests/official_verifier.py": "bdb5e56010dd693bf83dfd52d583b9df54401065a3ecdac72a30c0a4d933a489",
+    "evaluation/tests/source_test.sh": "827879f7436391348250d24643eeb6d30bc12b2f4961b94615eefe6bd30599af",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

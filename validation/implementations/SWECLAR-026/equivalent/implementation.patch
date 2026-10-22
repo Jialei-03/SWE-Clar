@@ -1,0 +1,533 @@
+diff --git a/adapter.py b/adapter.py
+index fdf73cef011c6d62f07be329a19fcb862cebad41..2cc12acfa4bfc8616599ace6cb952a0ea463df82 100644
+--- a/adapter.py
++++ b/adapter.py
+@@ -1,17 +1,102 @@
+ """Newline-delimited JSON communication with the prepared local driver."""
+ import json
+-import math
+ import socket
+ 
++from geometry import valid_number
++
++
++_MAX_LINE = 65536
++_READ_CHUNK = 4096
++
++
++def _protocol_error(message='Invalid driver response'):
++    raise ValueError(message)
++
++
++def _read_line(connection):
++    """Read exactly one bounded newline-delimited response.
++
++    Reading in small chunks instead of asking a buffered file object for an
++    arbitrarily sized line makes the protocol limit explicit.  In particular,
++    a peer that never sends a newline cannot make the adapter accumulate an
++    unbounded response while it is waiting for the driver's acknowledgement.
++    The first line is the only protocol message used; bytes after its newline
++    are deliberately left unread and discarded with the connection.
++    """
++    data = bytearray()
++    while True:
++        chunk = connection.recv(_READ_CHUNK)
++        if not chunk:
++            _protocol_error('Incomplete or oversized driver response')
++
++        newline = chunk.find(b'\n')
++        if newline >= 0:
++            data.extend(chunk[:newline + 1])
++            if len(data) > _MAX_LINE:
++                _protocol_error('Incomplete or oversized driver response')
++            return bytes(data)
++
++        data.extend(chunk)
++        if len(data) > _MAX_LINE:
++            _protocol_error('Incomplete or oversized driver response')
++
++
++def _json_line(value):
++    """Encode one protocol value without changing its JSON meaning."""
++    return (json.dumps(value, allow_nan=False, separators=(',', ':')) + '\n').encode('utf-8')
++
++
++def _validate_response(response, sequence, positions):
++    if not isinstance(response, dict):
++        _protocol_error('Driver response must be a JSON object')
++
++    response_sequence = response.get('sequence')
++    if type(response_sequence) is not int or response_sequence != sequence:
++        _protocol_error('Driver acknowledgement did not match the request')
++
++    receipt = response.get('receipt')
++    if not isinstance(receipt, str):
++        _protocol_error('Driver receipt must be a string')
++
++    samples = response.get('samples')
++    if not isinstance(samples, list) or len(samples) != len(positions):
++        _protocol_error('Driver returned the wrong number of samples')
++
++    checked_samples = []
++    for expected_x, sample in zip(positions, samples):
++        if not isinstance(sample, dict):
++            _protocol_error('Driver samples must be objects')
++        sample_x = sample.get('x')
++        sample_y = sample.get('y')
++        # Check the X type as well as equality: False == 0 and True == 1 in
++        # Python, but booleans are not coordinate values.
++        if type(sample_x) not in (int, float) or sample_x != expected_x:
++            _protocol_error('Driver returned an unexpected sample position')
++        if not valid_number(sample_y):
++            _protocol_error('Driver returned an invalid sample value')
++        # Normalize the public shape and discard any driver-specific response
++        # fields.  The values themselves remain the driver's values.
++        checked_samples.append({'x': sample_x, 'y': sample_y})
++
++    # Extra top-level response fields are intentionally not exposed through
++    # the HTTP API.  The protocol's public response consists of these fields.
++    return {'sequence': response_sequence, 'samples': checked_samples, 'receipt': receipt}
++
+ 
+ def send(port, sequence, points, positions):
++    """Send one request and return a validated public driver response.
++
++    A new TCP connection is used for every request.  The caller serializes
++    calls and allocates the persistent sequence number before entering here.
++    """
+     request = {'sequence': sequence, 'points': points, 'positions': positions}
+     with socket.create_connection(('127.0.0.1', port), timeout=2) as connection:
+-        connection.sendall((json.dumps(request, allow_nan=False) + '\n').encode())
+-        with connection.makefile('rb') as stream:
+-            line = stream.readline(65537)
+-    if not line.endswith(b'\n') or len(line) > 65536:
+-        raise ValueError('Incomplete driver response')
+-    response = json.loads(line)
+-    # Finish acknowledgement and result-shape validation.
+-    return response
++        connection.sendall(_json_line(request))
++        line = _read_line(connection)
++
++    try:
++        response = json.loads(line[:-1].decode('utf-8'))
++    except (ValueError, UnicodeError, TypeError, RecursionError) as error:
++        raise ValueError('Invalid driver response JSON') from error
++
++    return _validate_response(response, sequence, positions)
+diff --git a/geometry.py b/geometry.py
+index d9064f6bf045f5dcac8de0ccfdac58e1f8a3e812..0c76ac411fedd6f05193545df65409c8cf032add 100644
+--- a/geometry.py
++++ b/geometry.py
+@@ -2,36 +2,94 @@
+ import math
+ 
+ 
++_MIN_COORDINATE = 0.0
++_MAX_COORDINATE = 100.0
++
++
+ def valid_number(value):
+-    return type(value) in (int, float) and 0 <= value <= 100 and math.isfinite(value)
++    """Return whether *value* is a finite JSON number in the device range.
++
++    ``bool`` is deliberately excluded even though it is an ``int`` subclass in
++    Python.  Very large JSON integers are also treated as invalid rather than
++    allowing ``math.isfinite`` to raise while converting them to a float.
++    """
++    if type(value) not in (int, float):
++        return False
++    try:
++        return math.isfinite(value) and _MIN_COORDINATE <= value <= _MAX_COORDINATE
++    except (OverflowError, ValueError):
++        return False
+ 
+ 
+ def validate_points(points):
++    """Validate and canonicalize a curve without changing its order."""
+     if not isinstance(points, list) or not 2 <= len(points) <= 32:
+         raise ValueError('A curve requires 2..32 points')
+-    last = -1
++
++    result = []
++    previous_x = None
+     for point in points:
+-        if not isinstance(point, dict) or not all(valid_number(point.get(k)) for k in ('x', 'y')):
++        if not isinstance(point, dict) or not all(valid_number(point.get(name)) for name in ('x', 'y')):
+             raise ValueError('Coordinates must be finite numbers in 0..100')
+-        if point['x'] <= last:
++        x = point['x']
++        if previous_x is not None and x <= previous_x:
+             raise ValueError('Point x coordinates must strictly increase')
+-        last = point['x']
+-    return [{'x': p['x'], 'y': p['y']} for p in points]
++        result.append({'x': x, 'y': point['y']})
++        previous_x = x
++    return result
+ 
+ 
+ def angle(points):
+-    a, b = points[-2:]
+-    return math.degrees(math.atan2(b['y'] - a['y'], b['x'] - a['x']))
++    """Return the terminal segment angle in degrees, with Y increasing up."""
++    previous, terminal = points[-2:]
++    return math.degrees(math.atan2(terminal['y'] - previous['y'],
++                                   terminal['x'] - previous['x']))
+ 
+ 
+ def move(points, command):
++    """Apply one ordinary or Shift point move atomically.
++
++    Shift rotates only the final segment.  The requested coordinates describe
++    a direction from the preceding point; they are not themselves used as the
++    new endpoint.
++    """
++    if not isinstance(command, dict):
++        raise ValueError('Invalid point index or shift flag')
++
+     index = command.get('index')
+-    if type(index) is not int or not 0 <= index < len(points) or type(command.get('shift')) is not bool:
++    shift = command.get('shift')
++    if type(index) is not int or not 0 <= index < len(points) or type(shift) is not bool:
+         raise ValueError('Invalid point index or shift flag')
++
+     x, y = command.get('x'), command.get('y')
+     if not valid_number(x) or not valid_number(y):
+         raise ValueError('Coordinates must be finite numbers in 0..100')
+-    result = [p.copy() for p in points]
+-    # Shift currently falls back to ordinary dragging; implement the agreed geometry.
+-    result[index] = {'x': x, 'y': y}
++
++    result = [point.copy() for point in points]
++    if shift:
++        if index != len(points) - 1:
++            raise ValueError('Shift can only be used on the final point')
++
++        pivot = points[-2]
++        original = points[-1]
++        direction_x = x - pivot['x']
++        direction_y = y - pivot['y']
++        direction_length = math.hypot(direction_x, direction_y)
++        if direction_length == 0:
++            raise ValueError('Shift direction must not point at the pivot')
++
++        segment_length = math.hypot(original['x'] - pivot['x'],
++                                    original['y'] - pivot['y'])
++        projected_x = pivot['x'] + segment_length * direction_x / direction_length
++        projected_y = pivot['y'] + segment_length * direction_y / direction_length
++
++        # Check the projection itself rather than clamping it.  The complete
++        # validation below also protects the ordering contract.
++        if (not valid_number(projected_x) or not valid_number(projected_y)
++                or projected_x <= pivot['x']):
++            raise ValueError('Shift projection is outside the curve bounds')
++        result[index] = {'x': projected_x, 'y': projected_y}
++    else:
++        result[index] = {'x': x, 'y': y}
++
+     return validate_points(result)
+diff --git a/licensing.py b/licensing.py
+index 5ec5631d2517ebb3943eb1be3609b7341eca769d..17770df390a1dfeb311e360bafd8d71d4c8765d5 100644
+--- a/licensing.py
++++ b/licensing.py
+@@ -1,3 +1,34 @@
+-"""Provisional local entitlement lookup."""
++"""Synthetic local entitlement lookup."""
++import re
++
++
++_UUID = re.compile(
++    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
++    r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
++)
++
++
+ def validate(records, identifier, key):
+-    return any(r['uuid'] == identifier for r in records)
++    """Validate one submitted UUID/product-key pair without exposing records."""
++    if not isinstance(identifier, str) or not isinstance(key, str):
++        return False
++
++    submitted_uuid = identifier.strip()
++    submitted_key = key.strip()
++    if _UUID.fullmatch(submitted_uuid) is None:
++        return False
++    submitted_uuid = submitted_uuid.lower()
++
++    if not isinstance(records, list):
++        return False
++    for record in records:
++        if not isinstance(record, dict):
++            continue
++        record_uuid = record.get('uuid')
++        record_key = record.get('product_key')
++        if (isinstance(record_uuid, str)
++                and record_uuid.lower() == submitted_uuid
++                and record_key == submitted_key
++                and record.get('active') is True):
++            return True
++    return False
+diff --git a/server.py b/server.py
+index 3d7b681febb05b71a60e71d1d8aa6e656d09af37..2ef51cd2066a5d19304216f57bea0cfdcffdcbe6 100644
+--- a/server.py
++++ b/server.py
+@@ -9,26 +9,52 @@ import sys
+ import threading
+ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
++
+ import adapter
+ import licensing
+ from geometry import angle, move, validate_points, valid_number
+ 
++
+ DEFAULT_POINTS = [{'x': 0, 'y': 0}, {'x': 40, 'y': 30}, {'x': 80, 'y': 30}]
++_POST_ROUTES = {'/api/curve', '/api/move', '/api/send', '/api/license'}
++_JSON_OPTIONS = {'allow_nan': False, 'separators': (',', ':')}
++
++
++def encode_json(value):
++    """Use one compact JSON representation for storage and HTTP responses.
++
++    Whitespace is not part of any public value, so the compact form is an
++    equivalent wire/storage encoding while keeping the response boundaries
++    small and deterministic.
++    """
++    return json.dumps(value, **_JSON_OPTIONS)
+ 
+ 
+ def state(connection):
+-    points, revision, next_sequence, acknowledged = connection.execute('SELECT points,revision,next_sequence,acknowledged FROM state').fetchone()
++    points, revision, next_sequence, acknowledged = connection.execute(
++        'SELECT points,revision,next_sequence,acknowledged FROM state'
++    ).fetchone()
+     points = json.loads(points)
+-    return {'points': points, 'revision': revision, 'terminal_angle_degrees': angle(points),
+-            'next_sequence': next_sequence, 'last_acknowledged': acknowledged}
++    return {
++        'points': points,
++        'revision': revision,
++        'terminal_angle_degrees': angle(points),
++        'next_sequence': next_sequence,
++        'last_acknowledged': acknowledged,
++    }
+ 
+ 
+ class Handler(BaseHTTPRequestHandler):
+     def log_message(self, *_):
++        # The application protocol uses stdout for its startup record; do not
++        # mix request logs into it.
+         pass
+ 
+     def send(self, value, status=200, kind='application/json'):
+-        data = json.dumps(value, allow_nan=False).encode() if kind == 'application/json' else value.encode()
++        if kind == 'application/json':
++            data = encode_json(value).encode('utf-8')
++        else:
++            data = value.encode('utf-8')
+         self.send_response(status)
+         self.send_header('Content-Type', kind + '; charset=utf-8')
+         self.send_header('Content-Length', str(len(data)))
+@@ -37,53 +63,116 @@ class Handler(BaseHTTPRequestHandler):
+ 
+     def do_GET(self):
+         if self.path == '/':
+-            self.send(Path('index.html').read_text(), kind='text/html')
++            index = Path(__file__).with_name('index.html')
++            self.send(index.read_text(encoding='utf-8'), kind='text/html')
+         elif self.path == '/api/curve':
+-            with sqlite3.connect(self.server.database) as connection:
++            with self.server.lock, sqlite3.connect(self.server.database) as connection:
+                 self.send(state(connection))
+         else:
+             self.send({'error': 'Not found'}, 404)
+ 
++    def _read_json_body(self):
++        header = self.headers.get('Content-Length')
++        try:
++            size = int(header) if header is not None else 0
++        except (TypeError, ValueError, OverflowError):
++            raise ValueError('Expected a JSON body of 1..65536 bytes')
++        if not 0 < size <= 65536:
++            raise ValueError('Expected a JSON body of 1..65536 bytes')
++        raw = self.rfile.read(size)
++        if len(raw) != size:
++            raise ValueError('Expected a complete JSON body')
++        try:
++            body = json.loads(raw)
++        except (TypeError, ValueError, UnicodeError, RecursionError) as error:
++            raise ValueError('Malformed JSON body') from error
++        if not isinstance(body, dict):
++            raise ValueError('Expected a JSON object')
++        return body
++
+     def do_POST(self):
++        # Route recognition takes precedence over body validation: an unknown
++        # route is always a 404 and cannot mutate state.
++        if self.path not in _POST_ROUTES:
++            self.send({'error': 'Not found'}, 404)
++            return
++
+         try:
+-            size = int(self.headers.get('Content-Length', '0'))
+-            if not 0 < size <= 65536:
+-                raise ValueError('Expected a JSON body of 1..65536 bytes')
+-            body = json.loads(self.rfile.read(size))
+-            if not isinstance(body, dict):
+-                raise ValueError('Expected a JSON object')
++            body = self._read_json_body()
+             if self.path in ('/api/move', '/api/curve'):
+                 with self.server.lock, sqlite3.connect(self.server.database) as connection:
+                     current = state(connection)
+-                    points = (validate_points(body.get('points')) if self.path == '/api/curve'
+-                              else move(current['points'], body))
++                    if self.path == '/api/curve':
++                        points = validate_points(body.get('points'))
++                    else:
++                        points = move(current['points'], body)
+                     if points != current['points']:
+-                        connection.execute('UPDATE state SET points=?,revision=revision+1', (json.dumps(points),))
++                        connection.execute(
++                            'UPDATE state SET points=?,revision=revision+1 WHERE singleton=1',
++                            (encode_json(points),),
++                        )
+                     updated = state(connection)
+                 self.send(updated)
+-            elif self.path == '/api/send':
++                return
++
++            if self.path == '/api/send':
+                 positions = body.get('positions')
+-                if not isinstance(positions, list) or not 1 <= len(positions) <= 64 or not all(valid_number(x) for x in positions):
++                if (not isinstance(positions, list) or not 1 <= len(positions) <= 64
++                        or not all(valid_number(position) for position in positions)):
+                     raise ValueError('Expected 1..64 positions in 0..100')
++
++                # Allocation, the TCP exchange and acknowledgement update are
++                # one serialized operation.  This makes sequence observation
++                # deterministic even when several HTTP requests arrive at
++                # once, while still committing a failed allocation.
+                 with self.server.lock:
+                     with sqlite3.connect(self.server.database) as connection:
+                         current = state(connection)
+                         sequence = current['next_sequence']
+-                        connection.execute('UPDATE state SET next_sequence=next_sequence+1')
++                        connection.execute(
++                            'UPDATE state SET next_sequence=next_sequence+1 WHERE singleton=1'
++                        )
++
+                     try:
+-                        response = adapter.send(self.server.driver_port, sequence, current['points'], positions)
+-                    except (OSError, ValueError, UnicodeError) as error:
+-                        return self.send({'error': 'driver_failure', 'sequence': sequence}, 503)
+-                    with sqlite3.connect(self.server.database) as connection:
+-                        connection.execute('UPDATE state SET acknowledged=?', (sequence,))
++                        response = adapter.send(
++                            self.server.driver_port,
++                            sequence,
++                            current['points'],
++                            positions,
++                        )
++                    except Exception:
++                        # The sequence was deliberately consumed above.  Do
++                        # not change acknowledged on any protocol or socket
++                        # failure.
++                        response = None
++
++                    if response is None:
++                        failure = {'error': 'driver_failure', 'sequence': sequence}
++                    else:
++                        with sqlite3.connect(self.server.database) as connection:
++                            connection.execute(
++                                'UPDATE state SET acknowledged=? WHERE singleton=1',
++                                (sequence,),
++                            )
++                        failure = None
++
++                if failure is not None:
++                    self.send(failure, 503)
++                else:
+                     self.send(response)
+-            elif self.path == '/api/license':
+-                if not all(isinstance(body.get(k), str) for k in ('uuid', 'product_key')):
+-                    raise ValueError('Expected uuid and product_key strings')
+-                self.send({'valid': licensing.validate(self.server.licenses, body['uuid'], body['product_key'])})
+-            else:
+-                self.send({'error': 'Not found'}, 404)
+-        except (ValueError, UnicodeError) as error:
++                return
++
++            # /api/license
++            if not all(isinstance(body.get(name), str) for name in ('uuid', 'product_key')):
++                raise ValueError('Expected uuid and product_key strings')
++            # The licensing module intentionally returns only a boolean; no
++            # fixture data or matching diagnostics cross this boundary.
++            self.send({
++                'valid': licensing.validate(
++                    self.server.licenses, body['uuid'], body['product_key']
++                )
++            })
++        except (ValueError, TypeError, UnicodeError, RecursionError, OverflowError) as error:
+             self.send({'error': str(error)}, 400)
+ 
+ 
+@@ -95,27 +184,52 @@ def main():
+     parser.add_argument('--driver-port', type=int)
+     parser.add_argument('--licenses', default='licenses.json')
+     args = parser.parse_args()
++
+     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+     with sqlite3.connect(args.db) as connection:
+-        connection.execute('CREATE TABLE IF NOT EXISTS state (singleton INTEGER PRIMARY KEY CHECK(singleton=1),points TEXT NOT NULL,revision INTEGER NOT NULL,next_sequence INTEGER NOT NULL,acknowledged INTEGER NOT NULL)')
+-        connection.execute('INSERT OR IGNORE INTO state VALUES (1,?,0,1,0)', (json.dumps(DEFAULT_POINTS),))
++        connection.execute(
++            'CREATE TABLE IF NOT EXISTS state ('
++            'singleton INTEGER PRIMARY KEY CHECK(singleton=1),'
++            'points TEXT NOT NULL, revision INTEGER NOT NULL,'
++            'next_sequence INTEGER NOT NULL, acknowledged INTEGER NOT NULL)'
++        )
++        connection.execute(
++            'INSERT OR IGNORE INTO state VALUES (1,?,0,1,0)',
++            (encode_json(DEFAULT_POINTS),),
++        )
++
+     worker = None
++    server = None
+     try:
+         if args.driver_port is None:
+-            worker = subprocess.Popen([sys.executable, 'driver.py', '--port', '0'], stdout=subprocess.PIPE, text=True)
+-            if not select.select([worker.stdout], [], [], 5)[0]:
++            driver_path = str(Path(__file__).with_name('driver.py'))
++            worker = subprocess.Popen(
++                [sys.executable, driver_path, '--port', '0'],
++                stdout=subprocess.PIPE,
++                text=True,
++            )
++            if worker.stdout is None or not select.select([worker.stdout], [], [], 5)[0]:
+                 raise RuntimeError('Local driver failed to start')
+             args.driver_port = int(json.loads(worker.stdout.readline())['port'])
++
+         server = ThreadingHTTPServer((args.host, args.port), Handler)
+-        server.database, server.driver_port = args.db, args.driver_port
+-        server.licenses = json.loads(Path(args.licenses).read_text())
++        server.daemon_threads = True
++        server.database = args.db
++        server.driver_port = args.driver_port
++        server.licenses = json.loads(Path(args.licenses).read_text(encoding='utf-8'))
+         server.lock = threading.Lock()
+         print(json.dumps({'port': server.server_port}), flush=True)
+         server.serve_forever()
+     finally:
+-        if worker:
++        if server is not None:
++            server.server_close()
++        if worker is not None:
+             worker.terminate()
+-            worker.wait(timeout=5)
++            try:
++                worker.wait(timeout=5)
++            except subprocess.TimeoutExpired:
++                worker.kill()
++                worker.wait()
+ 
+ 
+ if __name__ == '__main__':

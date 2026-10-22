@@ -1,0 +1,490 @@
+diff --git a/server.py b/server.py
+index 5d9b4311d7c64646120e0d142456e7b8c898b544..a1c70b8df49bd1c6c1fa655fcbf889cf595d99e6 100644
+--- a/server.py
++++ b/server.py
+@@ -80,7 +80,10 @@ def make_server(port=0):
+                         for user in result['recipients']:
+                             deliveries.setdefault((event['room_id'], user), []).append(packet.copy())
+                 self.send(400 if 'error' in output else 200, output)
+-            except (ValueError, KeyError, TypeError):
++            except Exception:
++                # Parsing, validation and delivery are all user-controlled at
++                # this boundary.  A malformed request must become a normal
++                # 400 response rather than terminating its handler thread.
+                 self.send(400, {'error': {'code': 'invalid_event'}})
+ 
+         def log_message(self, *args):
+diff --git a/solution.py b/solution.py
+index 6a0ff5a89c6bcd6c50522be2aa1a02c2832569dc..7e949d9bef0d1ce84aa0a8d22d9eabc0a55073d9 100644
+--- a/solution.py
++++ b/solution.py
+@@ -1,31 +1,443 @@
+-"""Room creation baseline; complete participant, turn and audio behavior."""
++"""Pure state transitions for the local synthetic voice room.
++
++The HTTP transport in :mod:`server` owns the actual inbox queues.  This module
++only validates an event and returns a deep-copied state, so callers can safely
++keep using the state and event objects they supplied.
++"""
++
+ from copy import deepcopy
++import base64
++import io
+ import math
++import wave
+ 
+ 
+-def process_voice_event(state: dict, event: dict) -> dict:
+-    out = deepcopy(state)
+-    out.setdefault('rooms', {})
+-    out.pop('error', None)
+-    out.pop('result', None)
+-    if event.get('type') == 'create_room':
+-        room_id = event.get('room_id')
+-        limit = event.get('turn_limit')
+-        private = event.get('private', False)
+-        token = event.get('access_token', '')
+-        valid = (event.get('admin_id') in out.get('admins', [])
+-                 and isinstance(room_id, str) and bool(room_id.strip())
+-                 and room_id not in out['rooms'] and isinstance(private, bool)
+-                 and isinstance(limit, (int, float)) and not isinstance(limit, bool)
+-                 and math.isfinite(limit) and limit > 0
+-                 and (not private or isinstance(token, str) and bool(token)))
+-        if not valid:
+-            out['error'] = {'code': 'invalid_room'}
+-            return out
+-        out['rooms'][room_id] = {'private': private, 'access_token': token,
+-                                 'turn_limit': limit, 'participants': [],
+-                                 'locked': [], 'current': None, 'deadline': None}
+-        out['result'] = {'room_id': room_id}
+-    else:
+-        out['error'] = {'code': 'not_implemented'}
++_MAX_AUDIO_BYTES = 1024 * 1024
++
++
++def _is_finite_number(value):
++    """Return whether *value* is a JSON-like finite number, not a bool."""
++    if isinstance(value, bool) or not isinstance(value, (int, float)):
++        return False
++    try:
++        return math.isfinite(value)
++    except (TypeError, ValueError, OverflowError):
++        return False
++
++
++def _nonempty_string(value, *, strip=False):
++    if not isinstance(value, str) or not value:
++        return False
++    return bool(value.strip()) if strip else True
++
++
++def _finish_error(out, code):
++    """Put the deliberately small public error shape on a result state."""
++    out["error"] = {"code": code or "invalid_event"}
+     return out
++
++
++def _finish_result(out, result):
++    out["result"] = result
++    return out
++
++
++def _room_from_state(out, event):
++    """Look up an existing room without changing the copied state."""
++    rooms = out.get("rooms")
++    room_id = event.get("room_id")
++    if not isinstance(rooms, dict) or not _nonempty_string(room_id, strip=True):
++        return None
++    return rooms.get(room_id)
++
++
++def _room_lists(room):
++    """Return the participant and locked lists when the room is well formed."""
++    if not isinstance(room, dict):
++        return None
++    participants = room.get("participants")
++    locked = room.get("locked")
++    if not isinstance(participants, list) or not isinstance(locked, list):
++        return None
++    return participants, locked
++
++
++def _room_turn_limit(room):
++    if not isinstance(room, dict):
++        return None
++    value = room.get("turn_limit")
++    if not _is_finite_number(value) or value <= 0:
++        return None
++    return value
++
++
++def _server_time(event):
++    value = event.get("server_time")
++    return value if _is_finite_number(value) else None
++
++
++def _next_unlocked(participants, locked, cursor):
++    """Select the first unlocked participant after ``cursor`` circularly.
++
++    ``cursor`` is the last participant whose turn was selected.  Keeping it
++    even while a turn is released is what makes a locked current speaker's
++    next turn resume after that speaker.
++    """
++    if not participants:
++        return None
++
++    # A valid room has unique participants.  The defensive fallback also
++    # gives deterministic behavior for a hand-built state with a stale cursor.
++    if cursor in participants:
++        start = (participants.index(cursor) + 1) % len(participants)
++    else:
++        start = 0
++
++    locked_set = set()
++    for user in locked:
++        try:
++            locked_set.add(user)
++        except TypeError:
++            # Malformed participant data is not a selectable user.
++            pass
++
++    for offset in range(len(participants)):
++        candidate = participants[(start + offset) % len(participants)]
++        if candidate not in locked_set:
++            return candidate
++    return None
++
++
++def _current_is_valid(room, participants, locked):
++    current = room.get("current")
++    return (current is None or
++            (current in participants and current not in locked))
++
++
++def _rotate(room, participants, locked, server_time, *, from_current=True):
++    """Apply one turn selection to a copied room.
++
++    The caller has already validated the event.  A tuple is returned so an
++    overflowing deadline can still be rejected before any room mutation.
++    """
++    current = room.get("current")
++    cursor = room.get("cursor")
++
++    # Current is authoritative when a caller is operating on a room made by
++    # an older state shape that did not yet contain the cursor field.
++    if from_current and current is not None:
++        cursor = current
++
++    selected = _next_unlocked(participants, locked, cursor)
++    if selected is None:
++        return None, None, cursor
++
++    limit = _room_turn_limit(room)
++    if limit is None:
++        return None, None, cursor
++    deadline = server_time + limit
++    if not _is_finite_number(deadline):
++        return None, None, cursor
++    return selected, deadline, selected
++
++
++def _audio_bytes(audio_base64):
++    """Decode and validate the complete WAV payload, returning raw bytes.
++
++    The caller retains the original base64 text for the result; the canonical
++    encoding returned here is only used to compare packet replays by their
++    actual bytes.
++    """
++    if not isinstance(audio_base64, str) or not audio_base64:
++        return None
++
++    # Reject absurd input before decoding.  This is both a useful guard for a
++    # direct caller and keeps the HTTP endpoint's bounded request useful.
++    max_encoded = 4 * ((_MAX_AUDIO_BYTES + 2) // 3) + 4
++    if len(audio_base64) > max_encoded:
++        return None
++
++    try:
++        raw = base64.b64decode(audio_base64, validate=True)
++    except (ValueError, TypeError, UnicodeError):
++        return None
++    if not raw or len(raw) > _MAX_AUDIO_BYTES:
++        return None
++
++    try:
++        with wave.open(io.BytesIO(raw), "rb") as wav_file:
++            if (wav_file.getnchannels() != 1 or
++                    wav_file.getsampwidth() != 2 or
++                    wav_file.getframerate() != 8000 or
++                    wav_file.getcomptype() != "NONE"):
++                return None
++            frame_count = wav_file.getnframes()
++            if frame_count <= 0:
++                return None
++            frames = wav_file.readframes(frame_count)
++            # For mono 16-bit PCM every declared frame is exactly two bytes.
++            # This catches a WAV whose data chunk was truncated.
++            if len(frames) != frame_count * 2:
++                return None
++    except Exception:
++        # ``wave`` has a few format-dependent parsing paths; any malformed
++        # chunk is simply an invalid payload, never a server-fatal event.
++        return None
++
++    return raw
++
++
++def _packet_records(room):
++    records = room.get("packets", {})
++    return records if isinstance(records, dict) else None
++
++
++def _create_room(out, event):
++    rooms = out.get("rooms")
++    if not isinstance(rooms, dict):
++        return _finish_error(out, "invalid_room")
++
++    room_id = event.get("room_id")
++    limit = event.get("turn_limit")
++    private = event.get("private", False)
++    token = event.get("access_token", "")
++
++    try:
++        known_admin = event.get("admin_id") in out.get("admins", [])
++    except (TypeError, AttributeError):
++        known_admin = False
++
++    valid = (
++        known_admin and
++        _nonempty_string(room_id, strip=True) and
++        room_id not in rooms and
++        isinstance(private, bool) and
++        _is_finite_number(limit) and limit > 0 and
++        (not private or (_nonempty_string(token) and isinstance(token, str)))
++    )
++    if not valid:
++        return _finish_error(out, "invalid_room")
++
++    # ``packets`` and ``cursor`` are application metadata.  They are kept in
++    # the room so replay checks remain scoped to this room and survive the
++    # stateless process_voice_event call boundary.
++    rooms[room_id] = {
++        "private": private,
++        "access_token": token,
++        "turn_limit": limit,
++        "participants": [],
++        "locked": [],
++        "current": None,
++        "deadline": None,
++        "cursor": None,
++        "packets": {},
++    }
++    return _finish_result(out, {"room_id": room_id})
++
++
++def _join(out, event):
++    room = _room_from_state(out, event)
++    lists = _room_lists(room)
++    user_id = event.get("user_id")
++    if room is None or lists is None or not _nonempty_string(user_id, strip=True):
++        return _finish_error(out, "invalid_join")
++    participants, locked = lists
++
++    if room.get("private") is True:
++        if event.get("access_token") != room.get("access_token"):
++            return _finish_error(out, "invalid_join")
++    elif room.get("private") is not False:
++        return _finish_error(out, "invalid_join")
++
++    if user_id not in participants:
++        participants.append(user_id)
++    return _finish_result(out, {"participants": list(participants)})
++
++
++def _lock_or_unlock(out, event, *, lock):
++    room = _room_from_state(out, event)
++    lists = _room_lists(room)
++    user_id = event.get("user_id")
++    if room is None or lists is None or not _nonempty_string(user_id, strip=True):
++        return _finish_error(out, "invalid_pass_lock")
++    participants, locked = lists
++    if user_id not in participants:
++        return _finish_error(out, "invalid_pass_lock")
++
++    if lock:
++        if user_id not in locked:
++            locked.append(user_id)
++        if room.get("current") == user_id:
++            # Preserve the cursor.  The next advance starts after this user.
++            room["cursor"] = user_id
++            room["current"] = None
++            room["deadline"] = None
++    else:
++        # Removing all occurrences is harmless for a normal state and repairs
++        # a duplicate in a synthetic hand-built state without changing order.
++        locked[:] = [value for value in locked if value != user_id]
++
++    return _finish_result(out, {"locked": user_id in locked})
++
++
++def _advance(out, event, *, mode):
++    room = _room_from_state(out, event)
++    lists = _room_lists(room)
++    when = _server_time(event)
++    if room is None or lists is None or when is None:
++        return _finish_error(out, "invalid_turn")
++    participants, locked = lists
++
++    if not _current_is_valid(room, participants, locked):
++        return _finish_error(out, "invalid_turn")
++
++    current = room.get("current")
++    if mode == "pass":
++        user_id = event.get("user_id")
++        if (not _nonempty_string(user_id, strip=True) or
++                current is None or user_id != current or
++                user_id not in participants or user_id in locked):
++            return _finish_error(out, "invalid_turn")
++    elif mode == "timeout":
++        deadline = room.get("deadline")
++        if (current is None or not _is_finite_number(deadline) or
++                when < deadline):
++            return _finish_error(out, "invalid_turn")
++    elif mode != "advance":
++        return _finish_error(out, "invalid_turn")
++
++    # A normal current turn is rotated after the current speaker.  On a new or
++    # released room, the stored cursor supplies the starting point.
++    selected, deadline, cursor = _rotate(room, participants, locked, when)
++    if selected is None and participants and any(value not in locked for value in participants):
++        # This can only be a malformed numeric turn limit/overflow; do not
++        # partially update the room.
++        return _finish_error(out, "invalid_turn")
++
++    room["current"] = selected
++    room["deadline"] = deadline
++    if selected is not None:
++        room["cursor"] = cursor
++
++    return _finish_result(out, {"current": selected, "deadline": deadline})
++
++
++def _audio(out, event):
++    room = _room_from_state(out, event)
++    lists = _room_lists(room)
++    when = _server_time(event)
++    user_id = event.get("user_id")
++    packet_id = event.get("packet_id")
++    encoded = event.get("audio_base64")
++
++    if (room is None or lists is None or when is None or
++            not _nonempty_string(user_id, strip=True) or
++            not _nonempty_string(packet_id, strip=True)):
++        return _finish_error(out, "invalid_audio")
++    participants, locked = lists
++    current = room.get("current")
++    deadline = room.get("deadline")
++    if (current is None or current != user_id or user_id not in participants or
++            user_id in locked or not _is_finite_number(deadline) or
++            when >= deadline):
++        return _finish_error(out, "invalid_audio")
++
++    raw = _audio_bytes(encoded)
++    if raw is None:
++        return _finish_error(out, "invalid_audio")
++    canonical = base64.b64encode(raw).decode("ascii")
++
++    records = _packet_records(room)
++    if records is None:
++        return _finish_error(out, "invalid_audio")
++    previous = records.get(packet_id)
++    if previous is not None:
++        if (isinstance(previous, dict) and
++                previous.get("sender") == user_id and
++                previous.get("audio_base64") == canonical):
++            return _finish_result(out, {
++                "packet_id": packet_id,
++                "audio_base64": encoded,
++                "recipients": [],
++            })
++        return _finish_error(out, "invalid_audio")
++
++    recipients = []
++    seen = set()
++    for participant in participants:
++        if participant == user_id:
++            continue
++        try:
++            already_seen = participant in seen
++        except TypeError:
++            return _finish_error(out, "invalid_audio")
++        if not already_seen:
++            try:
++                seen.add(participant)
++            except TypeError:
++                return _finish_error(out, "invalid_audio")
++            recipients.append(participant)
++
++    # All validation, including replay detection, is complete before this
++    # first mutation.  The record is JSON serializable because raw bytes never
++    # enter the returned state.
++    updated_records = dict(records)
++    updated_records[packet_id] = {
++        "sender": user_id,
++        "audio_base64": canonical,
++    }
++    room["packets"] = updated_records
++
++    return _finish_result(out, {
++        "packet_id": packet_id,
++        "audio_base64": encoded,
++        "recipients": recipients,
++    })
++
++
++def process_voice_event(state: dict, event: dict) -> dict:
++    """Process one room event and return a new state.
++
++    No branch writes to ``state`` or ``event``.  In particular, validation is
++    performed before room mutation, so failed actions retain the copied room
++    data exactly as supplied by the caller.
++    """
++    try:
++        out = deepcopy(state)
++    except Exception:
++        # The documented interface supplies dictionaries.  This fallback keeps
++        # malformed direct calls in the required error shape without ever
++        # attempting to modify the object supplied by the caller.
++        out = {}
++
++    if not isinstance(out, dict):
++        return {"error": {"code": "invalid_state"}}
++
++    # Results and errors describe only the latest event.  Room data and all
++    # other application fields are retained in the copied state.
++    out.pop("error", None)
++    out.pop("result", None)
++    if "rooms" not in out:
++        out["rooms"] = {}
++
++    if not isinstance(event, dict):
++        return _finish_error(out, "invalid_event")
++
++    action = event.get("type")
++    if action == "create_room":
++        return _create_room(out, event)
++    if action == "join":
++        return _join(out, event)
++    if action == "lock_pass":
++        return _lock_or_unlock(out, event, lock=True)
++    if action == "unlock_pass":
++        return _lock_or_unlock(out, event, lock=False)
++    if action == "advance":
++        return _advance(out, event, mode="advance")
++    if action == "pass":
++        return _advance(out, event, mode="pass")
++    if action == "timeout":
++        return _advance(out, event, mode="timeout")
++    if action == "audio":
++        return _audio(out, event)
++    return _finish_error(out, "unknown_action")

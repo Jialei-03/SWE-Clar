@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-064",
+  "public": {
+    "readme": "# Event matching backend component\n\nImplement `process_matchmaker_command(state, command) -> dict` in solution.py. This bounded module handles local OTP verification, profiles, event registration, match permissions, messages, blocking and report records. Preserve the supplied SQLite CLI. It is not a full dating application or an SMS/Firebase integration. Actor IDs and organizer context are supplied by a trusted upstream caller; this command interface does not authenticate a network session.\n\nUse prepared python-web (Python 3.12.3, standard-library SQLite), with no installation or external account. In /workspace run `python cli.py --db matchmaker.sqlite init` with one JSON state on stdin. `show` prints public state; `act` reads a command and prints its outcome. Each call is a separate process. Init cannot replace an existing database. Successful business state persists; rejected actions leave stored business state intact. Public check: `python /public_tests/test_public.py`. Limits: 2 CPU,2048 MiB,256 processes,256 MiB workspace; no external network.\n\nState includes users/events/matches mappings and messages array; missing optional collections mean empty. Each user may initially have local phone/otp credentials. The CLI stores those fixtures separately in its auth table and reinjects them for later commands, including after rejected OTP attempts or other users' actions. Public state and all outputs must remove phone/otp fields and redact stored credential strings if reflected elsewhere. `cli.public_state` is supplied as a reusable projection helper. Do not mutate either function input. Return a new sanitized state with result or a nonempty error.code; preserve unrelated business data on errors. Additional metadata and alternate error strings are allowed.\n\nVisible verification/profile rule: verify_otp matches a nonempty supplied string against the existing user's local OTP and sets verified=true. update_profile requires a verified user, nonempty dance_style/skill_level strings and preferred_role lead/follow. Store and return these three fields in result.profile. Extra command fields must not overwrite identity, approval or authentication fields. No OTP is sent externally.\n\nCommands:\n\n- verify_otp: user_id, otp.\n- update_profile: user_id, dance_style, skill_level, preferred_role.\n- create_event: organizer_id, event_id, capacity {lead,follow}.\n- register_event: event_id, user_id, role.\n- override_role: event_id, organizer_id, user_id, role.\n- express_interest: user_id, target_id.\n- send_message: sender_id, recipient_id, text.\n- list_matches: user_id.\n- block: user_id, target_id.\n- report: user_id, target_id, reason.\n\nUser organizer approval is approved_organizer. Event records expose organizer_id,capacity,attendees,waitlist; registration entries contain user_id and role. Registration returns top-level registration_status. Match records expose users (two IDs) and active; keys and interest/block storage formats are free. list_matches returns result.matches. Messages expose sender_id,recipient_id,text. Internal reports and admin_alerts expose reporter_id,target_id,reason. These alerts are records, not delivered notifications.\n\nAsk the client about organizer approval, capacity/waitlist transitions and overrides, when matches activate, chat visibility and blocking/report rules. Keep this a local persistent backend slice using synthetic records, not the original application or assets.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_matchmaker_command",
+          "signature": "process_matchmaker_command(state,command) -> dict"
+        },
+        "inputs": {
+          "state": "Synthetic local records",
+          "command": "Public command schema in README"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "New sanitized state and result/error; actual CLI persistence"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_matchmaker_command",
+        "signature": "process_matchmaker_command(state,command) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic local records",
+        "command": "Public command schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New sanitized state and result/error; actual CLI persistence"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_matchmaker_command",
+        "signature": "process_matchmaker_command(state,command) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic local records",
+        "command": "Public command schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New sanitized state and result/error; actual CLI persistence"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_matchmaker_command",
+        "signature": "process_matchmaker_command(state,command) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic local records",
+        "command": "Public command schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New sanitized state and result/error; actual CLI persistence"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_matchmaker_command",
+        "signature": "process_matchmaker_command(state,command) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic local records",
+        "command": "Public command schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New sanitized state and result/error; actual CLI persistence"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_matchmaker_command",
+        "signature": "process_matchmaker_command(state,command) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic local records",
+        "command": "Public command schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New sanitized state and result/error; actual CLI persistence"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "892e77ecf8993fa50a40d76c95c0846ab6b8874682a8b4b2a1703f96c4181e27",
+  "test_sources_sha256": {
+    "evaluation/tests/candidate_proxy.py": "9ea177c9d61bc5715ab44f36613cc85560842954fa9c65146c2203d7b2f368f9",
+    "evaluation/tests/conftest.py": "8b7860e7d8d0902169fab1abc22d2daff6c02906e44d3d565cdd16e3cb0ac45f",
+    "evaluation/tests/evaluate.py": "2d235ecbe7745653f3942a95a228e5105e6b2badf2d37fc290b47acd0c6687ca",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "ff2625c631a0438c9b85ed5e3f044b7e470ec6729227f029f0c167115da53184"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

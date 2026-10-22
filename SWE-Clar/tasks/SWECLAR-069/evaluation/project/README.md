@@ -1,0 +1,14 @@
+# Local credits ledger
+
+Implement `process_marketplace_action(state,action)` without changing either input. SQLite storage.py and cli.py are supplied working transaction adapters: a durable state snapshot plus append-only event rows, serialized with BEGIN IMMEDIATE. Keep actual persistence and atomicity. No real payment integration, lead ingestion or customer data is present. Event IDs, replay/conflict behavior and local no-refund after later failure are synthetic component rules; they do not define broader commercial dispute or chargeback policy.
+
+Prepared python-web supplies Python3.12.3/SQLite; no installation, network or server is needed. Commands: `python cli.py runtime/ledger.sqlite init` reads a seed JSON on stdin; `python cli.py runtime/ledger.sqlite apply` reads one action; `python cli.py runtime/ledger.sqlite snapshot` reads committed state. Create runtime first. Init requires a new database, so it cannot reset an existing ledger silently. Public check: `python /public_tests/smoke.py`. Source build is unnecessary. Health is a successful snapshot; there is no listening port. Runtime files are excluded from deliverables. 2 CPUs, 2GiB RAM, 256 processes, 256MiB workspace.
+
+Seed fields: users object, jobs object keyed by job ID (records contain category and positive integer credit_cost), ledger array and processed_ids. `create_user` carries user_id, role and categories (nonempty unique category strings, one through five); `subscribe` carries user_id, payment_id, period and credit_grant; `unlock_job` carries user_id, job_id and event_id. Trusted local commands supply these events, not external self-authorized payments. Ask the synthetic client about grant periods/replay, category unlock caps and ledger rules.
+
+Outputs preserve unrelated state fields and expose users with role/categories/credits, ledger entries and a result or error. Rejected operations return a nonempty error.code and leave committed business state unchanged; exact wording is unspecified. Extra result/state/ledger metadata is allowed. Grants append event_id,user_id,delta,kind=credit_grant,period; debits append event_id,user_id,delta,kind=job_unlock,job_id. Ledger amounts are signed credits. These field names are the local interface, not original customer wire protocols. Storage tables are implementation details; alternate schemas are allowed if behavior persists. Identical successful replay reports result.replayed=true. Existing event meaning and committed entries must not change.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

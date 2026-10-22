@@ -1,0 +1,14 @@
+{
+  "accounts": [
+    {"id":"account-a","name":"Example analyst A","password":"local-demo"},
+    {"id":"account-b","name":"Example analyst B","password":"local-demo"}
+  ],
+  "competitors": [
+    {"account_id":"account-a","competitor_id":"example-catalog","name":"Example catalog","archived":false,"urls":["/pages/demo-page-a"]},
+    {"account_id":"account-b","competitor_id":"example-service","name":"Example service","archived":false,"urls":["/pages/demo-page-b"]}
+  ],
+  "subscriptions": [
+    {"account_id":"account-a","sequence":0,"plan":"full","status":"active"},
+    {"account_id":"account-b","sequence":0,"plan":"full","status":"active"}
+  ]
+}

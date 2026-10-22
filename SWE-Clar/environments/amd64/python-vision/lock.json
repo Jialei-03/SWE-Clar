@@ -1,0 +1,65 @@
+{
+  "platform": "linux/amd64",
+  "base": {
+    "profile": "python-web",
+    "arg": "WEB_IMAGE"
+  },
+  "wheels": [
+    {
+      "package": "Pillow",
+      "version": "12.3.0",
+      "filename": "pillow-12.3.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/84/21/a35af28dcc61f37ed850a2d64c65c701321dfbf25085e469d5559360cbbf/pillow-12.3.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "78cb2c6865a35ab8ff8b75fd122f6033b92a62c82801110e48ddd6c936a45d91",
+      "name": "pillow"
+    }
+  ],
+  "deb_packages": [
+    {
+      "filename": "tesseract-ocr_5.3.4-1build5_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/universe/t/tesseract/tesseract-ocr_5.3.4-1build5_amd64.deb",
+      "sha256": "2dfac382d77215aee0c3de4a2a2205505d5f2195e72e79b54ad32154fc08da77"
+    },
+    {
+      "filename": "libarchive13t64_3.7.2-2_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/liba/libarchive/libarchive13t64_3.7.2-2_amd64.deb",
+      "sha256": "90f7f4692ac6b2ce1755c0f2e67f9655e288d764ef9d70dba7c3f7ae8b8a5b4b"
+    },
+    {
+      "filename": "liblept5_1.82.0-3build4_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/universe/l/leptonlib/liblept5_1.82.0-3build4_amd64.deb",
+      "sha256": "c2bb81d58f032b09917c0d50994cce905287a1596304a4e99681a03601456ea8"
+    },
+    {
+      "filename": "libgif7_5.2.2-1ubuntu1_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/giflib/libgif7_5.2.2-1ubuntu1_amd64.deb",
+      "sha256": "2640ecc16a63c5f580c3bdb1271fdb04d9fb392c573bdfef1daf22165bb14c00"
+    },
+    {
+      "filename": "libtesseract5_5.3.4-1build5_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/universe/t/tesseract/libtesseract5_5.3.4-1build5_amd64.deb",
+      "sha256": "a38438115dc203b5abc1e6a6b24eb5273ba82161a11faa2f619bf5f7622efb14"
+    },
+    {
+      "filename": "tesseract-ocr-eng_4.1.0-2_all.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/universe/t/tesseract-lang/tesseract-ocr-eng_4.1.0-2_all.deb",
+      "sha256": "b1996b3113c78663f4dd16cf18aa1f288b07e9624f8d4a0ddbd7d9b52a234ba7"
+    },
+    {
+      "filename": "tesseract-ocr-osd_4.1.0-2_all.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/universe/t/tesseract-lang/tesseract-ocr-osd_4.1.0-2_all.deb",
+      "sha256": "a266496b3268134493808c1595c9d16ac92c7e1c28e3e0bf46fdb322df95ca68"
+    },
+    {
+      "filename": "fonts-dejavu-core_2.37-8_all.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/f/fonts-dejavu/fonts-dejavu-core_2.37-8_all.deb",
+      "sha256": "40049660c194f3b8a2541fc7369efebb10e9f94bdac836a2f38fafedd10fa73a"
+    },
+    {
+      "filename": "fonts-dejavu-mono_2.37-8_all.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/f/fonts-dejavu/fonts-dejavu-mono_2.37-8_all.deb",
+      "sha256": "8a599d6553307db7ecb795d2f0e5a301e03234afc75c7358b0ba43466454c89a"
+    }
+  ],
+  "npm_lock": null
+}

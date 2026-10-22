@@ -1,0 +1,20 @@
+{
+  "profile": "python-report",
+  "platform": "linux/amd64",
+  "workdir": "/workspace",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 1536,
+    "pids": 256,
+    "workspace_mb": 256,
+    "evaluation_wall_seconds": 600
+  },
+  "dependencies": "Prepared Linux Python, Pillow and Playwright Chromium; all services run inside the task Docker container.",
+  "public_test": [
+    "python",
+    "/public_tests/smoke.py"
+  ],
+  "start": "python /public_tests/demo.py",
+  "health": "Local HTTP page and authenticated synthetic login.",
+  "reset": "Fresh task container; private verifier owns isolated temporary SQLite/assets and tests a real same-port restart."
+}

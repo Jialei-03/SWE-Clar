@@ -1,0 +1,14 @@
+# Local backend command component
+
+Implement `process_backend_command(state,command)` without mutating either input. Supplied SQLite/CLI adapters persist business state and serialize competing actions. This is an independent Python adaptation of a broader backend module description. Exact command shapes, replay/cycle policy and numeric rate limits are synthetic requirements. No external refund, authentication email, Shopify account or Laravel deployment is performed.
+
+Prepared python-web provides Python3.12.3/SQLite. No install, build or network is needed. Create runtime; `python cli.py runtime/commands.sqlite init` reads initial state JSON; `python cli.py runtime/commands.sqlite apply` reads one command; `python cli.py runtime/commands.sqlite snapshot` reads durable state. Init requires a new database. Public check: `python /public_tests/smoke.py`. Health is a successful snapshot; there is no port. Fresh database resets state; all runtime files are excluded from delivery. 2 CPUs, 2GiB RAM, 256 processes, 256MiB workspace.
+
+Commands: refund {idempotency_key,order_id,amount,currency}; comment {id,parent_id?,body?,created_at?}; passwordless {email,now}, all carrying type. IDs/text identifiers are nonempty strings; amounts and trusted supplied timestamps are finite numeric values, not booleans. Valid refund normalization uppercases currency and produces a pending record with exactly idempotency_key,order_id,amount,currency,status. No provider call occurs. Comments have unique IDs; imported seed comments may have dangling parent links, enabling cycle-validation cases. Timestamps for each email are supplied in nondecreasing order; the module does not send mail or trust browser wall clocks.
+
+Business fields are refunds (array), comments (array) and login_attempts (normalized-email to accepted-timestamp arrays). Command views are refund_result, comment_result and login_result; error.code is a nonempty rejection string. SQLite persists business fields and extra state metadata but strips those transient views/errors. Alternate SQL schemas are allowed. Ask the client for replay, hierarchy and limiter semantics. Extra top-level metadata is allowed; preserve exact nested shapes where a requirement explicitly specifies them. Replaying an older refund may update transient refund_result to that refund while durable state remains unchanged; no-op equality does not constrain unrelated metadata.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

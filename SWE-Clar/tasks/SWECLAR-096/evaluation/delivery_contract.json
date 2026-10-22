@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-096",
+  "public": {
+    "readme": "# Area calculator component\n\nRepair the supplied responsive web calculator and Python backend. `python server.py` starts a loopback service (PORT=0 chooses a free port and prints JSON). The browser sends numeric land_area_sqft, site_area_sqft and plot_ratio inputs to POST /calculate; POST /report returns an actual downloadable PDF. The frontend must display returned values and keep the calculation on the backend rather than embedding formula code in browser assets.\n\nThis component reconstructs the source-supported area calculation workflow. It is not the complete property valuation spreadsheet or a mobile-store release. The selected formula snapshot and output formatting are defined by the requirement registry; later commercial revisions are outside this component. All fixtures use synthetic numeric inputs and omit project names, site information, original files and links. Prepared Python 3.12, reportlab 4.4.9 and browser dependencies are provided; no external network or account is required.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "calculator.py",
+          "function": "calculate",
+          "signature": "calculate(values) -> dict"
+        },
+        "inputs": {
+          "values": "land_area_sqft,site_area_sqft,plot_ratio numeric fields"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "Independent computed result; actual PDF bytes are produced by report_pdf and /report."
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "calculator.py",
+        "function": "calculate",
+        "signature": "calculate(values) -> dict"
+      },
+      "inputs": {
+        "values": "land_area_sqft,site_area_sqft,plot_ratio numeric fields"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Independent computed result; actual PDF bytes are produced by report_pdf and /report."
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "calculator.py",
+        "function": "calculate",
+        "signature": "calculate(values) -> dict"
+      },
+      "inputs": {
+        "values": "land_area_sqft,site_area_sqft,plot_ratio numeric fields"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Independent computed result; actual PDF bytes are produced by report_pdf and /report."
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "calculator.py",
+        "function": "calculate",
+        "signature": "calculate(values) -> dict"
+      },
+      "inputs": {
+        "values": "land_area_sqft,site_area_sqft,plot_ratio numeric fields"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Independent computed result; actual PDF bytes are produced by report_pdf and /report."
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "calculator.py",
+        "function": "calculate",
+        "signature": "calculate(values) -> dict"
+      },
+      "inputs": {
+        "values": "land_area_sqft,site_area_sqft,plot_ratio numeric fields"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Independent computed result; actual PDF bytes are produced by report_pdf and /report."
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "calculator.py",
+        "function": "calculate",
+        "signature": "calculate(values) -> dict"
+      },
+      "inputs": {
+        "values": "land_area_sqft,site_area_sqft,plot_ratio numeric fields"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Independent computed result; actual PDF bytes are produced by report_pdf and /report."
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "95c772940308711c99ce3105a4a992f459e364d2e0e3fac53eaab94defed2d3b",
+  "test_sources_sha256": {
+    "evaluation/tests/calculator_contract.py": "ee49051954c2ec1f243e6369de30ea18ceca9b8d5cc5886fe88f236eb243a4dc",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "32786ca971bf6e1de0244a3f875f2785c3b236dc5f9ac293e67a1bbdc07d679d",
+    "evaluation/tests/source_test.sh": "e98f953d9fff2d3ea1e697fa6e508864412a0f172a0d4056e763a6ee16334e09",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "8cbb2ee49e8e6a1148e21bad0b7eccd6ac98cee203197c9f14e6635a5a37c355"
+  },
+  "public_environment_sha256": "db00d383e257d890239da59fa1da2f90910ea9c3c40be8c909e7b118f2be06b9",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

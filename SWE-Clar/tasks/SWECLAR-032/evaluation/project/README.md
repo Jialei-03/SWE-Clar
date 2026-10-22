@@ -1,0 +1,21 @@
+# Centre portal migration component
+
+Independent React 18.3.1, Express 5.1.0, Node 22 and MongoDB 7.0.16 reconstruction. The benchmark prepares the pinned dependencies, a local transaction-capable MongoDB replica set, a restricted database account and synthetic bootstrap before coding starts. React's public MIT assets and notices are included under vendor; customer WordPress themes and database dumps are not included.
+
+Work in `/workspace`. Start with `python /workspace/dev_runtime/start.py`; the portal is at `http://127.0.0.1:8080`. Run `python /public_tests/test_public.py` for the public smoke test (it uses a separate ephemeral HTTP port). Stop your foreground service with Ctrl-C; restart with the same start command to retain records. Startup prints its listening port; server errors appear on stderr.
+
+`runtime/connection.json` supplies the development-only MongoDB connection and bootstrap path. You may read these local synthetic settings and use only the provisioned database. Do not install MongoDB, initiate a replica set, obtain external credentials or run npm install. Dependencies are preinstalled through NODE_PATH. Use synthetic account `sample-admin`, centre `demo`, PIN `2468`. The benchmark creates a fresh database and workspace for each attempt; within an attempt, normal restarts retain data. Reset your application data only in your own database. Do not include generated `runtime/` configuration in your submitted source changes.
+
+
+Synthetic bootstrap maps centres, users and children by stable ID. Users have role admin|staff|parent, centre_ids, child_ids and a synthetic initial PIN. PINs are converted to salted scrypt verifiers; API sessions use random bearer tokens whose hashes are stored. No credentials, names, photos or student records from the original portal are supplied.
+
+The executable component covers operational records for daily_chart, curriculum, incident and attendance. POST /login accepts user_id,centre_id,pin. Authenticated /api/migrate accepts {rows:[{legacy_id,record_type,centre_id,relationship_ids,child_id,data}]}; /api/records supports POST {id,module,centre_id,child_id,data} and GET ?module=&child_id=; /api/parent-view?child_id= returns permitted child records; /api/messages accepts {message_id,recipient_id,text} and lists only the user's messages. Legacy relationship IDs reference children or operational records in the same centre. The normalized schema is a benchmark choice, not a claim to preserve every original WordPress plugin field.
+
+Repair the existing React portal and real MongoDB workflow. Migration replays skip identical rows, conflicting IDs fail and a failed batch commits nothing. Tokens determine roles and centre scope. Local test accounts and each test database are generated at preparation time; use only the isolated test database. This is a runnable migration/access component, not the full commercial portal or production account lifecycle.
+
+The existing library entry remains supported alongside HTTP: `require('./portal.cjs').Portal`, constructed with `(MongoClient, db, bootstrap)`, exposes `session(token)` and `migrate(session, rows)`. Preserve this small integration interface while changing the implementation as needed. Migration must leave caller-owned input rows and nested data unchanged, both on success and on rejection. This is an existing library compatibility requirement, not a hidden business decision.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

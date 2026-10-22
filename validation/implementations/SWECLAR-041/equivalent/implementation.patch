@@ -1,0 +1,631 @@
+diff --git a/controller.cpp b/controller.cpp
+index ec5e98efd6ab00bc240038f4e9e05c6efa033f17..0e2fd995ecd8770574dea0674af0db27c696d091 100644
+--- a/controller.cpp
++++ b/controller.cpp
+@@ -1,72 +1,182 @@
+ #include "controller.hpp"
+-#include <algorithm>
+ #include <charconv>
+ #include <sstream>
++#include <vector>
+ 
+ namespace {
+ bool integer(const std::string& text, int64_t& value) {
+   const char* end = text.data() + text.size();
+-  auto result = std::from_chars(text.data(), end, value);
++  const auto result = std::from_chars(text.data(), end, value, 10);
+   return result.ec == std::errc{} && result.ptr == end;
+ }
+-std::string error() { return "{\"ok\":false,\"error\":\"invalid_command\"}"; }
++
++std::string invalid_command() {
++  return "{\"ok\":false,\"error\":\"invalid_command\"}";
++}
++
++std::string accepted() { return "{\"ok\":true}"; }
++}  // namespace
++
++Controller::Controller(Hal& hal) : hal_(hal) {
++  update_mode();
++  // The initial high GPIO record is deliberately emitted before the first
++  // registration beacon, matching the public wire-order rule.
++  hal_.advertise(0);
+ }
+-Controller::Controller(Hal& hal) : hal_(hal) { update_mode(); hal_.advertise(0); }
++
+ void Controller::set_led(bool level, uint32_t tick) {
+-  if (level != level_) { level_ = level; hal_.gpio(tick, level); }
++  if (level == level_) return;
++  level_ = level;
++  hal_.gpio(tick, level);
++}
++
++Controller::LedMode Controller::desired_mode() const {
++  if (!network_) return LedMode::network_down;  // fast blink
++  if (!hal_.bus_ready()) return LedMode::bus_pending;  // slow blink
++  return LedMode::ready;  // solid high
+ }
++
+ void Controller::update_mode() {
+-  // Provisional power indicator; implement the agreed connectivity timing policy.
++  const LedMode next_mode = desired_mode();
++  if (next_mode == mode_) return;
++
++  mode_ = next_mode;
++  switch (mode_) {
++    case LedMode::network_down:
++      half_period_ = 100;
++      break;
++    case LedMode::bus_pending:
++      half_period_ = 500;
++      break;
++    case LedMode::ready:
++      half_period_ = 0;
++      break;
++    case LedMode::uninitialized:
++      // desired_mode() never returns this sentinel; retaining a safe solid
++      // output makes the invariant explicit if a new mode is added later.
++      half_period_ = 0;
++      break;
++  }
++
+   set_led(true, now_);
+-  next_edge_ = UINT64_MAX;
++  next_edge_ = half_period_ == 0
++                   ? UINT64_MAX
++                   : static_cast<uint64_t>(now_) + half_period_;
+ }
++
+ void Controller::link_changed() { update_mode(); }
++
+ void Controller::advance(uint32_t target) {
+-  while (std::min(next_edge_, next_advert_) <= target) {
+-    uint32_t event_time = static_cast<uint32_t>(std::min(next_edge_, next_advert_));
+-    if (next_edge_ == event_time) { set_led(!level_, event_time); next_edge_ += half_period_; }
+-    if (next_advert_ == event_time) { hal_.advertise(event_time); next_advert_ += 1000; }
++  // Both schedules are absolute virtual timestamps.  Selecting the GPIO
++  // event first on equality gives the required GPIO-before-beacon ordering.
++  while (true) {
++    const uint64_t edge = next_edge_;
++    const uint64_t beacon = next_advert_;
++    const uint64_t event = edge < beacon ? edge : beacon;
++    if (event > target) break;
++
++    if (edge <= beacon) {
++      set_led(!level_, static_cast<uint32_t>(edge));
++      next_edge_ = edge + half_period_;
++    } else {
++      hal_.advertise(static_cast<uint32_t>(beacon));
++      next_advert_ = beacon + 1000;
++    }
+   }
+   now_ = target;
+ }
++
+ void Controller::health(int rssi, int channel, int bandwidth) {
+-  // The transport encoder exists; complete publication eligibility and delivery.
+-  (void)rssi; (void)channel; (void)bandwidth;
++  // A sample is a one-shot operation.  Hal's outbox is only used for this
++  // current, acknowledged connection and is discarded if that connection
++  // closes.
++  if (network_ && hal_.bus_ready()) hal_.publish(now_, rssi, channel, bandwidth);
+ }
++
+ std::string Controller::status() const {
+   std::ostringstream out;
+-  out << "{\"ok\":true,\"time\":" << now_ << ",\"network\":" << (network_ ? "true" : "false")
+-      << ",\"broker\":" << (hal_.bus_ready() ? "true" : "false") << ",\"pending\":" << (hal_.bus_pending() ? "true" : "false")
+-      << ",\"registered\":" << (registered_ ? "true" : "false") << ",\"led_level\":" << (level_ ? 1 : 0)
++  out << "{\"ok\":true,\"time\":" << now_
++      << ",\"network\":" << (network_ ? "true" : "false")
++      << ",\"broker\":" << (hal_.bus_ready() ? "true" : "false")
++      << ",\"pending\":" << (hal_.bus_pending() ? "true" : "false")
++      << ",\"registered\":" << (registered_ ? "true" : "false")
++      << ",\"led_level\":" << (level_ ? 1 : 0)
+       << ",\"registration_port\":" << hal_.registration_port() << "}";
+   return out.str();
+ }
++
+ std::string Controller::command(const std::string& line) {
+-  std::istringstream input(line); std::vector<std::string> parts; std::string part;
++  // main() enforces this limit while consuming the serial stream as well;
++  // keeping the check here makes the command operation safe on its own.
++  if (line.size() > 256) return invalid_command();
++
++  std::istringstream input(line);
++  std::vector<std::string> parts;
++  std::string part;
+   while (input >> part) parts.push_back(part);
+-  if (parts.empty()) return error();
+-  const auto& name = parts[0];
++  if (parts.empty()) return invalid_command();
++
++  const std::string& name = parts[0];
+   if (name == "status" && parts.size() == 1) return status();
+-  if (name == "quit" && parts.size() == 1) { quitting_ = true; return "{\"ok\":true}"; }
++  if (name == "quit" && parts.size() == 1) {
++    quitting_ = true;
++    return accepted();
++  }
+   if (name == "registered" && parts.size() == 1) {
+-    registered_ = true; next_advert_ = UINT64_MAX; hal_.stop_registration(); return "{\"ok\":true}";
++    if (!registered_) {
++      registered_ = true;
++      next_advert_ = UINT64_MAX;
++      hal_.stop_registration();
++    }
++    return accepted();
+   }
+-  if ((name == "network" || name == "broker") && parts.size() == 2 && (parts[1] == "0" || parts[1] == "1")) {
+-    bool enabled = parts[1] == "1";
+-    if (name == "network") { network_ = enabled; if (!enabled) hal_.close_bus(); }
+-    else { if (enabled && !network_) return "{\"ok\":false,\"error\":\"network_down\"}"; if (enabled) hal_.open_bus(); else hal_.close_bus(); }
+-    update_mode(); return "{\"ok\":true}";
++
++  if ((name == "network" || name == "broker") && parts.size() == 2
++      && (parts[1] == "0" || parts[1] == "1")) {
++    const bool enabled = parts[1] == "1";
++
++    if (name == "network") {
++      const bool changed = enabled != network_;
++      network_ = enabled;
++      if (!enabled) hal_.close_bus();
++      if (changed) update_mode();
++      return accepted();
++    }
++
++    if (enabled && !network_) return "{\"ok\":false,\"error\":\"network_down\"}";
++    if (enabled) {
++      // open_bus itself is defensive, but this guard documents and enforces
++      // that repeated requests do not create a second connection.
++      if (!hal_.bus_ready() && !hal_.bus_pending()) hal_.open_bus();
++    } else {
++      hal_.close_bus();
++    }
++    update_mode();
++    return accepted();
+   }
++
+   if (name == "advance" && parts.size() == 2) {
+-    int64_t target;
+-    if (!integer(parts[1], target) || target < now_ || target > 86400000 || target - now_ > 10000) return error();
+-    advance(static_cast<uint32_t>(target)); return "{\"ok\":true}";
++    int64_t target = 0;
++    if (!integer(parts[1], target) || target < static_cast<int64_t>(now_)
++        || target > 86400000 || target - static_cast<int64_t>(now_) > 10000) {
++      return invalid_command();
++    }
++    advance(static_cast<uint32_t>(target));
++    return accepted();
+   }
++
+   if (name == "health" && parts.size() == 4) {
+-    int64_t rssi, channel, bandwidth;
++    int64_t rssi = 0;
++    int64_t channel = 0;
++    int64_t bandwidth = 0;
+     if (!integer(parts[1], rssi) || !integer(parts[2], channel) || !integer(parts[3], bandwidth)
+-        || rssi < -127 || rssi > 0 || channel < 1 || channel > 14 || (bandwidth != 20 && bandwidth != 40 && bandwidth != 80)) return error();
+-    health(rssi, channel, bandwidth); return "{\"ok\":true}";
++        || rssi < -127 || rssi > 0 || channel < 1 || channel > 14
++        || (bandwidth != 20 && bandwidth != 40 && bandwidth != 80)) {
++      return invalid_command();
++    }
++    health(static_cast<int>(rssi), static_cast<int>(channel), static_cast<int>(bandwidth));
++    return accepted();
+   }
+-  return "{\"ok\":true}";
++
++  return invalid_command();
+ }
+diff --git a/controller.hpp b/controller.hpp
+index ea9cc346cfd721c14cae1bd14e94b44c6b6307a4..b13235ad587ab8f4941aec4c24d183f3def48f21 100644
+--- a/controller.hpp
++++ b/controller.hpp
+@@ -2,7 +2,6 @@
+ #include "hal.hpp"
+ #include <cstdint>
+ #include <string>
+-#include <vector>
+ 
+ class Controller {
+  public:
+@@ -10,13 +9,22 @@ class Controller {
+   std::string command(const std::string& line);
+   void link_changed();
+   bool quitting() const { return quitting_; }
++
+  private:
++  enum class LedMode : uint8_t { uninitialized, network_down, bus_pending, ready };
++
+   Hal& hal_;
+   uint32_t now_ = 0;
+-  uint64_t next_edge_ = UINT64_MAX, next_advert_ = 1000;
++  uint64_t next_edge_ = UINT64_MAX;
++  uint64_t next_advert_ = 1000;
+   uint32_t half_period_ = 0;
+-  int mode_ = -1;
+-  bool network_ = false, registered_ = false, level_ = false, quitting_ = false;
++  LedMode mode_ = LedMode::uninitialized;
++  bool network_ = false;
++  bool registered_ = false;
++  bool level_ = false;
++  bool quitting_ = false;
++
++  LedMode desired_mode() const;
+   void update_mode();
+   void set_led(bool level, uint32_t tick);
+   void advance(uint32_t target);
+diff --git a/hal.cpp b/hal.cpp
+index 1ee79f8bb77c44f798b4591dac5b77fcf2eba165..5ca9e8cfd2ab43d21beb255b95ce6eb15bd807b2 100644
+--- a/hal.cpp
++++ b/hal.cpp
+@@ -1,4 +1,5 @@
+ #include "hal.hpp"
++#include <array>
+ #include <arpa/inet.h>
+ #include <cerrno>
+ #include <fcntl.h>
+@@ -9,84 +10,262 @@
+ 
+ namespace {
+ sockaddr_in address(int port) {
+-  sockaddr_in result{}; result.sin_family = AF_INET; result.sin_port = htons(port);
+-  result.sin_addr.s_addr = htonl(INADDR_LOOPBACK); return result;
++  sockaddr_in result{};
++  result.sin_family = AF_INET;
++  result.sin_port = htons(static_cast<uint16_t>(port));
++  result.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++  return result;
+ }
++
+ void nonblocking(int fd) {
+-  if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) < 0) throw std::runtime_error("fcntl");
+-}
+-void u32(std::vector<uint8_t>& bytes, uint32_t value) {
+-  for (int shift : {24, 16, 8, 0}) bytes.push_back(static_cast<uint8_t>(value >> shift));
++  const int flags = fcntl(fd, F_GETFL, 0);
++  if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
++    throw std::runtime_error("fcntl");
++  }
+ }
++
++void store_u32(uint8_t* destination, uint32_t value) {
++  destination[0] = static_cast<uint8_t>(value >> 24);
++  destination[1] = static_cast<uint8_t>(value >> 16);
++  destination[2] = static_cast<uint8_t>(value >> 8);
++  destination[3] = static_cast<uint8_t>(value);
+ }
++}  // namespace
++
+ Hal::Hal(int board_port, int bus_port) : board_port_(board_port), bus_port_(bus_port) {
+   board_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
+   registration_fd_ = socket(AF_INET, SOCK_STREAM, 0);
+   if (board_fd_ < 0 || registration_fd_ < 0) throw std::runtime_error("socket");
+-  auto local = address(0);
+-  if (bind(registration_fd_, reinterpret_cast<sockaddr*>(&local), sizeof(local)) < 0 || listen(registration_fd_, 8) < 0)
++
++  const sockaddr_in local = address(0);
++  if (bind(registration_fd_, reinterpret_cast<const sockaddr*>(&local), sizeof(local)) < 0
++      || listen(registration_fd_, 8) < 0) {
+     throw std::runtime_error("registration listener");
+-  socklen_t length = sizeof(local);
+-  if (getsockname(registration_fd_, reinterpret_cast<sockaddr*>(&local), &length) < 0) throw std::runtime_error("getsockname");
+-  registration_port_ = ntohs(local.sin_port); nonblocking(registration_fd_);
++  }
++
++  sockaddr_in bound = local;
++  socklen_t length = sizeof(bound);
++  if (getsockname(registration_fd_, reinterpret_cast<sockaddr*>(&bound), &length) < 0) {
++    throw std::runtime_error("getsockname");
++  }
++  registration_port_ = ntohs(bound.sin_port);
++  nonblocking(registration_fd_);
++}
++
++Hal::~Hal() {
++  stop_registration();
++  close_bus();
++  if (board_fd_ >= 0) close(board_fd_);
++}
++
++void Hal::stop_registration() {
++  if (registration_fd_ >= 0) close(registration_fd_);
++  registration_fd_ = -1;
+ }
+-Hal::~Hal() { stop_registration(); close_bus(); if (board_fd_ >= 0) close(board_fd_); }
+-void Hal::stop_registration() { if (registration_fd_ >= 0) close(registration_fd_); registration_fd_ = -1; }
++
+ void Hal::service_registration() {
+   while (registration_fd_ >= 0) {
+-    int client = accept(registration_fd_, nullptr, nullptr);
++    const int client = accept(registration_fd_, nullptr, nullptr);
+     if (client < 0) return;
+-    send(client, "SETUP\n", 6, MSG_NOSIGNAL); close(client);
++    // SETUP is only six bytes, so a normal TCP send on a freshly accepted
++    // socket completes without waiting for a peer acknowledgement.
++    (void)send(client, "SETUP\n", 6, MSG_NOSIGNAL);
++    close(client);
+   }
+ }
+-void Hal::board_send(const std::vector<uint8_t>& bytes) {
+-  auto destination = address(board_port_);
+-  auto n = sendto(board_fd_, bytes.data(), bytes.size(), 0, reinterpret_cast<sockaddr*>(&destination), sizeof(destination));
+-  if (n != static_cast<ssize_t>(bytes.size())) throw std::runtime_error("virtual board output");
++
++void Hal::board_send(const uint8_t* bytes, std::size_t length) {
++  const sockaddr_in destination = address(board_port_);
++  const ssize_t sent = sendto(board_fd_, bytes, length, 0,
++                              reinterpret_cast<const sockaddr*>(&destination), sizeof(destination));
++  if (sent != static_cast<ssize_t>(length)) throw std::runtime_error("virtual board output");
++}
++
++void Hal::gpio(uint32_t tick, bool level) {
++  std::array<uint8_t, 6> bytes{};
++  bytes[0] = 1;
++  store_u32(bytes.data() + 1, tick);
++  bytes[5] = level ? 1 : 0;
++  board_send(bytes.data(), bytes.size());
++}
++
++void Hal::advertise(uint32_t tick) {
++  std::array<uint8_t, 5> bytes{};
++  bytes[0] = 2;
++  store_u32(bytes.data() + 1, tick);
++  board_send(bytes.data(), bytes.size());
++}
++
++void Hal::queue_hello() {
++  outbox_ = {'H', 'B', '0', '1'};
++  hello_sent_ = false;
+ }
+-void Hal::gpio(uint32_t tick, bool level) { std::vector<uint8_t> b{1}; u32(b, tick); b.push_back(level ? 1 : 0); board_send(b); }
+-void Hal::advertise(uint32_t tick) { std::vector<uint8_t> b{2}; u32(b, tick); board_send(b); }
++
+ void Hal::open_bus() {
+   if (bus_fd_ >= 0) return;
+-  bus_fd_ = socket(AF_INET, SOCK_STREAM, 0);
+-  if (bus_fd_ < 0) return;
+-  nonblocking(bus_fd_); auto destination = address(bus_port_);
+-  int result = connect(bus_fd_, reinterpret_cast<sockaddr*>(&destination), sizeof(destination));
+-  if (result < 0 && errno != EINPROGRESS) { close_bus(); return; }
+-  connecting_ = true; ready_ = false; handshake_.clear(); outbox_.clear();
++
++  const int fd = socket(AF_INET, SOCK_STREAM, 0);
++  if (fd < 0) return;
++  try {
++    nonblocking(fd);
++  } catch (...) {
++    close(fd);
++    return;
++  }
++
++  bus_fd_ = fd;
++  connecting_ = true;
++  ready_ = false;
++  hello_sent_ = false;
++  handshake_.clear();
++  outbox_.clear();
++
++  const sockaddr_in destination = address(bus_port_);
++  const int result = connect(bus_fd_, reinterpret_cast<const sockaddr*>(&destination), sizeof(destination));
++  if (result == 0) {
++    connecting_ = false;
++    queue_hello();
++  } else if (errno != EINPROGRESS && errno != EALREADY) {
++    close_bus();
++  }
+ }
++
+ void Hal::close_bus() {
+   if (bus_fd_ >= 0) close(bus_fd_);
+-  bus_fd_ = -1; connecting_ = ready_ = false; handshake_.clear(); outbox_.clear();
++  bus_fd_ = -1;
++  connecting_ = false;
++  ready_ = false;
++  hello_sent_ = false;
++  handshake_.clear();
++  // This is intentionally cleared with the descriptor: health records must
++  // never cross a connection boundary.
++  outbox_.clear();
+ }
+-short Hal::bus_events() const { return POLLIN | ((connecting_ || !outbox_.empty()) ? POLLOUT : 0); }
++
++short Hal::bus_events() const {
++  if (bus_fd_ < 0) return 0;
++  short events = POLLIN;
++  if (connecting_ || !outbox_.empty()) events = static_cast<short>(events | POLLOUT);
++  return events;
++}
++
++bool Hal::flush_bus_output() {
++  while (!outbox_.empty()) {
++    const ssize_t sent = send(bus_fd_, outbox_.data(), outbox_.size(), MSG_NOSIGNAL);
++    if (sent > 0) {
++      outbox_.erase(outbox_.begin(), outbox_.begin() + sent);
++      continue;
++    }
++    if (sent < 0 && (errno == EINTR)) continue;
++    if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return true;
++    return false;
++  }
++  return true;
++}
++
+ void Hal::service_bus(short events) {
+   if (bus_fd_ < 0) return;
+-  if (events & (POLLERR | POLLHUP | POLLNVAL)) { close_bus(); return; }
+-  if (connecting_ && (events & POLLOUT)) {
+-    int error = 0; socklen_t size = sizeof(error);
+-    if (getsockopt(bus_fd_, SOL_SOCKET, SO_ERROR, &error, &size) < 0 || error) { close_bus(); return; }
+-    connecting_ = false; outbox_ = {'H','B','0','1'};
++  if (events & POLLNVAL) {
++    close_bus();
++    return;
+   }
+-  if (!outbox_.empty() && (events & POLLOUT)) {
+-    ssize_t n = send(bus_fd_, outbox_.data(), outbox_.size(), MSG_NOSIGNAL);
+-    if (n > 0) outbox_.erase(outbox_.begin(), outbox_.begin() + n);
+-    else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) { close_bus(); return; }
++
++  if (connecting_) {
++    if (events & POLLOUT) {
++      int error = 0;
++      socklen_t size = sizeof(error);
++      if (getsockopt(bus_fd_, SOL_SOCKET, SO_ERROR, &error, &size) < 0 || error != 0) {
++        close_bus();
++        return;
++      }
++      connecting_ = false;
++      queue_hello();
++    } else if (events & (POLLERR | POLLHUP)) {
++      close_bus();
++      return;
++    } else {
++      // A connecting descriptor has no valid handshake to read yet.
++      return;
++    }
++  }
++
++  if (events & POLLERR) {
++    close_bus();
++    return;
+   }
++
++  // The only bytes queued before readiness are the greeting.  Always drain
++  // that greeting before considering input, including the immediate-connect
++  // case where POLLIN and POLLOUT can be reported together.  This keeps the
++  // protocol order HB01 -> OK01 independent of poll timing.
++  if (!ready_ && !hello_sent_) {
++    if (!flush_bus_output()) {
++      close_bus();
++      return;
++    }
++    if (!outbox_.empty()) return;
++    hello_sent_ = true;
++  }
++
+   if (events & POLLIN) {
+-    char buffer[64]; ssize_t n = recv(bus_fd_, buffer, sizeof(buffer), 0);
+-    if (n == 0) { close_bus(); return; }
+-    if (n < 0) { if (errno != EAGAIN && errno != EWOULDBLOCK) close_bus(); return; }
+-    if (ready_) { close_bus(); return; }
+-    handshake_.append(buffer, static_cast<size_t>(n));
+-    if (handshake_.size() > 4 || std::string("OK01").compare(0, handshake_.size(), handshake_) != 0) { close_bus(); return; }
+-    if (handshake_.size() == 4) ready_ = true;
++    char buffer[64];
++    ssize_t received;
++    do {
++      received = recv(bus_fd_, buffer, sizeof(buffer), 0);
++    } while (received < 0 && errno == EINTR);
++
++    if (received == 0) {
++      close_bus();
++      return;
++    }
++    if (received < 0) {
++      if (errno != EAGAIN && errno != EWOULDBLOCK) close_bus();
++      return;
++    }
++
++    if (ready_) {
++      // The documented peer sends no bytes after OK01.  Treat any such
++      // traffic as a failed connection rather than mixing it with frames.
++      close_bus();
++      return;
++    }
++
++    handshake_.append(buffer, static_cast<size_t>(received));
++    const std::string expected = "OK01";
++    if (handshake_.size() > expected.size()
++        || expected.compare(0, handshake_.size(), handshake_) != 0) {
++      close_bus();
++      return;
++    }
++    if (handshake_.size() == expected.size()) ready_ = true;
++  }
++
++  // POLLHUP may be reported together with the final readable bytes.  Once
++  // those bytes have been consumed the peer is still gone, so discard the
++  // connection (and any unsent old-connection records).
++  if (events & POLLHUP) {
++    close_bus();
++    return;
++  }
++
++  if ((events & POLLOUT) && !outbox_.empty() && !flush_bus_output()) {
++    close_bus();
+   }
+ }
++
+ void Hal::publish(uint32_t tick, int rssi, int channel, int bandwidth) {
+   if (!ready_) return;
+-  std::vector<uint8_t> bytes{'H','T','0','1'}; u32(bytes, tick);
+-  uint16_t signal = static_cast<uint16_t>(static_cast<int16_t>(rssi));
+-  bytes.push_back(signal >> 8); bytes.push_back(signal & 255); bytes.push_back(channel); bytes.push_back(bandwidth);
+-  outbox_.insert(outbox_.end(), bytes.begin(), bytes.end());
++
++  std::array<uint8_t, 12> frame{};
++  frame[0] = 'H';
++  frame[1] = 'T';
++  frame[2] = '0';
++  frame[3] = '1';
++  store_u32(frame.data() + 4, tick);
++  const uint16_t signal = static_cast<uint16_t>(static_cast<int16_t>(rssi));
++  frame[8] = static_cast<uint8_t>(signal >> 8);
++  frame[9] = static_cast<uint8_t>(signal);
++  frame[10] = static_cast<uint8_t>(channel);
++  frame[11] = static_cast<uint8_t>(bandwidth);
++  outbox_.insert(outbox_.end(), frame.begin(), frame.end());
+ }
+diff --git a/hal.hpp b/hal.hpp
+index 16a542e853383c0dfa529d4a8945edbb54051921..807fd1fec3350d7ddd154304dea35a3676e988cc 100644
+--- a/hal.hpp
++++ b/hal.hpp
+@@ -1,4 +1,5 @@
+ #pragma once
++#include <cstddef>
+ #include <cstdint>
+ #include <string>
+ #include <vector>
+@@ -7,12 +8,14 @@ class Hal {
+  public:
+   Hal(int board_port, int bus_port);
+   ~Hal();
++
+   int registration_fd() const { return registration_fd_; }
+   int registration_port() const { return registration_port_; }
+   int bus_fd() const { return bus_fd_; }
+   bool bus_ready() const { return ready_; }
+   bool bus_pending() const { return bus_fd_ >= 0 && !ready_; }
+   short bus_events() const;
++
+   void service_registration();
+   void stop_registration();
+   void gpio(uint32_t tick, bool level);
+@@ -21,11 +24,21 @@ class Hal {
+   void close_bus();
+   void service_bus(short events);
+   void publish(uint32_t tick, int rssi, int channel, int bandwidth);
++
+  private:
+-  int board_fd_ = -1, board_port_, bus_port_;
+-  int registration_fd_ = -1, registration_port_ = 0, bus_fd_ = -1;
+-  bool connecting_ = false, ready_ = false;
++  int board_fd_ = -1;
++  int board_port_;
++  int bus_port_;
++  int registration_fd_ = -1;
++  int registration_port_ = 0;
++  int bus_fd_ = -1;
++  bool connecting_ = false;
++  bool ready_ = false;
++  bool hello_sent_ = false;
+   std::string handshake_;
+   std::vector<uint8_t> outbox_;
+-  void board_send(const std::vector<uint8_t>& bytes);
++
++  void board_send(const uint8_t* bytes, std::size_t length);
++  void queue_hello();
++  bool flush_bus_output();
+ };

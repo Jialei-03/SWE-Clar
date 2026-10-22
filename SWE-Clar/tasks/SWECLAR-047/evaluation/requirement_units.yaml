@@ -1,0 +1,202 @@
+schema_version: 1
+task_id: SWECLAR-047
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independently owned editable notebook host and hierarchical bookmark extension with browser
+  interaction and SQLite persistence.
+requirement_units:
+- ru_id: RU-001
+  name: Working notebook host and bookmarks
+  content: Preserve the public README host, HTTP and UI contracts. Support bookmarking actual notebook/group/section/page/paragraph
+    objects, deriving type and default label from the host. Distinct bookmark IDs may target the same
+    object. Opening a bookmark navigates the current host, renders the correct page and focuses a target
+    paragraph. Keep paragraph editing, stored content and bookmarks durable across navigation and process
+    restart. All synthetic labels/content render as text, not HTML. Keep the ribbon toggle, insertion
+    staying open, and outside-click dismissal functional.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for working notebook host and bookmarks?
+  matching_keywords:
+  - bookmark
+  - host
+  - paragraph
+  - navigation
+  - target
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP/JSON and real browser controls in README
+    inputs: Synthetic notebook objects, bookmark commands and browser actions
+    output: Persisted SQLite workspace, rendered tree/editor, focus and real navigation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source supplies the notebook-bookmark workflow. Host, fixtures, technical stack and exact rules
+    are independently reconstructed; no original platform compatibility claim.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/notebook_contract.py
+- ru_id: RU-002
+  name: Nested folder editing
+  content: Create nested folders and bookmarks at their declared parent or tab root. Rename edits only
+    an item label. Deleting any item requires confirmed=true; deleting a nonempty folder additionally
+    requires recursive=true, otherwise return confirmation_required or folder_not_empty. Delete the complete
+    chosen subtree and remove its folder IDs from expanded state. Keep other items and host nodes unchanged.
+    Provide real tree expansion, visible folder CRUD and in-cell rename. See README for schemas, ID uniqueness
+    and labels.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for nested folder editing?
+  matching_keywords:
+  - folder
+  - nested
+  - rename
+  - delete
+  - confirmation
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP/JSON and real browser controls in README
+    inputs: Synthetic notebook objects, bookmark commands and browser actions
+    output: Persisted SQLite workspace, rendered tree/editor, focus and real navigation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source supplies the notebook-bookmark workflow. Host, fixtures, technical stack and exact rules
+    are independently reconstructed; no original platform compatibility claim.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/notebook_contract.py
+- ru_id: RU-003
+  name: Independent tabs and ordered subtree moves
+  content: Tabs are independent ordered roots. Creating a tab appends it and does not activate it. Activation
+    changes only active_tab. A move takes a nonempty ordered list of distinct IDs, removes each selected
+    item once from wherever it currently is, and inserts complete subtrees into the requested tab/folder
+    in the supplied ID order. An omitted index appends; a supplied index is an integer 0..remaining destination
+    length after removals, including same-parent reordering. A move does not implicitly activate the destination
+    tab or discard view state. Reject duplicate IDs in a selection (duplicate_selection), selection containing
+    an ancestor and its descendant (overlapping_selection), moving into self/descendant (cyclic_move),
+    a missing item/tab, a nonfolder or wrong-tab parent, or invalid index. Every rejection leaves all
+    stored data unchanged.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for independent tabs and ordered subtree moves?
+  matching_keywords:
+  - tabs
+  - move
+  - subtree
+  - destination
+  - index
+  - cycle
+  - order
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP/JSON and real browser controls in README
+    inputs: Synthetic notebook objects, bookmark commands and browser actions
+    output: Persisted SQLite workspace, rendered tree/editor, focus and real navigation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source supplies the notebook-bookmark workflow. Host, fixtures, technical stack and exact rules
+    are independently reconstructed; no original platform compatibility claim.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/notebook_contract.py
+- ru_id: RU-004
+  name: Selection, sorting and keyboard workflow
+  content: 'A plain tree-row click selects only that item and sets the anchor. Ctrl/Meta toggles an item;
+    newly included IDs append in selection order and set the anchor. Shift selects the inclusive visible-row
+    range between the anchor and target in visual order, replacing the previous selection. Dragging a
+    selected row moves the whole selection; an unselected row starts a one-item selection. Dropping onto
+    a folder appends there, onto a tab appends to that root, onto a bookmark inserts immediately before
+    it after source removals. Sorting affects only direct children at the chosen parent: folders first,
+    stable case-insensitive label order, then bookmarks in their existing order; it does not recursively
+    sort. Arrow Up/Down focus and select the previous/next visible row, clamped at ends, respecting Shift
+    range selection. Arrow Right expands a collapsed focused folder; Arrow Left collapses an expanded
+    focused folder. F2 opens in-cell rename; Enter confirms rename or opens the focused bookmark/toggles
+    its folder; Escape cancels rename. No host navigation may occur from rename alone.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for selection, sorting and keyboard workflow?
+  matching_keywords:
+  - selection
+  - Ctrl
+  - Shift
+  - drag
+  - sort
+  - keyboard
+  - F2
+  - Enter
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP/JSON and real browser controls in README
+    inputs: Synthetic notebook objects, bookmark commands and browser actions
+    output: Persisted SQLite workspace, rendered tree/editor, focus and real navigation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source supplies the notebook-bookmark workflow. Host, fixtures, technical stack and exact rules
+    are independently reconstructed; no original platform compatibility claim.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/notebook_contract.py
+- ru_id: RU-005
+  name: Durable preferences and atomic errors
+  content: Persist active tab, globally tracked expanded folder IDs, sidebar width and wrap preference
+    in the database, restoring them after page reload and process restart. Width must be an integer 180..480;
+    wrap must be boolean; expanded must contain distinct IDs of existing folders. Invalid view values
+    return invalid_command (invalid_parent for an existing nonfolder); missing IDs use missing_item. UI
+    resize uses pointer movement and clamps width to the range. The right-click menu changes actual wrapping
+    of label text, not only a status flag. All invalid bookmark/host/domain commands return HTTP 400 and
+    an error object without partial state, document or view mutations; duplicate global IDs use duplicate_id
+    and unknown host objects missing_target. Preserve the notebook host when sidebar data changes. Concurrent
+    disjoint mutations must both survive.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for durable preferences and atomic errors?
+  matching_keywords:
+  - persist
+  - restart
+  - width
+  - wrap
+  - view
+  - atomic
+  - errors
+  - concurrent
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP/JSON and real browser controls in README
+    inputs: Synthetic notebook objects, bookmark commands and browser actions
+    output: Persisted SQLite workspace, rendered tree/editor, focus and real navigation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source supplies the notebook-bookmark workflow. Host, fixtures, technical stack and exact rules
+    are independently reconstructed; no original platform compatibility claim.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/notebook_contract.py

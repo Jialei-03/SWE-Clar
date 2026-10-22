@@ -1,0 +1,384 @@
+schema_version: 1
+task_id: SWECLAR-023
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent C11 graph library, traversal, local persistence and actual CRUD measurement
+requirement_units:
+- ru_id: RU-001
+  name: Runnable lifecycle and engineering surface
+  content: 'Provide the public C ABI, static library, build/clean flow and real graph_demo. Create directed
+    or undirected empty graphs with zero nodes/edges; maintain independent handles; destroy frees all
+    owned storage. Demonstration links/calls the library and checks real operations before emitting JSON.
+    Starter includes this working delivery surface. Public test driver must link through the documented
+    header/library without reading candidate private structs. Run under the prepared compiler and sanitizer
+    with no leaks, out-of-bounds access or undefined behavior.
+
+
+    Public delivery and interface contract:
+
+
+    Prepared Linux AMD64 native-control profile: GCC14.2 C11 compiler (`cc`), GNU make, standard/POSIX
+    C libraries and Python3.11 for protected tests. Candidate UID1000/cap0, isolated from evaluator files.
+    Network none except loopback. Two CPUs,2048MiB memory,256PIDs,512MiB workspace and1024MiB temporary
+    storage; evaluation wall budget300seconds. Compiler, sanitizer and resource-measurement preflight
+    finishes before candidate budget. Runtime setup/repair is never a candidate responsibility.
+
+
+    Work in `/workspace`. `make all` builds `build/libfcb_graph.a`, `build/graph_demo` and `build/graph_bench`.
+    `make clean` removes generated build files only. Build must honor `CC`, `CFLAGS` and `LDFLAGS` overrides;
+    defaults include `-std=c11 -O2 -Wall -Wextra` and `-Iinclude`. Protected tests can link a fresh C
+    test driver against the static library. Sanitized validation uses `CFLAGS=''-std=c11 -O1 -g -Wall
+    -Wextra -fsanitize=address,undefined -fno-omit-frame-pointer'' LDFLAGS=''-fsanitize=address,undefined''`.
+    Both ordinary and sanitized builds must execute without memory/undefined-behavior diagnostics. Do
+    not depend on incidental compiler extensions, candidate network downloads or privileged calls.
+
+
+    `python /public_tests/test_public.py` runs visible regressions in disposable copies. `./build/graph_demo`
+    performs actual directed node and edge CRUD, validates its own observed results and prints one JSON
+    object `{ok:true,nodes:2,edges:1}` then exits0. It creates three synthetic nodes and two edges, updates
+    a node and edge, removes the third node with its incident edge, and verifies the surviving data before
+    reporting. Extra harmless JSON fields are allowed. It uses the public library rather than printing
+    a fixed result.
+
+
+    `./build/graph_bench --runs 100 --output /workspace/data/measurements.csv` is the documented measurement
+    invocation. `--runs` accepts a decimal integer1..10000 (no sign, whitespace, decimal point or suffix).
+    Exactly one --runs and one --output are required; order is free, unknown/duplicate/missing options
+    or empty output path fail nonzero. Output parent must already exist; README tells the candidate user
+    to `mkdir -p /workspace/data` before running. Filename/path bytes are opaque and may include spaces/Unicode;
+    no external services. A failed run does not print a false success record. Detailed measurement/output
+    rules are clarifiable.
+
+
+    Destroying a graph frees memory; graph contents are not durable until explicitly saved. To reset local
+    examples, remove only your generated files from `/workspace/data`; `make clean` resets build artifacts.
+    Fixtures are fully synthetic, candidate-readable and immutable under `/public_tests`. Hidden tests
+    generate independent local fixture graphs.
+
+
+    ## Public C ABI and common semantics
+
+
+    Public header `include/fcb_graph.h` declares opaque `typedef struct fcb_graph fcb_graph;` and includes
+    stdbool.h/stddef.h/stdint.h. Internal representation, allocation strategy, file layout and algorithm
+    implementations are free. All listed symbols must link even when a starter feature is unimplemented.
+
+
+    ```
+
+    fcb_graph *fcb_graph_create(bool directed);
+
+    void fcb_graph_destroy(fcb_graph *graph);
+
+    size_t fcb_graph_node_count(const fcb_graph *graph);
+
+    size_t fcb_graph_edge_count(const fcb_graph *graph);
+
+    uint64_t fcb_graph_add_node(fcb_graph *graph, const char *value);
+
+    const char *fcb_graph_get_node(const fcb_graph *graph, uint64_t id);
+
+    bool fcb_graph_update_node(fcb_graph *graph, uint64_t id, const char *value);
+
+    bool fcb_graph_remove_node(fcb_graph *graph, uint64_t id);
+
+    bool fcb_graph_add_edge(fcb_graph *graph, uint64_t from, uint64_t to, const char *label);
+
+    const char *fcb_graph_get_edge(const fcb_graph *graph, uint64_t from, uint64_t to);
+
+    bool fcb_graph_update_edge(fcb_graph *graph, uint64_t from, uint64_t to, const char *label);
+
+    bool fcb_graph_remove_edge(fcb_graph *graph, uint64_t from, uint64_t to);
+
+    size_t fcb_graph_bfs(const fcb_graph *graph, uint64_t start, uint64_t *out, size_t capacity);
+
+    size_t fcb_graph_dfs(const fcb_graph *graph, uint64_t start, uint64_t *out, size_t capacity);
+
+    bool fcb_graph_save(const fcb_graph *graph, const char *path);
+
+    fcb_graph *fcb_graph_load(const char *path);
+
+    ```
+
+
+    Caller strings are valid NUL-terminated byte strings,0..4096bytes before NUL, including quotes, newline
+    and UTF-8; no encoding conversion/trim/case folding. NULL is invalid, not an empty string. Add/update
+    copies the supplied bytes. On success, callers may mutate/free their original buffers. A getter returns
+    a borrowed immutable string whose bytes remain valid until the same entity is updated/removed or graph
+    destroyed; mutations to different entities must not invalidate it. Passing a getter''s value back
+    to that entity''s update is valid. Caller must not free or write borrowed strings. Invalid/dangling
+    caller pointers are outside the contract.
+
+
+    IDs are opaque uint64 values, nonzero for successful insertion, unique among current live nodes.0
+    indicates add failure and never identifies a node. No sequential spelling, minimum starting ID, global
+    uniqueness between separate graphs or non-reuse of deleted IDs is required. Count includes current
+    records only. Official workloads use at most10000nodes/30000edges and no allocation fault injection.
+    Ordinary validation/failure leaves graph logically unchanged; gracefully return failure if an allocation
+    fails. No graph function prints output.
+
+
+    NULL graph: counts/traversal return0, getters returnNULL, mutations/save false, add0, destroy no-op.
+    Unknown/zero node IDs returnNULL/false as appropriate. Empty strings are valid; values longer than4096bytes
+    and NULL strings fail. `destroy(NULL)` is safe. Multiple graphs are independent. Concurrent access
+    to the same graph is not required; evaluator will not race unsafe caller operations.
+
+
+    '
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for runnable lifecycle and engineering surface.
+  test_interface:
+    type: command
+    entry:
+      language: C11
+      file: include/fcb_graph.h
+      command: ./build/graph_demo
+    inputs:
+      transport: Public C ABI in unprivileged native processes, actual snapshots and CSV files
+      contract: README.md
+    output:
+      type: c_graph_storage_and_measurement
+      meaning: Actual graph CRUD/traversal, local snapshot restoration and measured CRUD work
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/graph_contract.py
+  notes: The feature category is grounded in a real business scenario. All graph values, policies, interfaces
+    and code are independent benchmark choices. Answer relevant business questions only; never supply
+    original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-002
+  name: Node storage and ownership
+  content: Implement add/get/update/remove/count with common ID/string/error contracts. Add creates a
+    live node with a copied string; update copies replacement and preserves ID/count. Unknown remove/update
+    returnsfalse. Removing one node does not remove unrelated nodes; recreating nodes must not alias another
+    live ID. Getters expose exact current bytes. Empty strings, punctuation, newline and UTF-8 work. Updates
+    with the borrowed current string work. Starter includes real heap-owned node CRUD, not an empty placeholder.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for node storage and ownership.
+  test_interface:
+    type: command
+    entry:
+      language: C11
+      file: include/fcb_graph.h
+      command: ./build/graph_demo
+    inputs:
+      transport: Public C ABI in unprivileged native processes, actual snapshots and CSV files
+      contract: README.md
+    output:
+      type: c_graph_storage_and_measurement
+      meaning: Actual graph CRUD/traversal, local snapshot restoration and measured CRUD work
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/graph_contract.py
+  notes: The feature category is grounded in a real business scenario. All graph values, policies, interfaces
+    and code are independent benchmark choices. Answer relevant business questions only; never supply
+    original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-003
+  name: Relationship CRUD and directedness
+  content: Both endpoints must be live. A directed ordered pair has at most one edge; (a,b) differs from
+    (b,a). In an undirected graph, (a,b) and (b,a) refer to one edge and either order reads/updates/removes
+    it. Self-loops are allowed once and count as one edge. Duplicate add fails and preserves previous
+    label; missing endpoint, NULL/oversized label, unknown update/remove fail without changes. Labels
+    have the same copied/borrowed ownership guarantees as node values. Node removal also removes every
+    incident edge (incoming, outgoing and self-loop), exactly once; other edges remain. Starter provides
+    real relationships and cleanup.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for relationship crud and directedness.
+  test_interface:
+    type: command
+    entry:
+      language: C11
+      file: include/fcb_graph.h
+      command: ./build/graph_demo
+    inputs:
+      transport: Public C ABI in unprivileged native processes, actual snapshots and CSV files
+      contract: README.md
+    output:
+      type: c_graph_storage_and_measurement
+      meaning: Actual graph CRUD/traversal, local snapshot restoration and measured CRUD work
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/graph_contract.py
+  notes: The feature category is grounded in a real business scenario. All graph values, policies, interfaces
+    and code are independent benchmark choices. Answer relevant business questions only; never supply
+    original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-004
+  name: Reachability and legitimate traversal order
+  content: 'BFS/DFS begin with an existing start node, follow only outgoing edges in directed graphs and
+    either direction in undirected graphs. Self-loops/cycles never repeat a node. Disconnected nodes are
+    excluded. Return number of IDs actually written, at mostcapacity. Missing start, NULL graph, NULL
+    out or capacity0 returns0 and writes nothing. Never write beyond the returned prefix/capacity. Traversal
+    does not mutate graph. For capacity smaller than reachable count, return a legal traversal prefix;
+    do not substitute a set of IDs.
+
+
+    BFS visits nondecreasing shortest-path distance from start. Order within the same layer is unconstrained
+    provided a valid queue-based BFS with some neighbor ordering could produce it. DFS is a valid recursive
+    depth-first preorder with some neighbor ordering: descend to an unvisited neighbor when available,
+    and backtrack only when the current node has no unvisited neighbor. A different correct neighbor order
+    is accepted. Evaluation must not demand the reference''s particular tie order or numeric ID sequence.
+    Use iterative work stacks if needed to stay safe on the official chain length of10000nodes. All reachable
+    nodes must be returned when capacity suffices.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for reachability and legitimate traversal order.
+  test_interface:
+    type: command
+    entry:
+      language: C11
+      file: include/fcb_graph.h
+      command: ./build/graph_demo
+    inputs:
+      transport: Public C ABI in unprivileged native processes, actual snapshots and CSV files
+      contract: README.md
+    output:
+      type: c_graph_storage_and_measurement
+      meaning: Actual graph CRUD/traversal, local snapshot restoration and measured CRUD work
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/graph_contract.py
+  notes: The feature category is grounded in a real business scenario. All graph values, policies, interfaces
+    and code are independent benchmark choices. Answer relevant business questions only; never supply
+    original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-005
+  name: Actual durable graph roundtrip and input rejection
+  content: 'Save writes an actual local file containing all current nodes/values, edge endpoints/labels
+    and directedness. Load opens this file and creates an independent graph preserving IDs, bytes, topology
+    and counts. New insertions into the loaded graph cannot collide with its live IDs. Saved state is
+    a snapshot: subsequent mutations/destruction of the original do not change the loaded graph/file.
+    Empty graphs, undirected graphs, self-loops, deleted-ID gaps and empty/newline/Unicode strings roundtrip.
+    Restoring after a fresh process start must work, not an in-memory path cache.
+
+
+    Format is candidate-defined; tests use candidate save/load together and do not compare file bytes
+    to a reference format. NULL/empty/unreadable path or invalid/incomplete file returnsNULL. Save to
+    an unopenable destination returnsfalse and does not change graph state. Load must validate its own
+    format/lengths/references, reject partial files instead of exposing partial graphs, and free temporary
+    storage on failure. Official malformed probes include zero-length files, random non-format bytes and
+    truncations of the implementation''s own successful save. Files are at most64MiB; graph/string bounds
+    above still apply. No mmap/shared-memory/process-private pointer serialization. Successful loaded
+    graph owns its memory independently of file lifetime. Endianness portability between architectures,
+    crash-atomic replacement, fsync durability and recovery from injected hardware faults are outside
+    this task.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for actual durable graph roundtrip and input rejection.
+  test_interface:
+    type: command
+    entry:
+      language: C11
+      file: include/fcb_graph.h
+      command: ./build/graph_demo
+    inputs:
+      transport: Public C ABI in unprivileged native processes, actual snapshots and CSV files
+      contract: README.md
+    output:
+      type: c_graph_storage_and_measurement
+      meaning: Actual graph CRUD/traversal, local snapshot restoration and measured CRUD work
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/graph_contract.py
+  notes: The feature category is grounded in a real business scenario. All graph values, policies, interfaces
+    and code are independent benchmark choices. Answer relevant business questions only; never supply
+    original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-006
+  name: Actual reproducible CRUD measurement and CSV
+  content: 'For N requested runs, measure four phases in order create,read,update,delete on a fresh directed
+    graph through public functions. Generate N distinct synthetic node values as `record-<index>` for
+    indices0..N-1. Create phase calls add_node N times and records returned IDs; read verifies exact initial
+    strings; update replaces with `updated-<index>` and verifies success; delete removes each stored ID
+    and verifies success. Check graph counts after create=N, update=N, delete=0 and exact updated values
+    before delete. On any failed operation/inconsistent result, return nonzero without reporting success.
+    The benchmark must actually perform the operations; a formula/timer-only/no-op loop is not measurement.
+
+
+    For each phase, take a CLOCK_MONOTONIC timestamp immediately before and after each measured API call;
+    allocate per-run arrays, generate strings and do result-validation outside the timed interval. Average/min/max
+    are computed from these N measured durations, converted to microseconds as real values. Separately
+    record per-phase process CPU delta with CLOCK_PROCESS_CPUTIME_ID around the phase and process peak
+    resident memory via getrusage(RUSAGE_SELF).ru_maxrss after it; Linux ru_maxrss is KiB. Values must
+    be finite/nonnegative and min<=average<=max. No hardcoded source performance numbers, speed threshold,
+    required ratio, fixed memory delta or claim of commercial database superiority. System scheduler/measurement
+    noise and timer quantization are expected; a valid zero reading is accepted.
+
+
+    Write UTF-8 CSV with header exactly these names in this order: `operation,runs,avg_us,min_us,max_us,cpu_seconds,peak_rss_kib`.
+    Four rows in create/read/update/delete order; runs exactlyN, peak_rss_kib a nonnegative integer; other
+    numeric cells finite nonnegative decimal/scientific notation. CSV quoting and LF/CRLF are free. On
+    success print one JSON object `{ok:true,runs:N,rows:4}` to stdout and exit0; extra harmless metadata
+    allowed. The actual CSV file is authoritative, not an in-memory summary. An output write/close failure
+    is an unsuccessful run. Do not unlink/overwrite an unrelated file merely for cleanup. Resource/time
+    measurements must execute locally in the prepared container.
+
+
+    Tests may link an instrumented substitute implementing the same public graph ABI to count calls and
+    introduce a known short delay inside an operation. This validates that the benchmark calls the interface
+    and measures work, without inspecting private graph implementation. The build exposes benchmark source
+    as `tools/graph_bench.c` and library calls may not be duplicated/inlined into it. All other internal
+    file decomposition is free. No external DB or network client is required.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for actual reproducible crud measurement and csv.
+  test_interface:
+    type: command
+    entry:
+      language: C11
+      file: include/fcb_graph.h
+      command: ./build/graph_demo
+    inputs:
+      transport: Public C ABI in unprivileged native processes, actual snapshots and CSV files
+      contract: README.md
+    output:
+      type: c_graph_storage_and_measurement
+      meaning: Actual graph CRUD/traversal, local snapshot restoration and measured CRUD work
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-006-T01
+    file: evaluation/tests/graph_contract.py
+  notes: The feature category is grounded in a real business scenario. All graph values, policies, interfaces
+    and code are independent benchmark choices. Answer relevant business questions only; never supply
+    original records, unrelated decisions, hidden tests or reference code.

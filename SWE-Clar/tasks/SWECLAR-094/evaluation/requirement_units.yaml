@@ -1,0 +1,200 @@
+schema_version: 1
+task_id: SWECLAR-094
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual ASP.NET Core HTTP transaction/note API with persistent SQLite storage
+requirement_units:
+- ru_id: RU-001
+  name: REST request entry point
+  content: Complete the supplied ASP.NET Core project as an actual HTTP service with JSON request/response
+    bodies and persistent SQLite storage. Keep /health and startup working; unknown routes return HTTP
+    404 with error=route_not_found. Store transaction, note and request-response records so they survive
+    process restarts. A Python function returning HTTP-shaped dictionaries is not an implementation of
+    this interface. This is a synthetic local API exercise within the source .NET maintenance task, not
+    a recovered financial workflow. Use the supplied SQLite transactions, notes and responses tables.
+    The host health endpoint and invalid-JSON handling are public foundation regressions.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for rest request entry point.
+  test_interface:
+    type: api
+    entry:
+      language: csharp
+      file: TransactionsApi.csproj
+      command: dotnet run --project TransactionsApi.csproj -- --urls http://127.0.0.1:5080
+    inputs:
+      transport: Real HTTP JSON
+      storage: TRANSACTIONS_DB SQLite path
+      configuration: AUTO_REMOVE_NOTE_TYPES comma-separated type tokens
+      request_id: Optional Idempotency-Key header
+    output:
+      type: http
+      meaning: Actual status/body plus persistent transactions, notes and response cache
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: ASP.NET Core 8, the local SQLite schema and configuration/header interfaces are explicit benchmark
+    reconstruction choices. No customer database or code is used.
+- ru_id: RU-002
+  name: Transaction creation
+  content: POST /transactions accepts a unique non-empty transaction ID, a finite numeric amount, and
+    a non-empty type; creation returns HTTP 201, while duplicate IDs return HTTP 409 conflict without
+    overwriting the original. Required JSON fields are transaction_id, amount and type. IDs and types
+    must be strings containing a non-whitespace character; amount must be a finite JSON number (booleans
+    and numeric strings are invalid). Invalid input returns a structured HTTP 400 error. Successful JSON
+    includes transaction_id, amount, type and empty notes; additional metadata is allowed. Duplicate creation
+    must preserve all stored fields. Concurrent creates must produce exactly one successful creation.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for transaction creation.
+  test_interface:
+    type: api
+    entry:
+      language: csharp
+      file: TransactionsApi.csproj
+      command: dotnet run --project TransactionsApi.csproj -- --urls http://127.0.0.1:5080
+    inputs:
+      transport: Real HTTP JSON
+      storage: TRANSACTIONS_DB SQLite path
+      configuration: AUTO_REMOVE_NOTE_TYPES comma-separated type tokens
+      request_id: Optional Idempotency-Key header
+    output:
+      type: http
+      meaning: Actual status/body plus persistent transactions, notes and response cache
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: ASP.NET Core 8, the local SQLite schema and configuration/header interfaces are explicit benchmark
+    reconstruction choices. No customer database or code is used.
+- ru_id: RU-003
+  name: Transaction note maintenance
+  content: POST /transactions/{id}/notes appends a uniquely identified non-empty note to an existing transaction,
+    while unknown transactions and duplicate note IDs fail without partial changes. Required fields are
+    note_id and text, both nonblank strings. Return HTTP 201 with note_id, text and boolean active. Unknown
+    transaction returns a structured 404 error, invalid note a structured 400 error, duplicate note_id
+    within the same transaction a structured 409 error. Reusing a note ID in another transaction is allowed.
+    Preserve submission order; reject invalid operations without changing existing data. Extra response
+    metadata/error wording is unrestricted.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for transaction note maintenance.
+  test_interface:
+    type: api
+    entry:
+      language: csharp
+      file: TransactionsApi.csproj
+      command: dotnet run --project TransactionsApi.csproj -- --urls http://127.0.0.1:5080
+    inputs:
+      transport: Real HTTP JSON
+      storage: TRANSACTIONS_DB SQLite path
+      configuration: AUTO_REMOVE_NOTE_TYPES comma-separated type tokens
+      request_id: Optional Idempotency-Key header
+    output:
+      type: http
+      meaning: Actual status/body plus persistent transactions, notes and response cache
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: ASP.NET Core 8, the local SQLite schema and configuration/header interfaces are explicit benchmark
+    reconstruction choices. No customer database or code is used.
+- ru_id: RU-004
+  name: Configured automatic note removal
+  content: When a transaction type is configured for automatic note removal, newly submitted notes are
+    retained in audit history but marked inactive and omitted from active_notes. Configuration comes from
+    AUTO_REMOVE_NOTE_TYPES, a comma-separated exact type-token list at process startup (not caller state).
+    Configured types retain newly added notes with active=false; other types use active=true. Existing
+    history and flags survive restart and are not rewritten by later configuration changes.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for configured automatic note removal.
+  test_interface:
+    type: api
+    entry:
+      language: csharp
+      file: TransactionsApi.csproj
+      command: dotnet run --project TransactionsApi.csproj -- --urls http://127.0.0.1:5080
+    inputs:
+      transport: Real HTTP JSON
+      storage: TRANSACTIONS_DB SQLite path
+      configuration: AUTO_REMOVE_NOTE_TYPES comma-separated type tokens
+      request_id: Optional Idempotency-Key header
+    output:
+      type: http
+      meaning: Actual status/body plus persistent transactions, notes and response cache
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: ASP.NET Core 8, the local SQLite schema and configuration/header interfaces are explicit benchmark
+    reconstruction choices. No customer database or code is used.
+- ru_id: RU-005
+  name: Safe retrieval and idempotency
+  content: 'GET /transactions/{id} returns the transaction with active_notes and immutable notes history.
+    Use the optional Idempotency-Key header as request_id: replay returns the saved original status/body
+    without applying a new operation, including after process restart. Unknown routes return a structured
+    HTTP error. Commit each mutation and its saved response atomically. Retrieval HTTP 200 JSON includes
+    transaction_id, amount, type, notes (all notes in insertion order, with note_id/text/active), and
+    active_notes (only active entries). Missing IDs return a structured 404 error. For syntactically valid
+    JSON POST requests with a nonempty Idempotency-Key, cache the first status and JSON body, including
+    business errors, globally across POST routes. Replay precedes business validation and preserves the
+    saved body even if later payload/path differs. GET ignores this header; malformed JSON is rejected
+    by the host without caching. Mutation and response-cache insertion form one SQLite transaction: cache-storage
+    failure must leave no partial mutation. Concurrent same-key submissions apply at most once. No external
+    financial operation occurs.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for safe retrieval and idempotency.
+  test_interface:
+    type: api
+    entry:
+      language: csharp
+      file: TransactionsApi.csproj
+      command: dotnet run --project TransactionsApi.csproj -- --urls http://127.0.0.1:5080
+    inputs:
+      transport: Real HTTP JSON
+      storage: TRANSACTIONS_DB SQLite path
+      configuration: AUTO_REMOVE_NOTE_TYPES comma-separated type tokens
+      request_id: Optional Idempotency-Key header
+    output:
+      type: http
+      meaning: Actual status/body plus persistent transactions, notes and response cache
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: ASP.NET Core 8, the local SQLite schema and configuration/header interfaces are explicit benchmark
+    reconstruction choices. No customer database or code is used.

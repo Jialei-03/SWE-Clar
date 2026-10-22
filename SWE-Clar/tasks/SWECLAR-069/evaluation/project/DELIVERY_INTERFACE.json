@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-069",
+  "readme": "# Local credits ledger\n\nImplement `process_marketplace_action(state,action)` without changing either input. SQLite storage.py and cli.py are supplied working transaction adapters: a durable state snapshot plus append-only event rows, serialized with BEGIN IMMEDIATE. Keep actual persistence and atomicity. No real payment integration, lead ingestion or customer data is present. Event IDs, replay/conflict behavior and local no-refund after later failure are synthetic component rules; they do not define broader commercial dispute or chargeback policy.\n\nPrepared python-web supplies Python3.12.3/SQLite; no installation, network or server is needed. Commands: `python cli.py runtime/ledger.sqlite init` reads a seed JSON on stdin; `python cli.py runtime/ledger.sqlite apply` reads one action; `python cli.py runtime/ledger.sqlite snapshot` reads committed state. Create runtime first. Init requires a new database, so it cannot reset an existing ledger silently. Public check: `python /public_tests/smoke.py`. Source build is unnecessary. Health is a successful snapshot; there is no listening port. Runtime files are excluded from deliverables. 2 CPUs, 2GiB RAM, 256 processes, 256MiB workspace.\n\nSeed fields: users object, jobs object keyed by job ID (records contain category and positive integer credit_cost), ledger array and processed_ids. `create_user` carries user_id, role and categories (nonempty unique category strings, one through five); `subscribe` carries user_id, payment_id, period and credit_grant; `unlock_job` carries user_id, job_id and event_id. Trusted local commands supply these events, not external self-authorized payments. Ask the synthetic client about grant periods/replay, category unlock caps and ledger rules.\n\nOutputs preserve unrelated state fields and expose users with role/categories/credits, ledger entries and a result or error. Rejected operations return a nonempty error.code and leave committed business state unchanged; exact wording is unspecified. Extra result/state/ledger metadata is allowed. Grants append event_id,user_id,delta,kind=credit_grant,period; debits append event_id,user_id,delta,kind=job_unlock,job_id. Ledger amounts are signed credits. These field names are the local interface, not original customer wire protocols. Storage tables are implementation details; alternate schemas are allowed if behavior persists. Identical successful replay reports result.replayed=true. Existing event meaning and committed entries must not change.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_marketplace_action",
+        "signature": "process_marketplace_action(state: dict, action: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "action"
+        ],
+        "action_variants": {
+          "create_user": {
+            "fields": [
+              "categories",
+              "role",
+              "type",
+              "user_id"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "categories",
+          "role",
+          "type",
+          "user_id",
+          "users"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated."
+      },
+      "operations": []
+    },
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_marketplace_action",
+        "signature": "process_marketplace_action(state: dict, action: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "action"
+        ],
+        "action_variants": {
+          "create_user": {
+            "fields": [
+              "categories",
+              "role",
+              "type",
+              "user_id"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "categories",
+          "role",
+          "type",
+          "user_id",
+          "users"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+        "asserted_field_paths": [
+          "error",
+          "error.code",
+          "users",
+          "users.<id>",
+          "users.<id>.role"
+        ],
+        "required_tokens": {
+          "error.code": [
+            "invalid_user"
+          ]
+        },
+        "field_schemas": {
+          "error.code": {
+            "type": "string"
+          },
+          "users.<id>.role": {
+            "type": "string"
+          }
+        }
+      },
+      "operations": []
+    }
+  ]
+}

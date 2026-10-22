@@ -1,0 +1,632 @@
+diff --git a/geometry.py b/geometry.py
+index 7f1d47a573cc8cd7bbf1ae66bfc5bdaddf697747..266c74dd92046d5a109435a2396697d9d855c976 100644
+--- a/geometry.py
++++ b/geometry.py
+@@ -1,17 +1,107 @@
++"""Geographic and local-map geometry helpers.
++
++The routing graph is deliberately small, but the calculations in this module are
++kept independent of the graph provider.  In particular, route lengths use the
++haversine formula while navigation's off-route check uses the local projection
++specified by the component contract.
++"""
++
+ import math
+-R=6371008.8
++
++R = 6371008.8
++METRES_PER_MILE = 1609.344
++
++
++def _number(value):
++    """Return *value* as a float when it is a finite, non-boolean number."""
++
++    if isinstance(value, bool) or not isinstance(value, (int, float)):
++        raise ValueError("invalid point")
++    try:
++        result = float(value)
++    except (TypeError, ValueError, OverflowError):
++        raise ValueError("invalid point")
++    if not math.isfinite(result):
++        raise ValueError("invalid point")
++    return result
++
++
+ def point(value):
+-    if not isinstance(value,dict):raise ValueError('invalid point')
+-    lat,lon=value.get('lat'),value.get('lon')
+-    if any(not isinstance(x,(int,float)) or isinstance(x,bool) or not math.isfinite(x) for x in [lat,lon]) or not -90<=lat<=90 or not -180<=lon<=180:raise ValueError('invalid point')
+-    return {'lat':float(lat),'lon':float(lon)}
+-def meters(a,b):
+-    a,b=point(a),point(b);p,q=math.radians(a['lat']),math.radians(b['lat']);dl=math.radians(b['lon']-a['lon']);h=math.sin((q-p)/2)**2+math.cos(p)*math.cos(q)*math.sin(dl/2)**2
+-    return 2*R*math.asin(min(1,math.sqrt(h)))
+-def distance_from_path(position,geometry):
+-    position=point(position);best=float('inf')
+-    for a,b in zip(geometry,geometry[1:]):
+-        def xy(p):return (math.radians(p['lon']-position['lon'])*R*math.cos(math.radians(position['lat'])),math.radians(p['lat']-position['lat'])*R)
+-        ax,ay=xy(a);bx,by=xy(b);dx,dy=bx-ax,by-ay;den=dx*dx+dy*dy;u=max(0,min(1,-(ax*dx+ay*dy)/den)) if den else 0
+-        best=min(best,math.hypot(ax+u*dx,ay+u*dy))
++    """Validate and copy a latitude/longitude mapping.
++
++    Only ``lat`` and ``lon`` are part of a point.  Extra fields are intentionally
++    ignored so a provider's node object cannot accidentally become persisted
++    workflow state.
++    """
++
++    if not isinstance(value, dict):
++        raise ValueError("invalid point")
++    try:
++        lat = _number(value.get("lat"))
++        lon = _number(value.get("lon"))
++    except ValueError:
++        raise ValueError("invalid point")
++    if not -90.0 <= lat <= 90.0 or not -180.0 <= lon <= 180.0:
++        raise ValueError("invalid point")
++    return {"lat": lat, "lon": lon}
++
++
++def meters(a, b):
++    """Return the haversine distance between two validated points in metres."""
++
++    a = point(a)
++    b = point(b)
++    lat_a = math.radians(a["lat"])
++    lat_b = math.radians(b["lat"])
++    d_lat = lat_b - lat_a
++    d_lon = math.radians(b["lon"] - a["lon"])
++    h = (
++        math.sin(d_lat / 2.0) ** 2
++        + math.cos(lat_a) * math.cos(lat_b) * math.sin(d_lon / 2.0) ** 2
++    )
++    # Rounding at antipodal points can put h just outside [0, 1].
++    h = min(1.0, max(0.0, h))
++    return 2.0 * R * math.asin(math.sqrt(h))
++
++
++def distance_from_path(position, geometry):
++    """Return local tangent-plane distance from ``position`` to a polyline.
++
++    The position is the origin for every segment projection.  This is not a
++    spherical point-to-line calculation: using the local projection here is an
++    explicit part of the navigation contract.
++    """
++
++    position = point(position)
++    if not isinstance(geometry, (list, tuple)) or len(geometry) < 2:
++        raise ValueError("invalid route geometry")
++    path = [point(item) for item in geometry]
++
++    cos_latitude = math.cos(math.radians(position["lat"]))
++
++    def xy(item):
++        return (
++            R
++            * cos_latitude
++            * math.radians(item["lon"] - position["lon"]),
++            R * math.radians(item["lat"] - position["lat"]),
++        )
++
++    best = float("inf")
++    for a, b in zip(path, path[1:]):
++        ax, ay = xy(a)
++        bx, by = xy(b)
++        dx = bx - ax
++        dy = by - ay
++        denominator = dx * dx + dy * dy
++        if denominator:
++            fraction = -(ax * dx + ay * dy) / denominator
++            fraction = max(0.0, min(1.0, fraction))
++        else:
++            # A zero-length segment is a closed segment consisting of one
++            # point, so its closest point is that point.
++            fraction = 0.0
++        closest_x = ax + fraction * dx
++        closest_y = ay + fraction * dy
++        best = min(best, math.hypot(closest_x, closest_y))
+     return best
+diff --git a/router.py b/router.py
+index b761fcb8903da3feca18428f99b2c59f34924e31..0f054a410c535d5b7734298eb8545f8ab04e1d39 100644
+--- a/router.py
++++ b/router.py
+@@ -1,10 +1,185 @@
+-import json,math,hashlib
+-from urllib.request import Request,urlopen
+-from geometry import point,meters
++"""Graph HTTP adapter and deterministic loop enumeration."""
++
++import hashlib
++import json
++import math
++from urllib.request import Request, urlopen
++
++from geometry import METRES_PER_MILE, meters, point
++
++
++MAX_SEARCH_STATES = 100000
++MIN_DISTINCT_NODES = 3
++MAX_DISTINCT_NODES = 10
++
++
+ class GraphClient:
+-    def __init__(self,url):self.url=url
+-    def fetch(self,start_node):
+-        with urlopen(Request(self.url,data=json.dumps({'start_node':start_node}).encode(),headers={'Content-Type':'application/json'},method='POST'),timeout=3) as response:return json.loads(response.read())
++    """Small HTTP client for the configured graph provider.
++
++    The provider is deliberately contacted with a POST for every generation
++    request.  No graph data is cached here: a new generation action always
++    reads the currently configured graph.
++    """
++
++    def __init__(self, url):
++        if not isinstance(url, str) or not url:
++            raise ValueError("provider_failed")
++        self.url = url
++
++    def fetch(self, start_node):
++        body = json.dumps({"start_node": start_node}, separators=(",", ":")).encode(
++            "utf-8"
++        )
++        request = Request(
++            self.url,
++            data=body,
++            headers={
++                "Content-Type": "application/json",
++                "Accept": "application/json",
++            },
++            method="POST",
++        )
++        with urlopen(request, timeout=3) as response:
++            raw = response.read()
++        return json.loads(raw)
++
++
++def _finite_number(value, name, *, nonnegative=False):
++    if isinstance(value, bool) or not isinstance(value, (int, float)):
++        raise ValueError("invalid " + name)
++    try:
++        value = float(value)
++    except (TypeError, ValueError, OverflowError):
++        raise ValueError("invalid " + name)
++    if not math.isfinite(value):
++        raise ValueError("invalid " + name)
++    if nonnegative and value < 0:
++        raise ValueError("invalid " + name)
++    return value
++
++
++def _normalise_network(network, start):
++    """Validate the provider response and make deterministic adjacency lists."""
++
++    if not isinstance(network, dict):
++        raise ValueError("invalid network")
++    nodes = network.get("nodes")
++    edges = network.get("edges")
++    if not isinstance(nodes, dict) or not isinstance(edges, (list, tuple)):
++        raise ValueError("invalid network")
++
++    # The README's 3--24 node/60-edge figures describe the provider's
++    # benchmark boundary.  The traversal cap below remains the hard safety
++    # limit, while allowing a structurally valid small graph to simply produce
++    # no qualifying loop when it has too few nodes.
++    if not isinstance(start, str) or not start or start not in nodes:
++        raise ValueError("invalid start")
++
++    coordinates = {}
++    for node_id, value in nodes.items():
++        if not isinstance(node_id, str):
++            raise ValueError("invalid network")
++        coordinates[node_id] = point(value)
++
++    adjacency_sets = {node_id: set() for node_id in coordinates}
++    for edge in edges:
++        # The documented shape is [from, to].  Accepting trailing values is
++        # intentional: providers sometimes attach a distance label, which is
++        # untrusted and must not affect route geometry or filtering.
++        if not isinstance(edge, (list, tuple)) or len(edge) < 2:
++            raise ValueError("invalid network")
++        source, destination = edge[0], edge[1]
++        if (
++            not isinstance(source, str)
++            or not isinstance(destination, str)
++            or source not in coordinates
++            or destination not in coordinates
++        ):
++            raise ValueError("invalid network")
++        adjacency_sets[source].add(destination)
++
++    # Node identifiers in the JSON graph are strings.  Sorting them makes both
++    # traversal and the eventual result independent of provider edge order.
++    adjacency = {
++        node_id: sorted(neighbours) for node_id, neighbours in adjacency_sets.items()
++    }
++    return coordinates, adjacency
++
++
++def _route_id(sequence):
++    # JSON encoding avoids delimiter ambiguities (for example, node IDs that
++    # themselves contain a separator).  Including the closed sequence makes
++    # the identity explicit and is stable across edge ordering.
++    encoded = json.dumps(
++        list(sequence), ensure_ascii=False, separators=(",", ":")
++    ).encode("utf-8")
++    return "route-" + hashlib.sha256(encoded).hexdigest()
++
++
++def _make_route(sequence, coordinates):
++    geometry = [dict(coordinates[node_id]) for node_id in sequence]
++    distance_metres = sum(
++        meters(left, right) for left, right in zip(geometry, geometry[1:])
++    )
++    return {
++        "route_id": _route_id(sequence),
++        "geometry": geometry,
++        "distance_miles": distance_metres / METRES_PER_MILE,
++    }
++
++
++def generate_routes(network, start, requested, tolerance):
++    """Enumerate and distance-filter simple directed loops.
++
++    A search state is a simple path without its closing copy of ``start``.
++    The initial ``[start]`` path counts as state one.  Closing an eligible
++    path is an edge examination rather than a new simple-path state.  If a new
++    path would be state 100001, the whole generation raises before returning
++    partial alternatives.
++    """
++
++    requested = _finite_number(requested, "requested_miles", nonnegative=True)
++    tolerance = _finite_number(tolerance, "tolerance", nonnegative=True)
++    coordinates, adjacency = _normalise_network(network, start)
++
++    routes = []
++
++    # Keep an explicit stack of recursive frames instead of relying on Python's
++    # call stack.  Each frame is (simple_path, next-neighbour-index); advancing
++    # one frame at a time preserves the sorted depth-first walk and, importantly,
++    # the definition of a traversal state used by the search budget.
++    search_states = 1  # The initial path is a traversal state.
++    frames = [([start], 0)]
++    while frames:
++        path, neighbour_index = frames[-1]
++        neighbours = adjacency[path[-1]]
++        if neighbour_index >= len(neighbours):
++            frames.pop()
++            continue
++
++        neighbour = neighbours[neighbour_index]
++        frames[-1] = (path, neighbour_index + 1)
++        if neighbour == start:
++            if MIN_DISTINCT_NODES <= len(path) <= MAX_DISTINCT_NODES:
++                closed = path + [start]
++                route = _make_route(closed, coordinates)
++                if abs(route["distance_miles"] - requested) <= tolerance:
++                    routes.append(route)
++            continue
++
++        if neighbour in path or len(path) >= MAX_DISTINCT_NODES:
++            continue
+ 
+-def generate_routes(network,start,requested,tolerance):
+-    return []
++        # Do not visit state 100001.  Raising here causes the caller to
++        # retain the old state rather than saving a partial search result.
++        if search_states >= MAX_SEARCH_STATES:
++            raise ValueError("search_limit")
++        search_states += 1
++        frames.append((path + [neighbour], 0))
++    routes.sort(
++        key=lambda route: (
++            abs(route["distance_miles"] - requested),
++            route["route_id"],
++        )
++    )
++    return routes
+diff --git a/solution.py b/solution.py
+index 5d6c72f509d8a1332e1def44372c624fafd50497..54e0678fa4c5231b1d9015866e267a68bfbf4a0c 100644
+--- a/solution.py
++++ b/solution.py
+@@ -1,39 +1,268 @@
++"""State transition logic for the local routing component."""
++
+ from copy import deepcopy
+ import math
+-from geometry import point,distance_from_path
+-from router import generate_routes
++import os
++
++from geometry import distance_from_path, point
++from router import GraphClient, generate_routes
++
++
++_DEFAULT_THEME = "dark"
++_DEFAULT_PROGRESS_THRESHOLD = 30.0
++
++
++def _fresh_success_state(state):
++    """Copy state and remove response-only fields before applying an action."""
++
++    result = deepcopy(state) if isinstance(state, dict) else {}
++    result.pop("result", None)
++    result.pop("error", None)
++    result.setdefault("alternatives", {})
++    result.setdefault("points", [])
++    result.setdefault("alerts", [])
++    result.setdefault("theme", _DEFAULT_THEME)
++    return result
++
++
++def _error_state(state, code):
++    """Make an error response without changing the state supplied by a caller."""
++
++    result = deepcopy(state) if isinstance(state, dict) else {}
++    # A result is a response detail, not a committed workflow transition.  The
++    # server never writes this error response, so the on-disk state is intact.
++    result.pop("result", None)
++    result["error"] = {"code": code}
++    return result
++
+ 
+-def process_navigation_action(state,action,client=None):
+-    out=deepcopy(state) if isinstance(state,dict) else {};a=deepcopy(action) if isinstance(action,dict) else {};out.pop('result',None);out.pop('error',None)
+-    for k,v in [('alternatives',{}),('points',[]),('alerts',[]),('theme','dark')]:out.setdefault(k,v)
+-    kind=a.get('type')
++def _finite_nonnegative(value, name):
++    if isinstance(value, bool) or not isinstance(value, (int, float)):
++        raise ValueError("invalid " + name)
+     try:
+-        if kind=='generate_alternatives':
+-            start=a.get('start_node')
+-            if not isinstance(start,str) or not start:raise ValueError('invalid start')
+-            routes=generate_routes(client.fetch(start),start,a.get('requested_miles'),a.get('tolerance',0))
+-            if not routes:raise ValueError('no_route_within_tolerance')
+-            out['alternatives']={r['route_id']:r for r in routes};out.pop('selected_route',None);out.pop('navigation',None);out['result']={'routes':deepcopy(routes)}
+-        elif kind=='place_point':
+-            p=point(a);out['points'].append(p);out['result']=p
+-        elif kind=='select_route':
+-            route=out['alternatives'].get(a.get('route_id'))
+-            if not route:raise ValueError('unknown_route')
+-            out['selected_route']=deepcopy(route);out.pop('navigation',None);out['result']=deepcopy(route)
+-        elif kind=='start_navigation':
+-            if 'selected_route' not in out:raise ValueError('route_not_selected')
+-            out['navigation']={'active':True,'last_position':None};out['result']={'active':True}
+-        elif kind=='progress':
+-            nav=out.get('navigation');event=a.get('event_id');threshold=a.get('threshold_meters',30)
+-            if not nav or not nav.get('active') or not isinstance(event,str) or not event:raise ValueError('progress_denied')
+-            if not isinstance(threshold,(int,float)) or isinstance(threshold,bool) or not math.isfinite(threshold) or threshold<0:raise ValueError('invalid threshold')
+-            p=point(a.get('position'));distance=0;nav['last_position']=p
+-            if distance>threshold and not any(x['event_id']==event for x in out['alerts']):out['alerts'].append({'event_id':event,'kind':'off_route','vibrate':True})
+-            out['result']={'off_route':distance>threshold,'distance_meters':distance}
+-        elif kind=='set_theme':
+-            if a.get('theme') not in ['light','dark']:raise ValueError('invalid_theme')
+-            out['theme']=a['theme'];out['result']={'theme':a['theme']}
+-        else:raise ValueError('unknown_action')
+-    except Exception as e:
+-        clean=deepcopy(state) if isinstance(state,dict) else {};clean.pop('result',None);clean['error']={'code':str(e) if isinstance(e,ValueError) else 'provider_failed'};return clean
+-    return out
++        value = float(value)
++    except (TypeError, ValueError, OverflowError):
++        raise ValueError("invalid " + name)
++    if not math.isfinite(value) or value < 0:
++        raise ValueError("invalid " + name)
++    return value
++
++
++def _validate_route(route):
++    """Validate the route data needed by selection/navigation.
++
++    This validates an already generated route but never constructs geometry
++    from an action.  In particular, a caller cannot select an arbitrary route
++    ID and cause the component to invent a polyline.
++    """
++
++    if not isinstance(route, dict):
++        raise ValueError("unknown_route")
++    route_id = route.get("route_id")
++    geometry = route.get("geometry")
++    distance = route.get("distance_miles")
++    if not isinstance(route_id, str) or not route_id:
++        raise ValueError("unknown_route")
++    if not isinstance(geometry, (list, tuple)) or len(geometry) < 2:
++        raise ValueError("unknown_route")
++    try:
++        # Validate every coordinate, while leaving the route itself untouched.
++        for item in geometry:
++            point(item)
++    except ValueError:
++        raise ValueError("unknown_route")
++    if isinstance(distance, bool) or not isinstance(distance, (int, float)):
++        raise ValueError("unknown_route")
++    try:
++        distance = float(distance)
++    except (TypeError, ValueError, OverflowError):
++        raise ValueError("unknown_route")
++    if not math.isfinite(distance) or distance < 0:
++        raise ValueError("unknown_route")
++    return route
++
++
++def _selected_route(state):
++    route = state.get("selected_route")
++    if route is None:
++        raise ValueError("route_not_selected")
++    try:
++        return _validate_route(route)
++    except ValueError:
++        raise ValueError("route_not_selected")
++
++
++def _configured_client(client):
++    if client is not None:
++        if not callable(getattr(client, "fetch", None)):
++            raise ValueError("provider_failed")
++        return client
++    # The optional argument is useful to callers with a fixture client.  The
++    # web service supplies its configured GraphClient; when called directly we
++    # use the same GRAPH_URL convention rather than accepting graph data from
++    # an action.
++    url = os.environ.get("GRAPH_URL")
++    if not url:
++        raise ValueError("provider_failed")
++    try:
++        return GraphClient(url)
++    except Exception:
++        raise ValueError("provider_failed")
++
++
++def process_navigation_action(state, action, client=None):
++    """Apply one navigation action and return a new local workflow state.
++
++    All work happens on a deep copy.  If anything is rejected, the returned
++    object is an error view of the prior state and the caller (the HTTP server)
++    does not persist it.
++    """
++
++    try:
++        if not isinstance(action, dict):
++            raise ValueError("unknown_action")
++        # Copy actions too: this keeps the transition independent of mutable
++        # objects supplied by a caller/fake client, even though we only read
++        # the action below.
++        action = deepcopy(action)
++        kind = action.get("type")
++        if not isinstance(kind, str):
++            raise ValueError("unknown_action")
++
++        out = _fresh_success_state(state)
++
++        if kind == "generate_alternatives":
++            start = action.get("start_node")
++            if not isinstance(start, str) or not start:
++                raise ValueError("invalid start")
++            requested = _finite_nonnegative(
++                action.get("requested_miles"), "requested_miles"
++            )
++            tolerance = _finite_nonnegative(
++                action.get("tolerance", 0), "tolerance"
++            )
++
++            graph_client = _configured_client(client)
++            try:
++                network = graph_client.fetch(start)
++            except Exception:
++                # Transport/provider failures are not input-validation errors
++                # and must not expose arbitrary exception text as state.
++                raise ValueError("provider_failed")
++            routes = generate_routes(network, start, requested, tolerance)
++            if not routes:
++                raise ValueError("no_route_within_tolerance")
++
++            out["alternatives"] = {
++                route["route_id"]: deepcopy(route) for route in routes
++            }
++            # Regeneration is the one operation that intentionally invalidates
++            # selection and navigation.  Other persistent workflow fields are
++            # retained.
++            out.pop("selected_route", None)
++            out.pop("navigation", None)
++            out["result"] = {"routes": deepcopy(routes)}
++
++        elif kind == "place_point":
++            placed = point(action)
++            if not isinstance(out.get("points"), list):
++                raise ValueError("invalid state")
++            out["points"].append(placed)
++            out["result"] = deepcopy(placed)
++
++        elif kind == "select_route":
++            route_id = action.get("route_id")
++            alternatives = out.get("alternatives")
++            if (
++                not isinstance(route_id, str)
++                or not route_id
++                or not isinstance(alternatives, dict)
++                or route_id not in alternatives
++            ):
++                raise ValueError("unknown_route")
++            route = alternatives[route_id]
++            _validate_route(route)
++            if route.get("route_id") != route_id:
++                raise ValueError("unknown_route")
++            out["selected_route"] = deepcopy(route)
++            # Selecting a different route makes any previous navigation
++            # session inapplicable.
++            out.pop("navigation", None)
++            out["result"] = deepcopy(route)
++
++        elif kind == "start_navigation":
++            route = _selected_route(out)
++            # Referencing the route above is intentional: a hand-edited or
++            # otherwise stale selected_route is not allowed to start a session
++            # with unusable geometry.
++            del route
++            out["navigation"] = {"active": True, "last_position": None}
++            out["result"] = {"active": True}
++
++        elif kind == "progress":
++            navigation = out.get("navigation")
++            event_id = action.get("event_id")
++            if (
++                not isinstance(navigation, dict)
++                or not navigation.get("active")
++                or not isinstance(event_id, str)
++                or not event_id
++            ):
++                raise ValueError("progress_denied")
++
++            threshold = action.get(
++                "threshold_meters", _DEFAULT_PROGRESS_THRESHOLD
++            )
++            threshold = _finite_nonnegative(threshold, "threshold")
++            position = point(action.get("position"))
++            route = _selected_route(out)
++            geometry = route["geometry"]
++            distance = distance_from_path(position, geometry)
++
++            alerts = out.get("alerts")
++            if not isinstance(alerts, list):
++                raise ValueError("invalid state")
++
++            # The valid position is recorded even when it produces an alert.
++            # It is assigned only after all validation/calculation succeeds,
++            # preserving atomicity on malformed coordinates.
++            navigation["last_position"] = deepcopy(position)
++            off_route = distance > threshold  # equality is deliberately safe
++            if off_route:
++                already_alerted = any(
++                    isinstance(alert, dict)
++                    and alert.get("event_id") == event_id
++                    for alert in alerts
++                )
++                if not already_alerted:
++                    alerts.append(
++                        {
++                            "event_id": event_id,
++                            "kind": "off_route",
++                            "vibrate": True,
++                        }
++                    )
++            out["result"] = {
++                "off_route": off_route,
++                "distance_meters": distance,
++            }
++
++        elif kind == "set_theme":
++            theme = action.get("theme")
++            if theme not in ("light", "dark"):
++                raise ValueError("invalid_theme")
++            out["theme"] = theme
++            out["result"] = {"theme": theme}
++
++        else:
++            raise ValueError("unknown_action")
++
++        return out
++
++    except ValueError as exc:
++        code = str(exc) or "invalid_action"
++        return _error_state(state, code)
++    except Exception:
++        # A malformed provider response, unexpected fake client failure, or
++        # malformed pre-existing state is rejected without a partial commit.
++        return _error_state(state, "provider_failed")

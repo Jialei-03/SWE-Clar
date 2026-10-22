@@ -1,0 +1,1 @@
+Hidden evaluator observes six RU gates through a separate unprivileged candidate process. The structured launcher reports environment failures separately from candidate failures. Independent expected tuples allow extra metadata and numeric int/float equivalents.

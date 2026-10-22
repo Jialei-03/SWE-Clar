@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-083",
+  "public": {
+    "readme": "# Distance-constrained local routing component\n\nRun `STATE_PATH=state.json GRAPH_URL=http://127.0.0.1:port/network python server.py`. The loopback web service persists one local user's state and renders clickable SVG routes. It is not a public multi-user service. Input routes and off-route distance flags are untrusted: the component must calculate geometry itself.\n\nThe graph provider accepts POST {start_node} and returns {nodes:{id:{lat,lon}},edges:[[from,to],...]}. Edges are directed straight road segments. Benchmark networks contain 3\u201324 nodes, at most 60 edges and coordinates within 20 km of the start. Enumerate unique simple directed loops returning to the start, with 3\u201310 distinct nodes, at most 100,000 search states, and geodesic lengths within requested_miles \u00b1 tolerance. Select and display real geometry, not arbitrary nearby shortest routes. Edge distance labels are ignored. Local point-to-segment distance is used for navigation checks. This disclosed synthetic network is a small routing benchmark, not a city-wide road database or a production directions provider.\n\n`process_navigation_action(state,action,client=None)` preserves inputs. Actions: generate_alternatives(start_node,requested_miles,tolerance), place_point(lat,lon), select_route(route_id), start_navigation, progress(event_id,position,threshold_meters), set_theme(theme). The graph HTTP adapter and UI shell are supplied; repair incomplete route generation and navigation behavior. Only successful actions are atomically persisted. Coordinates describe synthetic geometry, never customer addresses or GPS histories. Background GPS and native vibration are not validated; alerts carry an intent for a downstream device adapter.\n\nRoute IDs must be stable for an identical directed node sequence, independent of input edge order; no exact hash or spelling is prescribed. A loop contains its start once plus 2\u20139 other distinct nodes, followed by the start again in its geometry. Repeated edges do not create alternatives. A traversal state is a visited simple path beginning at the start (including that initial path); abort atomically before visiting state 100001. Local projection for each segment uses the current position as origin: x=R*cos(position latitude)*radians(longitude difference), y=R*radians(latitude difference), followed by the closest point on the closed segment. These constants, enumeration budget and exact policies are reconstruction conventions.\n\nThe prepared Python web environment includes the browser runtime; public fixtures provide a local synthetic HTTP graph service. Run `python /workspace/dev_runtime/start.py` from the workspace and open its printed URL. The server and graph provider stay loopback-only; runtime state is excluded from exports.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_navigation_action",
+          "signature": "process_navigation_action(state,action,client=None) -> dict"
+        },
+        "inputs": {
+          "state": "local workflow state",
+          "action": "routing/navigation action",
+          "client": "GraphClient"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "new state"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_navigation_action",
+        "signature": "process_navigation_action(state,action,client=None) -> dict"
+      },
+      "inputs": {
+        "state": "local workflow state",
+        "action": "routing/navigation action",
+        "client": "GraphClient"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "new state"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_navigation_action",
+        "signature": "process_navigation_action(state,action,client=None) -> dict"
+      },
+      "inputs": {
+        "state": "local workflow state",
+        "action": "routing/navigation action",
+        "client": "GraphClient"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "new state"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_navigation_action",
+        "signature": "process_navigation_action(state,action,client=None) -> dict"
+      },
+      "inputs": {
+        "state": "local workflow state",
+        "action": "routing/navigation action",
+        "client": "GraphClient"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "new state"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_navigation_action",
+        "signature": "process_navigation_action(state,action,client=None) -> dict"
+      },
+      "inputs": {
+        "state": "local workflow state",
+        "action": "routing/navigation action",
+        "client": "GraphClient"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "new state"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_navigation_action",
+        "signature": "process_navigation_action(state,action,client=None) -> dict"
+      },
+      "inputs": {
+        "state": "local workflow state",
+        "action": "routing/navigation action",
+        "client": "GraphClient"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "new state"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "e47fd6f0ab7294d36d29ad4e782ad974e08a386299bf7c73aad97283b2d029b9",
+  "test_sources_sha256": {
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/navigation_contract.py": "3634d9b25fbaa1435ab27dd978e4015b42b83b2b8346e7ed55b518f9ef22e204",
+    "evaluation/tests/official_verifier.py": "6656add58ccd1b8105e84e726bc03af3e1575c94c36baf0eecaaa50ade8b866b",
+    "evaluation/tests/source_test.sh": "c1802cb3b9a84ce357010c0c18d14f080afdec36601ce2ef6272dace97735b74",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "2c76a39721f71f92d9950abc15983f525f680f1103115bfe6fe4b4954486e862"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

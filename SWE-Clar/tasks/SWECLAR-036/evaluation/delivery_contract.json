@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-036",
+  "public": {
+    "readme": "# ASP.NET Core database setup\n\nRepair the supplied ASP.NET Core 8 API. It already has HTTP routes, a MariaDB helper, three supplied migration statements, HTTPS and client certificate chain validation. Implement genuine connection reporting, migration execution and protected-endpoint authorization. The project and data are independent reconstructions; no original repository or certificate is included.\n\n## Prepared environment and commands\n\nThe benchmark provides .NET SDK 8.0.425, MySqlConnector 2.5.0 and its offline dependencies, MariaDB 11.4.5, a new database with a restricted account, and synthetic development certificates **before coding begins**. You do not install dependencies, create users, configure credentials, trust system certificates or start the database. From `/workspace`:\n\n- Build: `python build.py`\n- Start: `python start.py` (HTTPS on `https://127.0.0.1:8080`; optional `API_PORT` override)\n- Public smoke: `python /public_tests/test_public.py /workspace`\n- Reset: stop your API, then `python /workspace/dev_runtime/reset.py /workspace`; this resets the sample schema in your attempt's database.\n\nBuild/start diagnostics appear in the terminal. The public smoke starts its own API on an available local port and terminates that process. Runtime connection details and synthetic certificate files live in `runtime/`; the launcher loads them automatically. They are generated per attempt, excluded from version control and must not be included in your deliverable. Stop the foreground API with Ctrl-C. Each new benchmark attempt receives an independent database and certificate set.\n\n## Public API and schema\n\nAll responses are JSON. Additional harmless response fields are allowed. Route paths, field names, error tokens, migration identifiers and schema below are integration contracts, not hidden requirements. Ask the client about migration batch ordering/replays and authorization policy for the protected endpoint.\n\n| Endpoint | Input | Response contract |\n| --- | --- | --- |\n| POST /connect | object with provider string | connected boolean and provider string; failure error `database_connection_failed` |\n| POST /migrations | array of migration ID strings | applied and all arrays; invalid input error `invalid_migrations`/400; execution failure `migration_failed`/503 |\n| GET /health | none | database_connected boolean, migration_count integer, tls_configured boolean |\n| GET /samples | none | array of id/name/category objects; unready error `api_not_ready`/503 |\n| GET /secure | optional client TLS certificate | message `certificate accepted` and migration_count; unauthenticated error token `certificate_required` |\n| Unknown path | any | error `unknown_endpoint`/404 |\n\n`POST /connect` must accept MariaDB case-insensitively, open the configured connection and verify its server identity. Caller-supplied `connection_ok` is untrusted. Never report success for wrong credentials or an unreachable database. Responses must not expose connection strings, database passwords or private keys.\n\nThe supplied migrations are `001_create_samples`, `002_add_category`, `003_index_category`. They create `samples(id VARCHAR(80) PRIMARY KEY, name VARCHAR(160) NOT NULL)`, add `category VARCHAR(80) NOT NULL DEFAULT 'general'`, and add index `sample_category` on category. The public durable history schema is `schema_migrations(sequence_id INT AUTO_INCREMENT PRIMARY KEY, migration_id VARCHAR(80) NOT NULL UNIQUE)`. Keep existing sample records. MariaDB DDL commits individually; do not assume a transaction can roll back a whole batch. The SQL statements are idempotent to support resuming interrupted DDL.\n\nHTTPS uses the generated server PFX. The scaffold requests optional client certificates and validates presented certificates against the generated CA with client-authentication purpose. These are existing public facilities. The candidate may modify their implementation while preserving this behavior; no system trust-store modification is needed. Development files include `runtime/ca.pem`, `runtime/client.pem` and `runtime/client.key` for testing. The client CA private key is not supplied.\n\nThe public smoke checks the provided HTTPS/health scaffolding against a real database. It does not assert the hidden migration or protected-endpoint policy. Windows installation, production deployment and external customer services are outside this task.",
+    "interfaces": [
+      {
+        "type": "api",
+        "entry": {
+          "language": "csharp",
+          "file": "SetupApi.csproj",
+          "command": "python start.py"
+        },
+        "inputs": {
+          "configuration": "Benchmark-prepared runtime/connection.json and synthetic TLS materials; launcher loads configuration automatically",
+          "requests": "Actual HTTPS requests"
+        },
+        "output": {
+          "type": "http",
+          "meaning": "HTTP responses and actual MariaDB schema/history"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "api",
+      "entry": {
+        "language": "csharp",
+        "file": "SetupApi.csproj",
+        "command": "python start.py"
+      },
+      "inputs": {
+        "configuration": "Benchmark-prepared runtime/connection.json and synthetic TLS materials; launcher loads configuration automatically",
+        "requests": "Actual HTTPS requests"
+      },
+      "output": {
+        "type": "http",
+        "meaning": "HTTP responses and actual MariaDB schema/history"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "api",
+      "entry": {
+        "language": "csharp",
+        "file": "SetupApi.csproj",
+        "command": "python start.py"
+      },
+      "inputs": {
+        "configuration": "Benchmark-prepared runtime/connection.json and synthetic TLS materials; launcher loads configuration automatically",
+        "requests": "Actual HTTPS requests"
+      },
+      "output": {
+        "type": "http",
+        "meaning": "HTTP responses and actual MariaDB schema/history"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "api",
+      "entry": {
+        "language": "csharp",
+        "file": "SetupApi.csproj",
+        "command": "python start.py"
+      },
+      "inputs": {
+        "configuration": "Benchmark-prepared runtime/connection.json and synthetic TLS materials; launcher loads configuration automatically",
+        "requests": "Actual HTTPS requests"
+      },
+      "output": {
+        "type": "http",
+        "meaning": "HTTP responses and actual MariaDB schema/history"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "api",
+      "entry": {
+        "language": "csharp",
+        "file": "SetupApi.csproj",
+        "command": "python start.py"
+      },
+      "inputs": {
+        "configuration": "Benchmark-prepared runtime/connection.json and synthetic TLS materials; launcher loads configuration automatically",
+        "requests": "Actual HTTPS requests"
+      },
+      "output": {
+        "type": "http",
+        "meaning": "HTTP responses and actual MariaDB schema/history"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "api",
+      "entry": {
+        "language": "csharp",
+        "file": "SetupApi.csproj",
+        "command": "python start.py"
+      },
+      "inputs": {
+        "configuration": "Benchmark-prepared runtime/connection.json and synthetic TLS materials; launcher loads configuration automatically",
+        "requests": "Actual HTTPS requests"
+      },
+      "output": {
+        "type": "http",
+        "meaning": "HTTP responses and actual MariaDB schema/history"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "9a6f9c01b42a864ea95c8533d59dfb5f9434666fbd79bd9886b934c593afc7ae",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "e925fc094a7e7ca495d943790ecd7d23805ced3f8ecb05b1e22b28b02102dfcf",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "fcca823f434aa3a2c0e3036d1308d3848dcfad1ef53947e9bc9470bde0a5102e",
+    "evaluation/tests/setup_contract.py": "3e4268488e85d3f80f1033492e3838788a10e5479d2c9116b9cf525091131d44",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867"
+  },
+  "public_environment_sha256": "7228edffe7c7352eb243ad17613e5584cd5a98ce7c38aadb36de47060ad6684e",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

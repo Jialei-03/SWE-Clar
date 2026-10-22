@@ -1,0 +1,185 @@
+schema_version: 1
+task_id: SWECLAR-018
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independently reconstructed offline optical target measurement from synthetic grayscale
+  frame sequences.
+requirement_units:
+- ru_id: RU-001
+  name: Preserve the image application
+  content: 'Preserve the documented HTTP/browser workflow, strict P2 parsing and input constraints: preview
+    actual pixels, upload capture JSON, display returned measurements, download exactly the latest report,
+    retain it across restart and isolate databases. Invalid requests return 400 without replacing the
+    previous report; unknown routes and absent reports return 404. Preserve all public interface constraints
+    in the starter README.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for preserve the image application?
+  matching_keywords:
+  - image
+  - browser
+  - input
+  - report
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP endpoints and browser workflow documented in starter README
+    inputs: Synthetic P2 grayscale images and capture JSON
+    output: Actual pixels, measured coordinates and areas, browser table and persisted JSON report
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Exact algorithms, thresholds and offline platform are benchmark reconstruction conventions; not
+    original client quotations or claims of original hardware compatibility.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/optical_contract.py
+- ru_id: RU-002
+  name: Capture capability gate
+  content: After validating the capture object, config and frame headers, accept capture processing only
+    when fps is at least 10 and both dimensions are at least 16. A lower capability returns verdict not_measurable,
+    reason capability and an empty measurement list, without parsing PGM contents. Values outside the
+    published input ranges are malformed requests (400), not capability failures. Preview is independent
+    of this gate.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for capture capability gate?
+  matching_keywords:
+  - capability
+  - device
+  - fps
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP endpoints and browser workflow documented in starter README
+    inputs: Synthetic P2 grayscale images and capture JSON
+    output: Actual pixels, measured coordinates and areas, browser table and persisted JSON report
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Exact algorithms, thresholds and offline platform are benchmark reconstruction conventions; not
+    original client quotations or claims of original hardware compatibility.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/optical_contract.py
+- ru_id: RU-003
+  name: Pixel extraction and two phases
+  content: 'For each frame threshold the actual grayscale samples inclusively: a pixel is dark when its
+    value is at most config.threshold. Find four-neighbor connected components; select the uniquely largest
+    by pixel count. Equal largest components, no components, area outside inclusive min_area/max_area,
+    or any selected pixel on the image border make the measurement unavailable (area, cx, cy and gaze_error
+    all null). Otherwise area is its pixel count, cx/cy are the arithmetic means of its integer pixel
+    coordinates, and gaze_error is Euclidean distance from this center to the supplied target. Keep every
+    frame in input order. Frames with t_ms strictly below phase_ms have phase light; frames at or above
+    it have phase gaze. Phase assignment follows replay timestamps, not wall time. Unrelated smaller dark
+    components do not affect the target.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for pixel extraction and two phases?
+  matching_keywords:
+  - pixels
+  - target
+  - component
+  - phase
+  - measure
+  - threshold
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP endpoints and browser workflow documented in starter README
+    inputs: Synthetic P2 grayscale images and capture JSON
+    output: Actual pixels, measured coordinates and areas, browser table and persisted JSON report
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Exact algorithms, thresholds and offline platform are benchmark reconstruction conventions; not
+    original client quotations or claims of original hardware compatibility.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/optical_contract.py
+- ru_id: RU-004
+  name: Quality rejection before decisions
+  content: A capture is measurable only if both phases contain at least two frames, every frame has a
+    valid target, no gap exceeds max_gap_ms (include zero to first frame, consecutive frames, and last
+    frame to 2*phase_ms), and every consecutive pair stays within max_motion_px Euclidean centroid displacement
+    and max_lighting_delta absolute difference of whole-image mean grayscale brightness. These quality
+    limits are inclusive. Any failure yields verdict not_measurable and reason quality, before considering
+    a deviation. Preserve the full measurement series including null rows. No quality state is accepted
+    from supplied metadata; derive these properties from image content and timestamps.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for quality rejection before decisions?
+  matching_keywords:
+  - quality
+  - gap
+  - motion
+  - lighting
+  - missing
+  - uncertainty
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP endpoints and browser workflow documented in starter README
+    inputs: Synthetic P2 grayscale images and capture JSON
+    output: Actual pixels, measured coordinates and areas, browser table and persisted JSON report
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Exact algorithms, thresholds and offline platform are benchmark reconstruction conventions; not
+    original client quotations or claims of original hardware compatibility.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/optical_contract.py
+- ru_id: RU-005
+  name: Deterministic optical decision
+  content: Only after all quality gates pass, compute the light-phase relative area change as (maximum
+    area minus minimum area) divided by minimum area, and the maximum gaze_error over gaze-phase frames.
+    Return deviation with reason threshold when either value is strictly greater than its configured max_area_change
+    or max_gaze_px; equality is stable. Otherwise return stable with reason within_limits. Do not use
+    light-phase target error for gaze classification or gaze-phase area for area-change classification.
+    These are synthetic calibration rules, with no biometric or clinical interpretation.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for deterministic optical decision?
+  matching_keywords:
+  - decision
+  - deviation
+  - stable
+  - area
+  - gaze
+  - limits
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP endpoints and browser workflow documented in starter README
+    inputs: Synthetic P2 grayscale images and capture JSON
+    output: Actual pixels, measured coordinates and areas, browser table and persisted JSON report
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Exact algorithms, thresholds and offline platform are benchmark reconstruction conventions; not
+    original client quotations or claims of original hardware compatibility.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/optical_contract.py

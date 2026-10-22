@@ -1,0 +1,296 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-046",
+  "public": {
+    "readme": "# Source synchronization and outreach connector\n\nComplete the supplied Python data-layer project and PipelineClient HTTP adapter. `process_pipeline_event(state,event,service=None)` preserves caller objects and returns a new state/report. The client is configured with source_urls, destination_urls, outreach_url and optional Bearer token kept outside returned state. Source and destination data must be read from the actual configured services; caller-supplied rows or accepted flags are not proof of remote execution.\n\nThe evaluator provides local synthetic HTTP endpoints. The project reconstructs an ETL and outbound-queue integration component; it does not reproduce a private Make workspace, vendor-native API, contact database or live outreach campaign. Transport acknowledgement means the local connector accepted the intent, not that a real person received a message. Clarify preservation rules, eligible channels, acknowledgement and accounting behavior as needed.\n\n## Prepared local environment\n\nUse `/workspace` in `python-web`. Python, SQLite and HTTP libraries are ready before the task; no installation or real credentials are needed. Limits: 2 CPU, 2048 MiB memory, 256 processes, 256 MiB workspace. Networking is local loopback only.\n\n- Sample: `python cli.py < example.json`.\n- Public checks: `python /public_tests/test_public.py`.\n- Reset: `python -c \"import shutil; shutil.rmtree('runtime', ignore_errors=True)\"`.\n\nThe console reads `{\"state\": ..., \"event\": ...}`, automatically starts the local provider, configures the client with temporary authentication and prints the result. The provider loads synthetic `source.json` and persists destination/queue rows in `runtime/provider.db`; `--database PATH` selects another file. It stops automatically; there is no external delivery. Errors appear on stderr. Keep runtime databases out of code delivery.\n\nThe provided GET adapters work. Implement `PipelineClient.upsert`, `PipelineClient.submit_outreach` and the workflow. Preserve the console and local service. Auth tokens must remain inside transport configuration. Caller state is explicitly supplied each invocation; remote destination and queued deliveries persist in the provider database.\n\n## Public data contract\n\nState is a JSON object with optional `sources` and `destinations` mappings, `runs` list, `outbox` list and unrelated metadata. Missing collections start empty. A destination entry is a mapping of normalized source IDs to record objects. Source rows contain `source_id` and arbitrary data fields. Service responses are authoritative; cached caller data may be stale. Extra nonconflicting output metadata is allowed.\n\nEvents are `sync(source,destination,run_id?)` or `queue_outreach(destination,source_id,channel,run_id?)`. Named endpoints refer to the configured client mappings. Explicit `run_id` must be a nonempty string and is validated before HTTP requests; when absent use `run:<completed run count + 1>`. Return `result` and append the same run summary to `runs`, with `run_id`, `processed`, `created`, `updated`, `skipped`, `failed`. Each attempted source row increments processed; each operation outcome increments one outcome counter. An outreach request processes one row. Successful operations clear stale error/result fields. Errors contain `error.code`; malformed run IDs use `invalid_run_id`, malformed or unavailable service reads use `service_failed`.\n\n`PipelineClient` methods are `read_source(name)`, `read_destination(name)`, `upsert(destination,source_id,row)`, `submit_outreach(delivery_id,email)`. The source GET returns a JSON array; destination GET returns an object keyed by ID, with object-valued rows. PUT to `destination_url/<percent-encoded ID>` sends the full record and returns `{\"accepted\":true,\"source_id\":\"...\"}`. POST to outreach URL sends `{\"delivery_id\":\"...\",\"email\":\"...\"}` and returns `{\"accepted\":true,\"delivery_id\":\"...\"}`. See the client for transport configuration and header support; ask the client simulator for business ownership, queue eligibility and retry rules.\n\nA failed or mismatched write acknowledgement must not update the local confirmed cache or success count. A remote write can already have occurred when its acknowledgement is lost; retry uses the same row/delivery identifier rather than claiming remote rollback. The prepared queue provides idempotent acceptance and never sends external messages.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_pipeline_event",
+          "signature": "process_pipeline_event(state,event,service=None) -> dict"
+        },
+        "inputs": {
+          "arguments": [
+            "state",
+            "event"
+          ],
+          "action_variants": {
+            "pipeline_event": {
+              "fields": [
+                "type"
+              ]
+            }
+          },
+          "protocol_fields": [
+            "type"
+          ],
+          "service": "PipelineClient(source_urls,destination_urls,outreach_url,token=None)"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "State, result/run summary or error.code as defined in public README. Extra nonconflicting metadata is allowed."
+        },
+        "operations": []
+      },
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_pipeline_event",
+          "signature": "process_pipeline_event(state,event,service=None) -> dict"
+        },
+        "inputs": {
+          "arguments": [
+            "state",
+            "event"
+          ],
+          "action_variants": {
+            "sync": {
+              "fields": [
+                "destination",
+                "source",
+                "type"
+              ]
+            }
+          },
+          "protocol_fields": [
+            "destination",
+            "destinations",
+            "source",
+            "sources",
+            "type"
+          ],
+          "service": "PipelineClient(source_urls,destination_urls,outreach_url,token=None)"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "State, result/run summary or error.code as defined in public README. Extra nonconflicting metadata is allowed."
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_pipeline_event",
+        "signature": "process_pipeline_event(state,event,service=None) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "event"
+        ],
+        "action_variants": {
+          "pipeline_event": {
+            "fields": [
+              "type"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "type"
+        ],
+        "service": "PipelineClient(source_urls,destination_urls,outreach_url,token=None)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "State, result/run summary or error.code as defined in public README. Extra nonconflicting metadata is allowed."
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_pipeline_event",
+        "signature": "process_pipeline_event(state,event,service=None) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "event"
+        ],
+        "action_variants": {
+          "sync": {
+            "fields": [
+              "destination",
+              "source",
+              "type"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "destination",
+          "destinations",
+          "source",
+          "sources",
+          "type"
+        ],
+        "service": "PipelineClient(source_urls,destination_urls,outreach_url,token=None)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "State, result/run summary or error.code as defined in public README. Extra nonconflicting metadata is allowed."
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_pipeline_event",
+        "signature": "process_pipeline_event(state,event,service=None) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "event"
+        ],
+        "action_variants": {
+          "sync": {
+            "fields": [
+              "destination",
+              "source",
+              "type"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "credentials",
+          "destination",
+          "destinations",
+          "outbox",
+          "runs",
+          "source",
+          "sources",
+          "type"
+        ],
+        "service": "PipelineClient(source_urls,destination_urls,outreach_url,token=None)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "State, result/run summary or error.code as defined in public README. Extra nonconflicting metadata is allowed."
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_pipeline_event",
+        "signature": "process_pipeline_event(state,event,service=None) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "event"
+        ],
+        "action_variants": {
+          "queue_outreach": {
+            "fields": [
+              "accepted",
+              "channel",
+              "destination",
+              "source_id",
+              "type"
+            ]
+          },
+          "sync": {
+            "fields": [
+              "destination",
+              "source",
+              "type"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "accepted",
+          "channel",
+          "credentials",
+          "destination",
+          "destinations",
+          "outbox",
+          "runs",
+          "source",
+          "source_id",
+          "sources",
+          "type"
+        ],
+        "service": "PipelineClient(source_urls,destination_urls,outreach_url,token=None)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "State, result/run summary or error.code as defined in public README. Extra nonconflicting metadata is allowed."
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_pipeline_event",
+        "signature": "process_pipeline_event(state,event,service=None) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "event"
+        ],
+        "action_variants": {
+          "sync": {
+            "fields": [
+              "destination",
+              "run_id",
+              "source",
+              "type"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "credentials",
+          "destination",
+          "destinations",
+          "outbox",
+          "run_id",
+          "runs",
+          "source",
+          "sources",
+          "type"
+        ],
+        "service": "PipelineClient(source_urls,destination_urls,outreach_url,token=None)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "State, result/run summary or error.code as defined in public README. Extra nonconflicting metadata is allowed."
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "455cb115abfb980e7a70c5e3aa232e67da47a4057b870a49af2d9c0f625a7d66",
+  "test_sources_sha256": {
+    "evaluation/tests/boundaries.py": "49b50f5dcf25f846a0f5e374881e20aebb5275c10c6cbcfa0fe50f2fa1e40cba",
+    "evaluation/tests/candidate_proxy.py": "2f0bc9a97e33079317fd0ee1b7f2473bfa1d652a8292049060174d42ab47fb83",
+    "evaluation/tests/conftest.py": "b5638daf9e57cf33a077bd9b5430cf4ba984f8dde07b9f5de288923942a4d992",
+    "evaluation/tests/evaluate.py": "2aa24e46308b5c2bf253b1b0aeafed5a860085cb7c4b511bdde020cc50af125b",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "c024d14cde36d06b82c701e12313395d8aa1f03b68deed99e7ed4db29cba057b"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

@@ -1,0 +1,3 @@
+# Shared image/PDF report environment
+
+Extends the unchanged python-vision recipe, reusing Python3.12.3, Pillow12.3.0 and prepared Chromium. Adds only locked ReportLab4.4.9, pypdf6.10.0 and charset-normalizer3.4.7; wheel URLs and SHA256s are in lock.json. Package license files remain in installed distributions. Build it with `python SWE-Clar/environments/build.py` (see the repository README), which prepares the base profiles automatically; no manual preparation step is needed. Host Docker and Python are manager tools; all network downloads happen during preparation. Independent preflight runs actual ordinary-user JPEG decoding, PDF creation/image embedding and independent PDF parsing, plus base vision/browser checks. No task code or source materials are included.

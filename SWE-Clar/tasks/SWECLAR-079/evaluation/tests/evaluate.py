@@ -1,0 +1,20 @@
+import json,sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+import support,test_solution
+
+def main():
+ if not all(Path(p).is_file() for p in ['/public_tests/worker.py','/public_tests/fixtures.py']):return {'harness_ok':False,'results':[],'error':'Public operation helper unavailable'}
+ try:support.app()
+ except Exception as error:return {'harness_ok':False,'results':[],'error':'Prepared native runtime unavailable: '+str(error)}
+ rows=[]
+ try:
+  for i in range(1,6):
+   try:
+    for name in sorted(n for n in dir(test_solution) if n.startswith(f'test_ru_{i:03}_')):getattr(test_solution,name)()
+    passed,detail=True,'passed'
+   except Exception as error:passed,detail=False,type(error).__name__+': '+str(error)
+   rows.append({'ru_id':f'RU-{i:03}','passed':passed,'detail':detail})
+ finally:support.close()
+ return {'harness_ok':True,'results':rows}
+if __name__=='__main__':print(json.dumps(main()))

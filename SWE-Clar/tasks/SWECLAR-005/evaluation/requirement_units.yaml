@@ -1,0 +1,201 @@
+schema_version: 1
+task_id: SWECLAR-005
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent browser cycle journal, phase prompts and actual local browser reminders
+requirement_units:
+- ru_id: RU-001
+  name: Working local calendar application
+  content: Complete the supplied independent browser journal and its exported buildCyclePlan ES module.
+    Preserve the README input/result shapes, strict validation, deterministic nonmutating function, runtime
+    commands, actual form/timeline interfaces and local journal creation. Use the preprovided full Chromium
+    notification capability, local HTTP assets and browser storage. No customer account, original file,
+    native mobile SDK or external download is needed. Keep one unique ID per new journal and preserve
+    other journals when creating one. Valid labels are trimmed 1..60-character text. New-journal defaults
+    and the published storage contract are public. The benchmark independently defines this schedule for
+    software tests; phase labels do not claim clinical accuracy.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern working local calendar application?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python -m http.server 8000 --bind 127.0.0.1 --directory .
+      runtime: Prepared Python and full Chromium channel chromium; no external network
+    inputs:
+      planner: ES module buildCyclePlan(input), complete schema in README
+      browser: Local journal form, storage and controlled UTC browser clock
+    output:
+      planner: Current day/phase, current cycle timeline and selected recommendation
+      browser: Real DOM, persistent journal changes and actual Service Worker notifications
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Calendar, guidance, manual correction and reminders are source-grounded privately. All exact
+    phase/date/selection/notification rules, text, code and browser adaptation are independently authored.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/cycle_contract.py
+- ru_id: RU-002
+  name: Cycle dates and phase allocation
+  content: Treat canonical dates as UTC calendar days and use floor division for repeating cycles. The
+    timeline is the whole cycle containing asOf, even when asOf is before periodStart. cycleStart = periodStart
+    + floor((asOf-periodStart)/cycleLength)*cycleLength days; currentDay is 1-based from that anchor.
+    There is exactly one chronological timeline record per day and exactly one current phase. Allocate
+    menstrual length=periodLength, ovulatory length=2, and let rest=cycleLength-periodLength-2; follicular
+    length=floor(rest/2), luteal length=rest-follicular. Phases occur in menstrual, follicular, ovulatory,
+    luteal order. Handle negative date offsets, leap days, month/year crossings, allowed minimum/maximum
+    lengths and cycle-boundary days. Browser local timezone and daylight-saving changes must not alter
+    these UTC results. These precise arithmetic lengths are synthetic benchmark conventions.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern cycle dates and phase allocation?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python -m http.server 8000 --bind 127.0.0.1 --directory .
+      runtime: Prepared Python and full Chromium channel chromium; no external network
+    inputs:
+      planner: ES module buildCyclePlan(input), complete schema in README
+      browser: Local journal form, storage and controlled UTC browser clock
+    output:
+      planner: Current day/phase, current cycle timeline and selected recommendation
+      browser: Real DOM, persistent journal changes and actual Service Worker notifications
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Calendar, guidance, manual correction and reminders are source-grounded privately. All exact
+    phase/date/selection/notification rules, text, code and browser adaptation are independently authored.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/cycle_contract.py
+- ru_id: RU-003
+  name: Deterministic phase prompt rotation
+  content: Select only from the current phase's pool. With n entries, select index ((seed+epochDay)%n+n)%n,
+    where epochDay is the integer number of UTC days since 1970-01-01 and seed defaults to 0. Return the
+    literal selected string, preserving its whitespace and treating any markup as text in the page. Omitted/null
+    pools, missing phase arrays and an empty current-phase pool return null; never borrow another phase's
+    message. The same input/seed returns the same result, while day or seed changes rotate through the
+    available pool according to this exact index rule, including negative seeds. Multiple prompts and
+    singleton pools are supported. All example prompts are independently authored and contain no original
+    customer content.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern deterministic phase prompt rotation?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python -m http.server 8000 --bind 127.0.0.1 --directory .
+      runtime: Prepared Python and full Chromium channel chromium; no external network
+    inputs:
+      planner: ES module buildCyclePlan(input), complete schema in README
+      browser: Local journal form, storage and controlled UTC browser clock
+    output:
+      planner: Current day/phase, current cycle timeline and selected recommendation
+      browser: Real DOM, persistent journal changes and actual Service Worker notifications
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Calendar, guidance, manual correction and reminders are source-grounded privately. All exact
+    phase/date/selection/notification rules, text, code and browser adaptation are independently authored.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/cycle_contract.py
+- ru_id: RU-004
+  name: Manual correction and persistent journal UI
+  content: The actual browser uses the same plan function for the active journal and today's UTC date.
+    A successful form submission atomically validates and stores the complete settings, recomputes all
+    dates/current day/timeline/prompt, and displays saved. Invalid form input displays invalid_input without
+    changing stored settings or displayed results, retaining entered values for correction. Changing the
+    period start, lengths, seed or pools must not leave stale results. A reload restores the active journal
+    and its saved settings; switching journals immediately renders that journal's state and never mixes
+    another journal's settings/history. Absent or malformed local storage behaves as an empty journal
+    list, and creating a valid journal repairs it. Display literal labels/prompts, exact per-day attributes
+    and today's marker, with the README observation interfaces and narrow/wide usability. Refresh date/plan
+    after UTC midnight while open. These are public regression obligations, not hidden infrastructure
+    puzzles.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern manual correction and persistent journal ui?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python -m http.server 8000 --bind 127.0.0.1 --directory .
+      runtime: Prepared Python and full Chromium channel chromium; no external network
+    inputs:
+      planner: ES module buildCyclePlan(input), complete schema in README
+      browser: Local journal form, storage and controlled UTC browser clock
+    output:
+      planner: Current day/phase, current cycle timeline and selected recommendation
+      browser: Real DOM, persistent journal changes and actual Service Worker notifications
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Calendar, guidance, manual correction and reminders are source-grounded privately. All exact
+    phase/date/selection/notification rules, text, code and browser adaptation are independently authored.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/cycle_contract.py
+- ru_id: RU-005
+  name: Actual daily browser reminder delivery
+  content: 'While the page is open, check at least once each second. Only the active journal can notify,
+    only when remindersEnabled is true, browser notification permission is granted, and the current UTC
+    time is at or after reminderTime. Select the current UTC day''s phase prompt using the same planning
+    policy; if it is null, send nothing and do not mark the day delivered. Notification title/body/tag/data
+    use the public README interface and must exist in the real browser notification service.
+
+
+    Deliver at most once per journal per UTC date, even after closing the displayed notification, reloading,
+    changing settings/period dates/time/seed/pools or switching away and back. Record a day in notifiedDays
+    only after showNotification succeeds. Failed/denied permission does not consume that day''s delivery;
+    a later permission grant or successful retry may deliver once. On opening the page or enabling reminders
+    after today''s due time, deliver today''s one reminder immediately; never replay previous missed days.
+    Disabling reminders suppresses future sends without deleting prior history or notifications. Updating
+    settings before delivery affects the due time/prompt; after delivery it cannot create another notification
+    that date. Two different journals have independent delivery histories. At UTC midnight the next date
+    becomes eligible under its own due time. Timers and actual browser notifications are part of the task,
+    rather than a synthetic returned schedule array. These exact delivery decisions are independently
+    designed.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern actual daily browser reminder delivery?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python -m http.server 8000 --bind 127.0.0.1 --directory .
+      runtime: Prepared Python and full Chromium channel chromium; no external network
+    inputs:
+      planner: ES module buildCyclePlan(input), complete schema in README
+      browser: Local journal form, storage and controlled UTC browser clock
+    output:
+      planner: Current day/phase, current cycle timeline and selected recommendation
+      browser: Real DOM, persistent journal changes and actual Service Worker notifications
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Calendar, guidance, manual correction and reminders are source-grounded privately. All exact
+    phase/date/selection/notification rules, text, code and browser adaptation are independently authored.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/cycle_contract.py

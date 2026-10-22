@@ -1,0 +1,191 @@
+schema_version: 1
+task_id: SWECLAR-058
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Local browser voice-room service with actual synthetic WAV transport and playback
+requirement_units:
+- ru_id: RU-001
+  name: Voice workflow entry point
+  content: Complete the supplied local HTTP/browser voice-room application and process_voice_event(state,event)
+    without mutating either input. Preserve working room creation, GET /health, generated /demo.wav and
+    browser controls. POST /events applies actions; valid actions return 200 and invalid actions 400 with
+    a nonempty error.code. Unknown or malformed events must not stop the server. Received audio must be
+    actual unchanged WAV bytes in playable browser audio elements, not just packet metadata. Additional
+    metadata and alternative nonempty error codes are permitted.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for voice workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_voice_event
+      signature: process_voice_event(state,event) -> dict
+    inputs:
+      state: Synthetic admins and rooms
+      event: Documented room, participant, turn or actual WAV audio event
+    output:
+      type: dict
+      meaning: New state with result or error.code, plus observed HTTP audio deliveries
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Original voice-chat scene independently reconstructed with synthetic audio and loopback services;
+    no original assets, platform or customer identity.
+- ru_id: RU-002
+  name: Admin-created public and private rooms
+  content: Known admins create rooms with unique nonempty string room IDs, a boolean private flag and
+    a positive finite numeric turn_limit in seconds (booleans excluded). Private rooms require a nonempty
+    string access_token. Return result.room_id. Invalid creation preserves existing rooms. This supplied
+    behavior is a public regression requirement.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for admin-created public and private rooms.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_voice_event
+      signature: process_voice_event(state,event) -> dict
+    inputs:
+      state: Synthetic admins and rooms
+      event: Documented room, participant, turn or actual WAV audio event
+    output:
+      type: dict
+      meaning: New state with result or error.code, plus observed HTTP audio deliveries
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Original voice-chat scene independently reconstructed with synthetic audio and loopback services;
+    no original assets, platform or customer identity.
+- ru_id: RU-003
+  name: Joining and pass lock
+  content: Join an existing room using a nonempty user ID; private rooms require the exact room token.
+    Preserve unique participants in stable join order and return result.participants. Rejoining is idempotent.
+    Only joined participants may lock_pass or unlock_pass; return result.locked as a boolean for the requesting
+    participant (true after lock_pass, false after unlock_pass), not the room's locked-participant list.
+    Locking preserves membership and excludes the user from future speaking turns. Locking the current
+    speaker releases that turn (current and deadline become null); the next advance resumes after that
+    participant. Unlocking does not automatically start or replace a turn. Invalid requests leave room
+    data unchanged.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for joining and pass lock.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_voice_event
+      signature: process_voice_event(state,event) -> dict
+    inputs:
+      state: Synthetic admins and rooms
+      event: Documented room, participant, turn or actual WAV audio event
+    output:
+      type: dict
+      meaning: New state with result or error.code, plus observed HTTP audio deliveries
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Original voice-chat scene independently reconstructed with synthetic audio and loopback services;
+    no original assets, platform or customer identity.
+- ru_id: RU-004
+  name: Server-timed turn rotation
+  content: advance selects the next joined unlocked participant in circular join order, starting with
+    the first on a new room. Return result.current and deadline; set deadline=server_time+that room turn_limit.
+    Preserve the cursor across released turns. When all participants are locked or none have joined, current/deadline
+    are null. pass may be requested only by the current speaker and advances; timeout advances only when
+    a current turn exists and server_time >= deadline. Reject premature timeout and invalid finite numeric
+    server_time (including booleans) without changes. After a selected speaker is locked, subsequent advance
+    skips it. Times are supplied by the deterministic local caller.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for server-timed turn rotation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_voice_event
+      signature: process_voice_event(state,event) -> dict
+    inputs:
+      state: Synthetic admins and rooms
+      event: Documented room, participant, turn or actual WAV audio event
+    output:
+      type: dict
+      meaning: New state with result or error.code, plus observed HTTP audio deliveries
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Original voice-chat scene independently reconstructed with synthetic audio and loopback services;
+    no original assets, platform or customer identity.
+- ru_id: RU-005
+  name: No-echo audio routing
+  content: 'Accept audio only from the current unlocked speaker with finite numeric server_time strictly
+    before deadline. Require a nonempty packet_id and valid base64 containing a complete nonempty WAV:
+    uncompressed mono signed 16-bit PCM at 8000 Hz, at most 1 MiB. Return packet_id, unchanged audio_base64
+    bytes and recipients containing every other joined participant once in join order, including listeners
+    who locked pass; never the speaker or another room. Keep a per-room packet-ID record: exact replay
+    by the same sender with identical bytes has empty recipients; reuse with different sender or content
+    rejects. Invalid audio leaves room data and inboxes unchanged. Actual HTTP delivery queues those bytes;
+    inbox retrieval drains each recipient queue exactly once. The browser renders the received audio with
+    working playback controls.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for no-echo audio routing.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_voice_event
+      signature: process_voice_event(state,event) -> dict
+    inputs:
+      state: Synthetic admins and rooms
+      event: Documented room, participant, turn or actual WAV audio event
+    output:
+      type: dict
+      meaning: New state with result or error.code, plus observed HTTP audio deliveries
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Original voice-chat scene independently reconstructed with synthetic audio and loopback services;
+    no original assets, platform or customer identity.

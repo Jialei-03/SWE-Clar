@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-071",
+  "public": {
+    "readme": "# Local pizzeria backend component\n\nImplement process_pizzeria_action(state,action) in solution.py, preserving the supplied transactional SQLite CLI. This is a bounded catalogue/cart/order/reward/reservation backend for a web application. It does not build the full restaurant website, perform payments/delivery, connect a POS system or host anything externally. All products, customers, zones and supplied events are synthetic.\n\nUse prepared python-web (Python3.12.3 and standard-library SQLite); no dependency installation/account needed. In /workspace run `python cli.py --db pizzeria.sqlite init` with one JSON state on stdin. `show` prints stored state; `act` reads one JSON action, prints the new entire state, and persists successful changes. Each invocation is a separate process. Init cannot overwrite existing state. Rejections return nonempty error.code and do not replace stored state. Run `python /public_tests/test_public.py`. Limits:2 CPU,2048 MiB,256 processes,256 MiB workspace; no external network.\n\nState contains products,customers,carts,coupons,zones,orders,reservations mappings and admins (trusted actor IDs). Missing optional collections mean empty. Return whole chainable state with result as current summary, or error, preserving both inputs and business collections on failure. Additional metadata and alternate error wording are allowed. Numeric monetary values must be finite and cannot be booleans.\n\nVisible catalogue/cart contract: products are keyed by ID with names.de,names.en,price,active. Active products need both nonempty names and nonnegative prices. catalog(language) supports de/en and returns result.products entries with product_id,name,price. Order is free. set_cart uses known customer_id and items containing product_id and positive integer quantity. Only active valid products are allowed; recompute subtotal from configured prices, ignoring supplied totals. Store carts[customer_id] with items/subtotal; return result.subtotal. Duplicate product lines may be combined or preserved equivalently. Empty cart may clear items.\n\nActions:\n\n- catalog: language.\n- set_cart: customer_id,items.\n- checkout: customer_id,order_id,mode,optional zone_id,coupon_code,redeem_points.\n- mark_paid: order_id,payment_event_id.\n- reserve: reservation_id,slot,party_size.\n- advance_order: actor_id,order_id,status.\n\nCustomer points are integers. Coupons expose active and percent; zones expose enabled and minimum. Created orders expose customer_id,mode,subtotal,total,coupon_code,redeemed_points,status,paid; result identifies order_id. Reservations expose slot/party_size. Internal payment-event association format is free. Fulfillment and payment are separate state fields. Actor IDs and payment events come from trusted upstream context; this CLI is not network authentication or settlement.\n\nAsk the client about delivery limits and modes, coupon/points pricing, payment replay and points timing, reservation conflicts and admin transitions. These exact policies are reconstructed benchmark conventions within the source-supported component scope. No original restaurant identity, design, contact data or customer code is included.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_pizzeria_action",
+          "signature": "process_pizzeria_action(state,action) -> dict"
+        },
+        "inputs": {
+          "state": "Synthetic catalogue/customer/order records",
+          "action": "Public operation schema in README"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "Entire next state and current result/error, with real SQLite persistence"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_pizzeria_action",
+        "signature": "process_pizzeria_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic catalogue/customer/order records",
+        "action": "Public operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Entire next state and current result/error, with real SQLite persistence"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_pizzeria_action",
+        "signature": "process_pizzeria_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic catalogue/customer/order records",
+        "action": "Public operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Entire next state and current result/error, with real SQLite persistence"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_pizzeria_action",
+        "signature": "process_pizzeria_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic catalogue/customer/order records",
+        "action": "Public operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Entire next state and current result/error, with real SQLite persistence"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_pizzeria_action",
+        "signature": "process_pizzeria_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic catalogue/customer/order records",
+        "action": "Public operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Entire next state and current result/error, with real SQLite persistence"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_pizzeria_action",
+        "signature": "process_pizzeria_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic catalogue/customer/order records",
+        "action": "Public operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Entire next state and current result/error, with real SQLite persistence"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "0c2651f61f55f87b6d29721826318655273bb6db8549a92eb846c695da9621ac",
+  "test_sources_sha256": {
+    "evaluation/tests/candidate_proxy.py": "9ea177c9d61bc5715ab44f36613cc85560842954fa9c65146c2203d7b2f368f9",
+    "evaluation/tests/conftest.py": "8b7860e7d8d0902169fab1abc22d2daff6c02906e44d3d565cdd16e3cb0ac45f",
+    "evaluation/tests/evaluate.py": "2d235ecbe7745653f3942a95a228e5105e6b2badf2d37fc290b47acd0c6687ca",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "4571ab3ecf51b17dac9102c2ab2ed8d175cd6dab49ee702ee6fe790b81e92e9d"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

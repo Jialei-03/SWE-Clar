@@ -1,0 +1,5 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Inspection records</title><link rel="stylesheet" href="style.css"></head><body><main>
+<h1>Inspection records</h1><form id="login"><label>Access code<input id="access-code" type="password" autocomplete="off" required></label><button>Sign in</button></form><p id="message" role="status"></p>
+<div id="workspace" hidden><form id="create"><h2>New inspection</h2><label>Community<select id="community" required></select></label><label>Street<select id="street" required></select></label><label>Residence<input id="residence" required></label><label>Inspection ID<input id="inspection-id" required></label><button>Create inspection</button></form>
+<section><h2>Recorded inspections</h2><div id="records"></div></section><section><h2>Community report</h2><button id="report">Generate report</button><p id="summary"></p></section></div>
+</main><script src="app.js"></script></body></html>

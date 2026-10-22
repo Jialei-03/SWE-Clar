@@ -1,0 +1,372 @@
+schema_version: 1
+task_id: SWECLAR-011
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent PHP/SQLite bilingual sample document administration web application
+requirement_units:
+- ru_id: RU-001
+  name: Authenticated persistent profile application
+  content: 'Profile `php-document`, Linux AMD64, PHP 8.3.28, TCPDF 6.8.2 with DejaVu Sans fonts, SQLite,
+    GD, mbstring and bcmath; Python 3.12.3, Chromium/Playwright, pypdf 6.10.0, pypdfium2 5.13.0, Pillow
+    12.3.0 and zxing-cpp 3.0.0 are preinstalled. TCPDF_ROOT=/opt/sweclar/tcpdf. No Composer install, server
+    download, external account, original file or network access is needed. The image is prepared and its
+    protected preflight completed before agent work starts.
+
+
+    Workdir /workspace. Writable application data lives under DOCUMENT_DATA_DIR (default /workspace/data);
+    the app creates it as the candidate UID. `php init.php --reset` resets only this selected application''s
+    database and initializes synthetic accounts/profiles. `php -S 0.0.0.0:8000 router.php` starts the
+    app; visit http://127.0.0.1:8000/. Ctrl-C stops it. Set DOCUMENT_DATA_DIR to a fresh writable directory
+    to isolate a separate attempt. `python /public_tests/test_public.py` owns a separate temporary data
+    directory and an ephemeral loopback server, exercises the app, terminates its server and leaves a
+    manually started app untouched. `php -l router.php` is a basic syntax check; the public tests check
+    all supplied PHP files. Errors go to the server terminal. Resources: 2 CPU, 2 GiB memory/swap ceiling,
+    256 PIDs, 512 MiB workspace, 1 GiB /tmp; loopback-only execution, unprivileged UID 1000, zero capabilities.
+    Dependencies and evaluator files are protected.
+
+
+    ## Existing foundation (public RU-001)
+
+
+    The shared workspace has accounts `admin-a`, `admin-b` (admin) and `editor-a` (editor); all demo passwords
+    are `demo-pass`. These are synthetic local credentials. Store password hashes and opaque session tokens
+    server-side. Authentication is established by login and the HttpOnly, SameSite=Strict `document_session`
+    cookie; neither request actor/role fields nor role-like headers grant authority. Logout invalidates
+    the session. Every /api route except login requires an active session. Static UI is readable without
+    login and shows the login form. No app data is embedded into static assets. Request bodies are data,
+    never executable paths or code. Persist profiles and sessions in SQLite; restart preserves completed
+    changes. Database schema is supplied as maintainable starter context, but equivalent schemas are accepted
+    if behavior and actual persistence match.
+
+
+    Profiles are shared synthetic records. Both roles can list, create and update them. Each profile has
+    an `id` matching `[a-z][a-z0-9-]{0,39}` and a `values` object with exactly these six keys: document_id,
+    name, group, contact, reviewer, reference. Values must be nonempty valid UTF-8 strings, at most 160
+    UTF-8 bytes each, using printable codepoints listed in the supplied `fixtures/supported_codepoints.json`
+    inclusive ranges; whitespace-only is invalid, but accepted values are preserved verbatim. The public
+    range file is derived from the intersection of glyphs in both preinstalled DejaVu Sans regular and
+    bold fonts; it includes Latin and Arabic for this bilingual application. Unsupported codepoints (for
+    example CJK or emoji absent from these fonts), control characters and invalid UTF-8 return invalid_profile
+    rather than a misleading successful PDF with missing glyphs. Input alphabet validation is provided
+    in the existing foundation and public tests; it is not a clarification puzzle. IDs are immutable.
+    Reject invalid input before saving, return 409 for duplicate creation, 404 for unknown update. The
+    demo includes two independently written records. This baseline is implemented in the starter and protected
+    by public regression tests.
+
+
+    Routes and success shapes, all public:
+
+
+    - POST /api/login `{username,password}` -> 200 `{user:{id,role}}`, sets cookie; invalid credentials
+    401.
+
+    - POST /api/logout `{}` -> 200 `{ok:true}`, expires cookie and invalidates token.
+
+    - GET /api/session -> 200 `{user:{id,role}}`.
+
+    - GET /api/profiles -> 200 `{profiles:[{id,values},...]}` sorted by id.
+
+    - POST /api/profiles `{id,values}` -> 201 `{profile:{id,values}}`.
+
+    - PUT /api/profiles/{id} `{values}` -> 200 `{profile:{id,values}}`.
+
+    - GET /api/template -> 200 `{revision,styles,placements}`. One global template, shared by both document
+    kinds. Default revision 0, no placements, defaults for every field.
+
+    - PATCH /api/template/fields/{field} `{expected_revision,values}` -> 200 `{revision,styles,placements}`.
+
+    - POST /api/assets multipart field `image` -> 201 `{asset:{id,sha256,width,height}}`.
+
+    - GET /api/assets -> 200 `{assets:[{id,sha256,width,height},...]}` ordered by id; GET /api/assets/{id}
+    returns the actual uploaded PNG bytes.
+
+    - PUT /api/template/placements/{slot} `{expected_revision,asset_id}` -> 200 `{revision,styles,placements}`.
+    `asset_id:null` is the public representation for clearing a slot.
+
+    - POST /api/render `{profile_id,kind,filename}` -> 201 `{document:{filename,kind,profile_id,bytes,sha256,revision}}`.
+    `revision` is the template snapshot used. The response supplies a `/api/documents/{filename}` download
+    URL implicitly through this public route.
+
+    - GET /api/documents -> 200 `{documents:[{filename,kind,profile_id,bytes,sha256,revision},...]}` sorted
+    by filename.
+
+    - GET /api/documents/{filename} -> 200 application/pdf, Content-Disposition attachment with safe filename,
+    actual stored PDF bytes.
+
+    - GET /api/audit -> 200 `{events:[{id,actor_id,type,target,revision,timestamp},...]}` in increasing
+    integer id order.
+
+
+    Errors: JSON `{error:{code,message}}`, no stack trace or partial success. Public general errors are
+    400 invalid_json/invalid_profile/invalid_request, 401 authentication_required/invalid_credentials,
+    404 not_found and 409 profile_exists. The full contract specifies other feature errors below; callers
+    need not guess undocumented routes. Unknown route is 404. Do not accept path separators, traversal
+    or arbitrary local/remote URLs as asset or document inputs.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for authenticated persistent profile application.
+  test_interface:
+    type: command
+    entry:
+      language: php
+      file: router.php
+      command: php -S 0.0.0.0:8000 router.php
+    inputs:
+      transport: Authenticated HTTP and actual browser forms; synthetic profiles and PNG uploads
+    output:
+      type: web_application
+      meaning: Persisted SQLite data, real downloadable bilingual PDFs, rendered image/text and machine-readable
+        reference
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/document_contract.py
+  notes: Business-scenario-derived independent document administration task. Scope, code, identities,
+    sample layout and business policies are independently reconstructed. No original customer code, document,
+    attachment or account is included.
+- ru_id: RU-002
+  name: Real bilingual sample PDFs and browser downloads
+  content: '`kind` is sample_card or sample_pass (no native/official semantics). `filename` matches `[A-Za-z0-9_-]{1,64}\.pdf`;
+    valid profile_id selects the current persisted profile. Produce exactly two landscape A5 pages, 210
+    by 148 mm, front then back; both prominently display SAMPLE / NOT VALID. Do not substitute HTML, an
+    image of a whole page, a status manifest or a blank PDF. Text remains extractable and is rendered
+    with an embedded DejaVu Sans family supporting Latin and Arabic. Preserve every visible field value,
+    including accents, Arabic and long values; wrap rather than shrink below the configured font size
+    or clip/overlap. Arabic labels use joined glyphs and right-to-left direction. Test normalization permits
+    equivalent Unicode presentation forms, font subsets and extraction order; it does not require one
+    PDF byte sequence.
+
+
+    Public layout envelope: 10 mm side margins; three field panels per page at y=25,54,83 mm, each 190
+    by 29 mm. Labels occupy the first 5 mm (French left, Arabic right, 8 pt), and values the remaining
+    24 mm with 6 mm line spacing, at most 12 pt. Front: document_id, name, group. Back: contact, reviewer,
+    reference. Labels respectively: Identifiant / المعرّف; Nom / الاسم; Groupe / المجموعة; Contact / جهة
+    الاتصال; Révision / المراجعة; Référence / المرجع. Values may be Latin or Arabic; preserve readable
+    direction. Equivalent flow within these nonoverlapping public envelopes is valid; exact internal API
+    or text-object ordering is not required.
+
+
+    Reserved image slots are public geometry: front_left=(10,5,20,18), front_right=(180,5,20,18), back=(180,5,20,18),
+    watermark=(60,30,90,80), in mm. Fit source images within their slot preserving aspect ratio and center
+    them; do not fill with a surrogate color or filename. Space at x=20,y=113,width=170,height=28 on the
+    back is reserved for machine-readable reference output; its business encoding is discoverable. SAMPLE
+    marking stays visible regardless of field/asset configuration.
+
+
+    The browser must support login/logout, browsing and editing profiles, choosing a profile/kind/filename
+    and generating/downloading a PDF, field settings, image upload/preview and placement, and readable
+    audit. Publicly documented form labels/roles should be used for accessibility; testing accepts equivalent
+    DOM structure. Features requiring a policy decision can show unfinished feedback in the starter. After
+    successful mutations, browser views use returned/refetched persisted state; after rejection they show
+    the server''s readable error and preserve the saved state. No success banner before the server accepts
+    an operation. Reload must restore saved data. A PDF download triggered from the browser must contain
+    actual PDF bytes. A PDF embed or link can supply preview; no proprietary browser plugin is required
+    for acceptance.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for real bilingual sample pdfs and browser downloads.
+  test_interface:
+    type: command
+    entry:
+      language: php
+      file: router.php
+      command: php -S 0.0.0.0:8000 router.php
+    inputs:
+      transport: Authenticated HTTP and actual browser forms; synthetic profiles and PNG uploads
+    output:
+      type: web_application
+      meaning: Persisted SQLite data, real downloadable bilingual PDFs, rendered image/text and machine-readable
+        reference
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/document_contract.py
+  notes: Business-scenario-derived independent document administration task. Scope, code, identities,
+    sample layout and business policies are independently reconstructed. No original customer code, document,
+    attachment or account is included.
+- ru_id: RU-003
+  name: Configuration authority and competing edits
+  content: 'Only authenticated admins may change field settings, upload images or change placements. Editors
+    may read all shared profiles, template, image library, generated documents and audit, edit profiles,
+    and render documents. Enforce on the server for every request, independently of hidden/disabled controls.
+    An authenticated editor''s restricted mutation returns 403 configuration_denied with no change; authentication
+    precedes all feature validation. Actor identity and role come from the active stored session/account.
+
+
+    Field `values` is a nonempty patch containing only color (#RRGGBB), background (#RRGGBB or null),
+    font_size (integer 6 through 12), weight (normal/bold), border (boolean), visible (boolean). Unknown
+    fields/keys and wrong types/ranges return 400 invalid_style. Merge only after validating the whole
+    patch. Defaults: color #000000, background null, font_size 10, weight normal, border false, visible
+    true. Color syntax is case-insensitive; normalize to uppercase. No automatic reset of unspecified
+    properties. Apply value color, font size/weight to real PDF text; apply background across the panel
+    and a border around it when selected. Labels stay black 8 pt; field invisibility removes both labels
+    and value from all PDF text/drawing operations, without shifting other panels. Defaults/background-null
+    are transparent, allowing a background watermark to be visible.
+
+
+    Both configuration endpoints require integer expected_revision >=0, representing the last fetched
+    global template revision. Bad/missing type gives 400 invalid_revision. Compare against current revision
+    atomically; mismatch is 409 revision_conflict, even if requested values equal current ones. A successful
+    effective change increments revision by exactly one; a valid no-op returns the unchanged template
+    without incrementing or appending an audit event. Two changes submitted with the same expected revision
+    cannot both apply; one succeeds and one conflicts. Asset uploads do not change the template revision.
+    On conflict the browser shows the conflict and refreshes saved template/revision, retaining any draft
+    visibly without claiming it was saved; a subsequent explicit retry can use the new revision. Do not
+    silently overwrite another admin''s edit.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for configuration authority and competing edits.
+  test_interface:
+    type: command
+    entry:
+      language: php
+      file: router.php
+      command: php -S 0.0.0.0:8000 router.php
+    inputs:
+      transport: Authenticated HTTP and actual browser forms; synthetic profiles and PNG uploads
+    output:
+      type: web_application
+      meaning: Persisted SQLite data, real downloadable bilingual PDFs, rendered image/text and machine-readable
+        reference
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/document_contract.py
+  notes: Business-scenario-derived independent document administration task. Scope, code, identities,
+    sample layout and business policies are independently reconstructed. No original customer code, document,
+    attachment or account is included.
+- ru_id: RU-004
+  name: Uploaded images, watermark and PDF417
+  content: 'Only admins upload; accept a single genuine PNG image from multipart `image`. The actual image
+    decoder must confirm PNG format (not just filename or MIME), width and height each 8..1024 inclusive
+    and at most 262144 uploaded bytes. Ignore supplied filename as a storage location. Reject malformed/truncated
+    image data, disguised JPEG/text, missing image or out-of-range size/dimensions with 400 invalid_asset.
+    Valid images are stored as their exact original bytes, addressed by generated opaque ids, with independently
+    correct SHA256, width and height; different uploads receive different ids even if bytes repeat. No
+    metadata or source identity is supplied in official synthetic fixtures. Storage may be a SQLite BLOB
+    or managed files under the selected data directory, but it must survive restart and never expose unrelated
+    files.
+
+
+    Slot must be one of the four public names and asset_id must be a currently stored id or null (clear).
+    Invalid slot/id gives 400 invalid_asset with no revision, placement or audit change. Apply the RU-003
+    revision check and admin policy. Persist placements and embed the actual corresponding PNG on the
+    correct page when rendering; replacement and clearing take effect on future exports, not existing
+    PDF downloads. Front_left/front_right appear on the front and back on the back for both kinds. Watermark
+    appears on both sample_pass pages at opacity 0.15 behind field content; never on sample_card. Existing
+    opaque field backgrounds may cover watermark in their own panel; an uncovered watermark must remain
+    visibly present. Do not leak hidden field text under the watermark or in invisible layers.
+
+
+    Every back page includes a real decodable PDF417 barcode containing the selected profile''s reference
+    UTF-8 bytes verbatim, without normalization, prefix, JSON wrapper or newline. It is independent of
+    whether the reference text field is visible. Do not encode an asset id or display a textual barcode
+    placeholder. Preserve a light quiet zone so it decodes with the provided independent decoder at ordinary
+    rendering resolution. Same logic applies to both kinds.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for uploaded images, watermark and pdf417.
+  test_interface:
+    type: command
+    entry:
+      language: php
+      file: router.php
+      command: php -S 0.0.0.0:8000 router.php
+    inputs:
+      transport: Authenticated HTTP and actual browser forms; synthetic profiles and PNG uploads
+    output:
+      type: web_application
+      meaning: Persisted SQLite data, real downloadable bilingual PDFs, rendered image/text and machine-readable
+        reference
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/document_contract.py
+  notes: Business-scenario-derived independent document administration task. Scope, code, identities,
+    sample layout and business policies are independently reconstructed. No original customer code, document,
+    attachment or account is included.
+- ru_id: RU-005
+  name: Transactional document publication and audit
+  content: 'All accepted effective configure_field and place_asset changes, each successful upload_asset,
+    and each successful render append exactly one durable audit event in the same logical commit as their
+    effect. Event actor_id is the trusted session user''s id, type is one of these four names, target
+    is respectively field/slot/generated asset id/filename, revision is the resulting template revision
+    for configuration, current revision for upload, and the snapshot revision used for render. Timestamp
+    is integer UTC Unix seconds obtained server-side at commit, never a body-supplied value; monotonic
+    ids preserve order even within one second. User-supplied actor_id/type/timestamp extra fields do not
+    control attribution. Invalid attempts, forbidden attempts, conflicts, no-op patches and reads create
+    no audit events. Profile CRUD and auth do not enter this document-feature audit.
+
+
+    Rendering is allowed for both roles and uses a consistent snapshot of current profile, template and
+    PNG content. Profile field validation also runs when loading the selected profile: absent/invalid/empty/overlong
+    values produce 400 invalid_profile before publication. Bad kind or filename is 400 invalid_request;
+    unknown profile is 404 not_found. Output validation happens on the actual generated bytes. A success
+    commits a complete PDF and its matching metadata/audit, replacing a previous document with the same
+    filename atomically. Existing downloads remain byte-for-byte unchanged when later profiles/templates
+    change or when rendering fails. Output bytes and SHA are computed from the actual stored PDF, not
+    self-reported placeholders. Missing/corrupt backing asset bytes cause 422 asset_unavailable; unexpected
+    generation/storage failure is 500 render_failed. Neither failure reports a successful document nor
+    publishes a partial file, replacement, output metadata or audit event. No dangling files from failed
+    operations may remain in the application data directory. Temporary work may be cleaned from /tmp.
+    Failed style/asset validation never partially applies the rest of a patch.
+
+
+    Serialize updates sufficiently to preserve revisions, PDF snapshot and audit consistency. A SQLite
+    transaction with PDF BLOB storage is one valid implementation, not a mandated schema. Local data backing-store
+    fault injection in hidden evaluation is performed only on isolated evaluator-created data with a fresh
+    process; it tests recovery/atomicity, not malicious access to benchmark files or candidate source
+    pattern matching.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for transactional document publication and audit.
+  test_interface:
+    type: command
+    entry:
+      language: php
+      file: router.php
+      command: php -S 0.0.0.0:8000 router.php
+    inputs:
+      transport: Authenticated HTTP and actual browser forms; synthetic profiles and PNG uploads
+    output:
+      type: web_application
+      meaning: Persisted SQLite data, real downloadable bilingual PDFs, rendered image/text and machine-readable
+        reference
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/document_contract.py
+  notes: Business-scenario-derived independent document administration task. Scope, code, identities,
+    sample layout and business policies are independently reconstructed. No original customer code, document,
+    attachment or account is included.

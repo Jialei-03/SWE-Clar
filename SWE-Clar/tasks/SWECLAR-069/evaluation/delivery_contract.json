@@ -1,0 +1,478 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-069",
+  "public": {
+    "readme": "# Local credits ledger\n\nImplement `process_marketplace_action(state,action)` without changing either input. SQLite storage.py and cli.py are supplied working transaction adapters: a durable state snapshot plus append-only event rows, serialized with BEGIN IMMEDIATE. Keep actual persistence and atomicity. No real payment integration, lead ingestion or customer data is present. Event IDs, replay/conflict behavior and local no-refund after later failure are synthetic component rules; they do not define broader commercial dispute or chargeback policy.\n\nPrepared python-web supplies Python3.12.3/SQLite; no installation, network or server is needed. Commands: `python cli.py runtime/ledger.sqlite init` reads a seed JSON on stdin; `python cli.py runtime/ledger.sqlite apply` reads one action; `python cli.py runtime/ledger.sqlite snapshot` reads committed state. Create runtime first. Init requires a new database, so it cannot reset an existing ledger silently. Public check: `python /public_tests/smoke.py`. Source build is unnecessary. Health is a successful snapshot; there is no listening port. Runtime files are excluded from deliverables. 2 CPUs, 2GiB RAM, 256 processes, 256MiB workspace.\n\nSeed fields: users object, jobs object keyed by job ID (records contain category and positive integer credit_cost), ledger array and processed_ids. `create_user` carries user_id, role and categories (nonempty unique category strings, one through five); `subscribe` carries user_id, payment_id, period and credit_grant; `unlock_job` carries user_id, job_id and event_id. Trusted local commands supply these events, not external self-authorized payments. Ask the synthetic client about grant periods/replay, category unlock caps and ledger rules.\n\nOutputs preserve unrelated state fields and expose users with role/categories/credits, ledger entries and a result or error. Rejected operations return a nonempty error.code and leave committed business state unchanged; exact wording is unspecified. Extra result/state/ledger metadata is allowed. Grants append event_id,user_id,delta,kind=credit_grant,period; debits append event_id,user_id,delta,kind=job_unlock,job_id. Ledger amounts are signed credits. These field names are the local interface, not original customer wire protocols. Storage tables are implementation details; alternate schemas are allowed if behavior persists. Identical successful replay reports result.replayed=true. Existing event meaning and committed entries must not change.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_marketplace_action",
+          "signature": "process_marketplace_action(state: dict, action: dict) -> dict"
+        },
+        "inputs": {
+          "arguments": [
+            "state",
+            "action"
+          ],
+          "action_variants": {
+            "create_user": {
+              "fields": [
+                "categories",
+                "role",
+                "type",
+                "user_id"
+              ]
+            }
+          },
+          "protocol_fields": [
+            "categories",
+            "role",
+            "type",
+            "user_id",
+            "users"
+          ]
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "A deterministic JSON-compatible result; input objects are not mutated."
+        },
+        "operations": []
+      },
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_marketplace_action",
+          "signature": "process_marketplace_action(state: dict, action: dict) -> dict"
+        },
+        "inputs": {
+          "arguments": [
+            "state",
+            "action"
+          ],
+          "action_variants": {
+            "create_user": {
+              "fields": [
+                "categories",
+                "role",
+                "type",
+                "user_id"
+              ]
+            }
+          },
+          "protocol_fields": [
+            "categories",
+            "role",
+            "type",
+            "user_id",
+            "users"
+          ]
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+          "asserted_field_paths": [
+            "error",
+            "error.code",
+            "users",
+            "users.<id>",
+            "users.<id>.role"
+          ],
+          "required_tokens": {
+            "error.code": [
+              "invalid_user"
+            ]
+          },
+          "field_schemas": {
+            "error.code": {
+              "type": "string"
+            },
+            "users.<id>.role": {
+              "type": "string"
+            }
+          }
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_marketplace_action",
+        "signature": "process_marketplace_action(state: dict, action: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "action"
+        ],
+        "action_variants": {
+          "create_user": {
+            "fields": [
+              "categories",
+              "role",
+              "type",
+              "user_id"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "categories",
+          "role",
+          "type",
+          "user_id",
+          "users"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated."
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_marketplace_action",
+        "signature": "process_marketplace_action(state: dict, action: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "action"
+        ],
+        "action_variants": {
+          "create_user": {
+            "fields": [
+              "categories",
+              "role",
+              "type",
+              "user_id"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "categories",
+          "role",
+          "type",
+          "user_id",
+          "users"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+        "asserted_field_paths": [
+          "error",
+          "error.code",
+          "users",
+          "users.<id>",
+          "users.<id>.role"
+        ],
+        "required_tokens": {
+          "error.code": [
+            "invalid_user"
+          ]
+        },
+        "field_schemas": {
+          "error.code": {
+            "type": "string"
+          },
+          "users.<id>.role": {
+            "type": "string"
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_marketplace_action",
+        "signature": "process_marketplace_action(state: dict, action: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "action"
+        ],
+        "action_variants": {
+          "create_user": {
+            "fields": [
+              "categories",
+              "role",
+              "type",
+              "user_id"
+            ]
+          },
+          "subscribe": {
+            "fields": [
+              "credit_grant",
+              "payment_id",
+              "period",
+              "type",
+              "user_id"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "categories",
+          "credit_grant",
+          "jobs",
+          "ledger",
+          "payment_id",
+          "period",
+          "processed_ids",
+          "role",
+          "type",
+          "user_id",
+          "users"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+        "asserted_field_paths": [
+          "error",
+          "error.code",
+          "ledger",
+          "users",
+          "users.<id>",
+          "users.<id>.credits"
+        ],
+        "required_tokens": {
+          "error.code": [
+            "invalid_subscription",
+            "event_conflict"
+          ]
+        },
+        "field_schemas": {
+          "error.code": {
+            "type": "string"
+          },
+          "ledger": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "users.<id>.credits": {
+            "type": "integer"
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_marketplace_action",
+        "signature": "process_marketplace_action(state: dict, action: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "action"
+        ],
+        "action_variants": {
+          "create_user": {
+            "fields": [
+              "categories",
+              "role",
+              "type",
+              "user_id"
+            ]
+          },
+          "subscribe": {
+            "fields": [
+              "credit_grant",
+              "payment_id",
+              "period",
+              "type",
+              "user_id"
+            ]
+          },
+          "unlock_job": {
+            "fields": [
+              "event_id",
+              "job_id",
+              "type",
+              "user_id"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "categories",
+          "credit_grant",
+          "event_id",
+          "job_id",
+          "jobs",
+          "ledger",
+          "payment_id",
+          "period",
+          "processed_ids",
+          "role",
+          "type",
+          "user_id",
+          "users"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+        "asserted_field_paths": [
+          "error",
+          "error.code",
+          "users",
+          "users.<id>",
+          "users.<id>.credits"
+        ],
+        "required_tokens": {
+          "error.code": [
+            "category_access_cap",
+            "ineligible_category",
+            "insufficient_credits",
+            "invalid_unlock"
+          ]
+        },
+        "field_schemas": {
+          "error.code": {
+            "type": "string"
+          },
+          "users.<id>.credits": {
+            "type": "integer"
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_marketplace_action",
+        "signature": "process_marketplace_action(state: dict, action: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "action"
+        ],
+        "action_variants": {
+          "create_user": {
+            "fields": [
+              "categories",
+              "role",
+              "type",
+              "user_id"
+            ]
+          },
+          "subscribe": {
+            "fields": [
+              "credit_grant",
+              "payment_id",
+              "period",
+              "type",
+              "user_id"
+            ]
+          },
+          "unlock_job": {
+            "fields": [
+              "event_id",
+              "job_id",
+              "type",
+              "user_id"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "categories",
+          "credit_grant",
+          "event_id",
+          "job_id",
+          "jobs",
+          "ledger",
+          "payment_id",
+          "period",
+          "processed_ids",
+          "role",
+          "type",
+          "user_id",
+          "users"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+        "asserted_field_paths": [
+          "error",
+          "error.code",
+          "jobs",
+          "jobs.<id>",
+          "jobs.<id>.credit_cost",
+          "ledger",
+          "result",
+          "result.replayed",
+          "users",
+          "users.<id>",
+          "users.<id>.credits"
+        ],
+        "required_tokens": {
+          "error.code": [
+            "event_conflict",
+            "job_already_unlocked"
+          ],
+          "result.replayed": [
+            true
+          ]
+        },
+        "field_schemas": {
+          "error.code": {
+            "type": "string"
+          },
+          "ledger": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "result.replayed": {
+            "type": "boolean"
+          },
+          "users.<id>.credits": {
+            "type": "integer"
+          }
+        }
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "4c5151f1a29f73d41605a38b55618aadd3f4c1d30f6015ff7027b42454210bd0",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "b7ed426e993e62b795eea4b35533c66f765c85bdba989a2346b451fe7d227092",
+    "evaluation/tests/evaluate.py": "c840d69d4f45f25b35886c8994e0c989c488bccf63001433c796bf2aa213d956",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "56c7c0096cf4684e539f8239c41df2f70bead8be4b41d743ca09d6ff271a3b74"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

@@ -1,0 +1,361 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-068",
+  "public": {
+    "readme": "# Supplied signal component\n\nIndependent Python function, JSON CLI and small HTTP/SVG viewer. Implement `evaluate_indicator(config, context)` in solution.py; keep input objects unchanged. Determinism applies to required business fields; additional metadata is allowed. No original Pine code, live data, financial calculation or trade execution is included. The original grade logic was sequence-sensitive; this two-trend classification and exact-string blackout are deliberately simplified local conventions.\n\nPrepared python-web supplies Python3.12.3 and protected browser checks use Playwright/Chromium. No installation or build is needed. CLI: `python cli.py` reads `{config,context}` JSON on stdin and writes a result object. Start `PORT=8080 python server.py`; stdout reports a JSON port. Open http://127.0.0.1:8080/; GET / is health, POST /evaluate carries the same JSON input. Public check: `python /public_tests/smoke.py`. Reload resets local viewer state. Loopback only, 2 CPUs, 2GiB RAM, 256 processes, 256MiB workspace.\n\nConfig fields: `triggers` name-to-boolean map, `tf2_enabled`, `blackout_enabled`, `blackout_times` array of strings, `menu_visible`. Context fields: `trigger_states` name-to-boolean map, `htf1` and `htf2` supplied bull/bear observations (null/missing means unavailable), `time` string and `viewport_width` number. Trigger membership is independent and follows context key order. Disabled or absent trigger controls cannot fire. TF1 is the primary enabled timeframe; TF2 is selected separately. Ask the synthetic client for classification, blackout and presentation rules.\n\nResult fields used by adapters: `active_signals` string array, `tf1_active` boolean, `classification` string, `labels_visible` boolean, `styles` containing htf1/htf2/regression CSS color strings, `menu:{visible:boolean,size:string}`. The existing viewer renders labels from the actual active list and line strokes/menu from the result. Its straight lines are intentionally illustrative synthetic geometry, not a reconstructed indicator calculation. Show information menu changes config.menu_visible; viewport_width is supplied from the actual browser width. Invalid adapter requests may use any HTTP4xx error wording; successful responses may include extra metadata.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "evaluate_indicator",
+          "signature": "evaluate_indicator(config: dict, context: dict) -> dict"
+        },
+        "inputs": {
+          "arguments": [
+            "config",
+            "context"
+          ]
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+          "asserted_field_paths": [
+            "active_signals"
+          ],
+          "field_schemas": {
+            "active_signals": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "operations": []
+      },
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "evaluate_indicator",
+          "signature": "evaluate_indicator(config: dict, context: dict) -> dict"
+        },
+        "inputs": {
+          "arguments": [
+            "config",
+            "context"
+          ],
+          "protocol_fields": [
+            "htf1",
+            "trigger_states",
+            "triggers"
+          ],
+          "field_schemas": {
+            "triggers": {
+              "type": "object"
+            },
+            "trigger_states": {
+              "type": "object"
+            }
+          }
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+          "asserted_field_paths": [
+            "active_signals"
+          ],
+          "field_schemas": {
+            "active_signals": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "evaluate_indicator",
+        "signature": "evaluate_indicator(config: dict, context: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "config",
+          "context"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+        "asserted_field_paths": [
+          "active_signals"
+        ],
+        "field_schemas": {
+          "active_signals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "evaluate_indicator",
+        "signature": "evaluate_indicator(config: dict, context: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "config",
+          "context"
+        ],
+        "protocol_fields": [
+          "htf1",
+          "trigger_states",
+          "triggers"
+        ],
+        "field_schemas": {
+          "triggers": {
+            "type": "object"
+          },
+          "trigger_states": {
+            "type": "object"
+          }
+        }
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+        "asserted_field_paths": [
+          "active_signals"
+        ],
+        "field_schemas": {
+          "active_signals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "evaluate_indicator",
+        "signature": "evaluate_indicator(config: dict, context: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "config",
+          "context"
+        ],
+        "protocol_fields": [
+          "htf1",
+          "htf2",
+          "tf2_enabled",
+          "trigger_states",
+          "triggers"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+        "asserted_field_paths": [
+          "classification",
+          "tf1_active"
+        ],
+        "required_tokens": {
+          "classification": [
+            "grade_a",
+            "grade_b"
+          ],
+          "tf1_active": [
+            true
+          ]
+        },
+        "field_schemas": {
+          "classification": {
+            "type": "string"
+          },
+          "tf1_active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "evaluate_indicator",
+        "signature": "evaluate_indicator(config: dict, context: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "config",
+          "context"
+        ],
+        "protocol_fields": [
+          "blackout_enabled",
+          "blackout_times",
+          "time",
+          "trigger_states",
+          "triggers"
+        ],
+        "field_schemas": {
+          "blackout_enabled": {
+            "type": "boolean"
+          },
+          "blackout_times": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+        "asserted_field_paths": [
+          "active_signals"
+        ],
+        "exact_lengths": {
+          "active_signals": 0
+        },
+        "field_schemas": {
+          "active_signals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "evaluate_indicator",
+        "signature": "evaluate_indicator(config: dict, context: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "config",
+          "context"
+        ],
+        "protocol_fields": [
+          "htf1",
+          "menu_visible",
+          "trigger_states",
+          "triggers",
+          "viewport_width"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+        "asserted_field_paths": [
+          "labels_visible",
+          "menu",
+          "menu.size",
+          "menu.visible",
+          "styles",
+          "styles.htf1",
+          "styles.htf2",
+          "styles.regression"
+        ],
+        "required_tokens": {
+          "labels_visible": [
+            true
+          ],
+          "menu.visible": [
+            true
+          ]
+        },
+        "exact_values": {
+          "styles.htf1": "green",
+          "styles.htf2": "red",
+          "styles.regression": "#ff00e7",
+          "menu.size": "mobile"
+        },
+        "field_schemas": {
+          "labels_visible": {
+            "type": "boolean"
+          },
+          "menu": {
+            "type": "object",
+            "required_fields": [
+              "size",
+              "visible"
+            ],
+            "properties": {
+              "size": {
+                "type": "string"
+              },
+              "visible": {
+                "type": "boolean"
+              }
+            }
+          },
+          "menu.size": {
+            "type": "string"
+          },
+          "menu.visible": {
+            "type": "boolean"
+          },
+          "styles.htf1": {
+            "type": "string"
+          },
+          "styles.htf2": {
+            "type": "string"
+          },
+          "styles.regression": {
+            "type": "string"
+          }
+        }
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "28be1774db8bb91c871513f74e8e370dee9412026c4614ff452e620ba5752e35",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "8dd7d68f7b75daa2198f5968f600198012c95f09686f6447a32d7f6304fb4d23",
+    "evaluation/tests/browser_support.py": "c16be281be2a7780c2a479206255d9a137123464d629980d504042f7d690568a",
+    "evaluation/tests/evaluate.py": "1a5b1c69f1a552327119f9d61610f155dfbd9d21763eaa168762b664b29b6be7",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "e45f7ff1f94ea523ec2cdcbc20d8aa06ffe82eb0c688136af0138e26c80d869f"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

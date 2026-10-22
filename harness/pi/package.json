@@ -1,0 +1,8 @@
+{
+  "name": "sweclar-pi-runtime",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "0.73.1"
+  }
+}

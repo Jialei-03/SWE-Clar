@@ -1,0 +1,180 @@
+schema_version: 1
+task_id: SWECLAR-075
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Limited local web account/GPS attendance and central Plans navigation; native iOS excluded
+requirement_units:
+- ru_id: RU-001
+  name: Check-in workflow entry point
+  content: Repair the actual account/attendance HTTP service and browser UI using private synthetic fixture
+    configuration. Preserve server-owned sessions, encrypted email/history payloads and persisted records
+    across restart. Never return salts, password verifiers, encryption keys or session hashes in public
+    data. Actual HTTP requests, SQLite storage and browser location interaction are required.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for check-in workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.checkin
+      signature: Store.checkin(user_id,action) -> record
+    inputs:
+      user_id: server-authenticated actor
+      action: id,site_id,latitude,longitude
+    output:
+      type: dict
+      meaning: persisted attendance record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/checkin_contract.py
+  notes: Client passages support GPS check-in and prominent central Plans. Web adaptation and exact password/encryption/session/radius/interval
+    rules are synthetic benchmark conventions, not directly confirmed client requirements.
+- ru_id: RU-002
+  name: Secure account and login
+  content: Normalize email by trimming surrounding whitespace and lowercasing for both registration and
+    login; reject duplicate normalized accounts. Store a salted scrypt verifier, never plaintext or a
+    bare unsalted hash. Only active users with matching credentials may obtain a fresh HttpOnly session;
+    sign-out revokes it. These concrete security choices are benchmark conventions supporting the source
+    account-safety request.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for secure account and login.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.checkin
+      signature: Store.checkin(user_id,action) -> record
+    inputs:
+      user_id: server-authenticated actor
+      action: id,site_id,latitude,longitude
+    output:
+      type: dict
+      meaning: persisted attendance record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/checkin_contract.py
+  notes: Client passages support GPS check-in and prominent central Plans. Web adaptation and exact password/encryption/session/radius/interval
+    rules are synthetic benchmark conventions, not directly confirmed client requirements.
+- ru_id: RU-003
+  name: GPS-radius check-in
+  content: An authenticated actor can check into an active synthetic site only when independently computed
+    great-circle distance from finite latitude/longitude is at most the configured radius. Use sphere
+    radius 6371008.8 m. Do not trust caller-supplied distance, user identity or clock. A repeated event
+    id for the same actor/site returns its existing record; conflicting reuse fails. GPS permission denial
+    must show location_unavailable without recording attendance. Exact radius/idempotency policies are
+    independently selected benchmark conventions.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for gps-radius check-in.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.checkin
+      signature: Store.checkin(user_id,action) -> record
+    inputs:
+      user_id: server-authenticated actor
+      action: id,site_id,latitude,longitude
+    output:
+      type: dict
+      meaning: persisted attendance record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/checkin_contract.py
+  notes: Client passages support GPS check-in and prominent central Plans. Web adaptation and exact password/encryption/session/radius/interval
+    rules are synthetic benchmark conventions, not directly confirmed client requirements.
+- ru_id: RU-004
+  name: One open attendance interval
+  content: Allow at most one open interval per actor, including concurrent requests. Checkout closes it
+    using trusted server time, preserving history and a non-negative duration. A regressing clock must
+    fail without rewriting the interval. Query history only for the authenticated actor and survive service
+    restart. This interval/checkout policy is an independently selected benchmark convention.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for one open attendance interval.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.checkin
+      signature: Store.checkin(user_id,action) -> record
+    inputs:
+      user_id: server-authenticated actor
+      action: id,site_id,latitude,longitude
+    output:
+      type: dict
+      meaning: persisted attendance record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/checkin_contract.py
+  notes: Client passages support GPS check-in and prominent central Plans. Web adaptation and exact password/encryption/session/radius/interval
+    rules are synthetic benchmark conventions, not directly confirmed client requirements.
+- ru_id: RU-005
+  name: Plan-first navigation contract
+  content: Render the configured five navigation sections in stable order, with Plans in the geometric
+    center and visibly more prominent than the other buttons. Clicking sections changes the displayed
+    section without writing attendance. This browser layout preserves the supported interaction intent;
+    it is not proof of native iOS navigation.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for plan-first navigation contract.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.checkin
+      signature: Store.checkin(user_id,action) -> record
+    inputs:
+      user_id: server-authenticated actor
+      action: id,site_id,latitude,longitude
+    output:
+      type: dict
+      meaning: persisted attendance record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/checkin_contract.py
+  notes: Client passages support GPS check-in and prominent central Plans. Web adaptation and exact password/encryption/session/radius/interval
+    rules are synthetic benchmark conventions, not directly confirmed client requirements.

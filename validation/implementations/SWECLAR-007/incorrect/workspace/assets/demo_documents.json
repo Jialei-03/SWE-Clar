@@ -1,0 +1,48 @@
+{
+  "clinics/clinic-a": {
+    "name": {
+      "stringValue": "North Clinic"
+    }
+  },
+  "clinics/clinic-b": {
+    "name": {
+      "stringValue": "South Clinic"
+    }
+  },
+  "providers/provider-a": {
+    "name": {
+      "stringValue": "Provider Alpha"
+    },
+    "clinic": {
+      "referenceValue": "projects/demo-sweclar/databases/(default)/documents/clinics/clinic-a"
+    },
+    "note": {
+      "stringValue": "Preserve this note"
+    }
+  },
+  "providers/provider-b": {
+    "name": {
+      "stringValue": "Provider Beta"
+    },
+    "clinic": {
+      "mapValue": {
+        "fields": {
+          "id": {
+            "stringValue": "missing"
+          }
+        }
+      }
+    }
+  },
+  "bookings/booking-a": {
+    "name": {
+      "stringValue": "Morning Appointment"
+    },
+    "provider": {
+      "stringValue": "provider-a"
+    },
+    "status": {
+      "stringValue": "draft"
+    }
+  }
+}

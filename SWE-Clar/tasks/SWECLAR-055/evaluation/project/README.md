@@ -1,0 +1,22 @@
+# MQTT telemetry ingestion component
+
+Complete the existing Python entity, telemetry and alarm project with a real MQTT entry point: `ingest_mqtt(state, host, port, max_messages=1, timeout=2)`. The existing `process_iot_action(state, action)` remains available for domain actions. Both return a new chainable state without mutating caller inputs. Implement mqtt_gateway.py; paho-mqtt 2.1.0 is available as a public dependency.
+
+The evaluator supplies an isolated MQTT 3.1.1 TCP broker fixture and synthetic entity records. This project reconstructs a telemetry integration component; it does not include the original application, customer topic names, device identifiers or telemetry. Production broker administration, TLS provisioning, long-running reconnect policy and a visual dashboard are outside this bounded component. Clarify message mapping, aggregation and alarm details as needed.
+
+## Prepared execution and public data contract
+
+Use `/workspace` with the `python-web-mqtt` environment (Python and paho-mqtt 2.1.0 already installed). No package installation or Internet is needed during the attempt. Limits are 2 CPU, 2048 MiB memory, 256 processes and 256 MiB workspace; loopback connections to the supplied broker are permitted. Run `python /public_tests/test_public.py`. Use `python cli.py < request.json` with `{ "state": {...}, "action": {...} }` for domain actions, or `{ "state": {...}, "mqtt": {"host":"127.0.0.1", "port":1883, "max_messages":1, "timeout":2} }` for a batch. The benchmark supplies the actual broker address, and no broker credentials are required. Reset by using a fresh input state; there is no persistent service to start. Diagnostics go to stderr.
+
+`state.users`, `entities`, `devices`, `topics`, `telemetry`, `rules`, and `alarms` are mappings. A topic maps directly to a device ID. MQTT 3.1.1 uses QoS 0 exact topic subscriptions; a UTF-8 JSON publication is `{ "timestamp": 1, "values": {"temperature": 25} }`. `mqtt_gateway.collect_messages(topics, host, port, max_messages=1, timeout=2)` is the transport extension point; its internal return representation may change with its caller. Preserve the two public solution functions and the JSON console.
+
+Existing behavior is public regression responsibility: tenant administrators create reseller/company entities and can update devices; company administrators create/update their own devices, storing both entity and device records. Cross-company changes are forbidden, including ownership reassignment by a company administrator. Ingest maps topics, stores key/value samples in timestamp order, and returns a chainable copy. Aggregation provides count/min/max/arithmetic mean over an inclusive range. Rules use `gt`/`lt`; the alarm ID is `device_id:rule_id`, only one record per pair is created, acknowledge/clear update its status, and dashboards contain permitted devices and non-cleared alarms. These existing rules are visible in the code and are not new hidden information.
+
+Complete the missing transport and repair permission/numeric defects. Ask the client about malformed-message batch handling, numeric sample eligibility, alarm transition authorization and access for other roles. Required fields permit additional nonconflicting metadata; dashboard array ordering is not a requirement. Only explicitly specified error codes are fixed; other denied actions may return any nonempty error. This is a component and local protocol fixture, not a production broker deployment or visual dashboard.
+
+The benchmark starts the stateless public development broker at `127.0.0.1:1883` before your budget. Subscribing to `synthetic/sensor` yields `{"timestamp":1,"values":{"value":20}}` once per subscription. Map that topic to a device in your input state to exercise the MQTT function. It supports MQTT 3.1.1, QoS0, exact topics and no credentials. Each connection is independent; reconnecting resets the example. If you deliberately stop it, restart with `python /workspace/dev_runtime/broker.py`; its log is `/tmp/sweclar-public-mqtt.log`. Hidden evaluation uses separate randomized ports and messages.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

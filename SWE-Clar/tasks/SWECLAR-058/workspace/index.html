@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Voice room</title>
+<style>body{font:16px system-ui;max-width:850px;margin:2rem auto;padding:1rem}label{display:inline-block;margin:8px}button,input{font:inherit;padding:6px}pre{white-space:pre-wrap}audio{display:block;margin:12px 0}</style>
+<h1>Local voice room</h1>
+<p>Use separate tabs as synthetic participants. Audio is a generated tone; no microphone or external service is used.</p>
+<label>Room <input id="room" value="room"></label><label>Participant <input id="user" value="listener"></label>
+<label>Room token <input id="token"></label><label>Turn seconds <input id="limit" type="number" value="60"></label>
+<div><button id="create">Create room</button><button id="join">Join</button><button id="lock">Lock pass</button><button id="unlock">Unlock pass</button><button id="advance">Advance</button><button id="pass">Pass</button><button id="timeout">Check timeout</button></div>
+<p><button id="send">Send sample audio</button><button id="receive">Receive audio</button></p>
+<pre id="status" role="status">Ready</pre><section id="audio" aria-label="Received audio"></section>
+<script>
+const field=id=>document.getElementById(id);
+async function event(type,extra={}){
+ const action={type,room_id:field('room').value,user_id:field('user').value,server_time:Date.now()/1000,...extra};
+ const response=await fetch('/events',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(action)});
+ const result=await response.json();field('status').textContent=JSON.stringify(result,null,2);return result;
+}
+field('create').onclick=()=>event('create_room',{admin_id:'admin',private:!!field('token').value,access_token:field('token').value,turn_limit:Number(field('limit').value)});
+field('join').onclick=()=>event('join',{access_token:field('token').value});
+for(const [id,type] of [['lock','lock_pass'],['unlock','unlock_pass'],['advance','advance'],['pass','pass'],['timeout','timeout']])field(id).onclick=()=>event(type);
+field('send').onclick=async()=>{
+ const bytes=new Uint8Array(await(await fetch('/demo.wav')).arrayBuffer());
+ let raw='';for(const value of bytes)raw+=String.fromCharCode(value);
+ await event('audio',{packet_id:crypto.randomUUID(),audio_base64:btoa(raw)});
+};
+field('receive').onclick=async()=>{
+ const query=new URLSearchParams({room_id:field('room').value,user_id:field('user').value});
+ const {packets}=await(await fetch('/inbox?'+query)).json();
+ for(const packet of packets){
+  const bytes=Uint8Array.from(atob(packet.audio_base64),c=>c.charCodeAt(0));
+  const audio=document.createElement('audio');audio.controls=true;audio.dataset.packetId=packet.packet_id;
+  audio.src=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));field('audio').append(audio);
+ }
+ field('status').textContent=`Received ${packets.length} packet(s)`;
+};
+</script></html>

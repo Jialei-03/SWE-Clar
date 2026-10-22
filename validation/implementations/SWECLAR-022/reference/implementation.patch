@@ -1,0 +1,1201 @@
+diff --git a/app.js b/app.js
+index 887bd1b6e34c4b3c9b1d7c16cae25e92dacf7357..4c5bb2269eb0b68ef671d19367f5c3ce28b8e3c7 100644
+--- a/app.js
++++ b/app.js
+@@ -134,7 +134,12 @@ class LoyaltyView {
+     const c = this.client, d = this.document, generation = ++this.generation, role = c.user?.role;
+     this.releaseImages();
+     if (this.lastEpoch !== c.epoch) {
+-      for (const input of d.querySelectorAll('input,textarea')) { input.value = ''; if (input.type === 'checkbox') input.checked = false; }
++      for (const input of d.querySelectorAll('input,textarea,select')) {
++        if (input.tagName === 'SELECT') {
++          if (input.id === 'shop-category') input.selectedIndex = 0;
++          else input.replaceChildren();
++        } else { input.value = ''; if (input.type === 'checkbox') input.checked = false; }
++      }
+       this.lastEpoch = c.epoch;
+     }
+     d.getElementById('login-form').hidden = !!c.user;
+@@ -170,10 +175,28 @@ class LoyaltyView {
+     for (const message of c.inbox) { const row = this.node('article',message.title + ' · ' + message.body); row.dataset.messageId = message.id; d.getElementById('inbox').append(row); }
+     for (const entry of c.wallet?.ledger || []) { const row = this.node('article',entry.kind + ' · delta: ' + entry.delta + ' · balance: ' + entry.balance); row.dataset.ledgerId = entry.id; d.getElementById('ledger').append(row); }
+     for (const reward of c.rewards) d.getElementById('rewards').append(this.node('article',reward.name + ' · cost: ' + reward.cost + ' · stock: ' + reward.stock));
+-    for (const redemption of c.redemptions) { const row = this.node('article',redemption.reward_id + ' · cost: ' + redemption.cost + ' · ' + redemption.status); row.dataset.redemptionId = redemption.id; d.getElementById('redemptions').append(row); }
++    for (const redemption of c.redemptions) {
++      const reward = c.rewards.find(item => item.id === redemption.reward_id);
++      const label = reward ? reward.name + ' (' + redemption.reward_id + ')' : redemption.reward_id;
++      const row = this.node('article',label + ' · cost: ' + redemption.cost + ' · ' + redemption.status);
++      row.dataset.redemptionId = redemption.id;
++      d.getElementById('redemptions').append(row);
++    }
+     if (c.preferences) { d.getElementById('preference-categories').value = JSON.stringify(c.preferences.categories); d.getElementById('preference-malls').value = JSON.stringify(c.preferences.mall_ids); }
+   }
+-  dispose() { ++this.generation; this.releaseImages(); this.client.listeners.delete(this.listener); for (const [node,event,listener] of this.bindings) node.removeEventListener(event,listener); this.bindings = []; }
++  dispose() {
++    ++this.generation;
++    this.releaseImages();
++    this.client.listeners.delete(this.listener);
++    for (const [node,event,listener] of this.bindings) node.removeEventListener(event,listener);
++    this.bindings = [];
++    // Dynamic rows own their action listeners.  Removing the subtrees makes
++    // dispose safe even when the caller keeps the document around.
++    for (const id of ['catalog','assets','receipts','promotions','inbox','ledger','rewards','redemptions']) {
++      const element = this.document.getElementById(id);
++      if (element) element.replaceChildren();
++    }
++  }
+ }
+ window.LoyaltyClient = LoyaltyClient; window.LoyaltyView = LoyaltyView;
+ if (document.getElementById('workspace')) { window.loyaltyClient = new LoyaltyClient(); window.loyaltyView = new LoyaltyView(window.loyaltyClient,document); }
+diff --git a/media.py b/media.py
+index 1a68510a901228e1f12041c598d5fe295e03700e..e23c073defc551c169ec4ee0238c84defbff46a6 100644
+--- a/media.py
++++ b/media.py
+@@ -1,15 +1,41 @@
+ """Decode real PNG pixels and discard all source metadata."""
+ import base64
++import struct
+ from io import BytesIO
+ from PIL import Image
+ 
+ 
++def _require_complete_png(raw):
++    """Reject a valid PNG followed by unrelated trailing bytes."""
++    if raw[:8] != b'\x89PNG\r\n\x1a\n':
++        raise ValueError('Expected PNG')
++    position = 8
++    found_iend = False
++    while position < len(raw):
++        if position + 12 > len(raw):
++            raise ValueError('Truncated PNG')
++        length = struct.unpack('>I', raw[position:position + 4])[0]
++        end = position + 12 + length
++        if end > len(raw):
++            raise ValueError('Truncated PNG')
++        chunk_type = raw[position + 4:position + 8]
++        if chunk_type == b'IEND':
++            if length != 0 or end != len(raw):
++                raise ValueError('Trailing PNG data')
++            found_iend = True
++            break
++        position = end
++    if not found_iend:
++        raise ValueError('Missing PNG end')
++
++
+ def sanitize(encoded):
+     if not isinstance(encoded, str) or len(encoded) > 699052:
+         raise ValueError('Invalid encoding')
+     raw = base64.b64decode(encoded, validate=True)
+     if not 1 <= len(raw) <= 524288:
+         raise ValueError('Invalid size')
++    _require_complete_png(raw)
+     with Image.open(BytesIO(raw)) as source:
+         if source.format != 'PNG' or getattr(source, 'is_animated', False):
+             raise ValueError('Expected nonanimated PNG')
+diff --git a/server.py b/server.py
+index 9df8959c42846e1ce15d08858e0038b3f18cdf24..9a2658bf6d5f20955763646ce0754ee1fed31f50 100644
+--- a/server.py
++++ b/server.py
+@@ -1,77 +1,109 @@
+-"""HTTP adapter; business state remains in the transactional store."""
++"""Small authenticated HTTP adapter for the loyalty store."""
+ import argparse
+ import json
+ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
+ from urllib.parse import urlsplit
+-from store import Store, Fault
++
++from store import Fault, Store
+ 
+ 
+ def invalid_constant(_):
+-    raise ValueError('Nonfinite JSON')
++    raise ValueError("Nonfinite JSON")
+ 
+ 
+ class Handler(BaseHTTPRequestHandler):
++    # The benchmark speaks HTTP/1.1-compatible requests, but keeping the
++    # default close behavior avoids stale response/body interactions in simple
++    # clients and does not affect the API contract.
++    protocol_version = "HTTP/1.1"
++
+     def log_message(self, *_):
+         pass
+ 
+     def respond(self, status, value, content_type=None):
+         if isinstance(value, bytes):
+             raw = value
+-            content_type = content_type or 'image/png'
++            content_type = content_type or "image/png"
+         else:
+-            raw = json.dumps(value, ensure_ascii=True, allow_nan=False).encode()
+-            content_type = 'application/json; charset=utf-8'
++            raw = json.dumps(value, ensure_ascii=True, allow_nan=False, separators=(",", ":")).encode("utf-8")
++            content_type = content_type or "application/json; charset=utf-8"
+         self.send_response(status)
+-        self.send_header('Content-Type', content_type)
+-        self.send_header('Content-Length', str(len(raw)))
+-        self.send_header('Cache-Control', 'no-store')
+-        self.send_header('X-Content-Type-Options', 'nosniff')
++        self.send_header("Content-Type", content_type)
++        self.send_header("Content-Length", str(len(raw)))
++        self.send_header("Cache-Control", "no-store")
++        self.send_header("X-Content-Type-Options", "nosniff")
++        self.send_header("Connection", "close")
++        self.close_connection = True
+         self.end_headers()
+-        self.wfile.write(raw)
++        try:
++            self.wfile.write(raw)
++        except (BrokenPipeError, ConnectionResetError):
++            pass
++
++    def _body(self):
++        try:
++            length = int(self.headers.get("Content-Length", "0"))
++            if not 1 <= length <= 800000:
++                raise ValueError("length")
++            raw = self.rfile.read(length)
++            if len(raw) != length:
++                raise ValueError("short body")
++            body = json.loads(raw.decode("utf-8"), parse_constant=invalid_constant)
++            if not isinstance(body, dict):
++                raise ValueError("object required")
++            return body
++        except (ValueError, UnicodeError, json.JSONDecodeError, TypeError, RecursionError):
++            raise Fault(400, "invalid_request")
+ 
+     def process(self):
+         try:
+             path = urlsplit(self.path).path
+-            static = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
+-            if self.command == 'GET' and path in static:
++            static = {
++                "/": ("index.html", "text/html; charset=utf-8"),
++                "/app.js": ("app.js", "text/javascript; charset=utf-8"),
++                "/style.css": ("style.css", "text/css; charset=utf-8"),
++            }
++            if self.command == "GET" and path in static:
+                 filename, mime = static[path]
+                 self.respond(200, (Path(__file__).parent / filename).read_bytes(), mime)
+                 return
+-            authorization = self.headers.get('Authorization', '')
+-            token = authorization[7:] if authorization.startswith('Bearer ') else ''
++
++            authorization = self.headers.get("Authorization", "")
++            token = authorization[7:] if authorization.startswith("Bearer ") else ""
++            # Authorization deliberately precedes body parsing: a malformed
++            # protected request still has the required 401/403 semantics.
+             self.server.store.authorize(self.command, path, token)
+-            body = {}
+-            if self.command in ('POST', 'PUT', 'PATCH'):
+-                try:
+-                    length = int(self.headers.get('Content-Length', '0'))
+-                    if not 1 <= length <= 800000:
+-                        raise ValueError('Length')
+-                    body = json.loads(self.rfile.read(length).decode('utf-8'), parse_constant=invalid_constant)
+-                    if not isinstance(body, dict):
+-                        raise ValueError('Object required')
+-                except (ValueError, UnicodeError):
+-                    raise Fault(400, 'invalid_request')
+-            authorization = self.headers.get('Authorization', '')
+-            token = authorization[7:] if authorization.startswith('Bearer ') else ''
++            body = self._body() if self.command in ("POST", "PUT", "PATCH") else {}
+             status, result = self.server.store.handle(self.command, path, token, body)
+             self.respond(status, result)
+         except Fault as error:
+-            self.respond(error.status, {'error': {'code': error.code}})
++            self.respond(error.status, {"error": {"code": error.code}})
+         except (BrokenPipeError, ConnectionResetError):
+             pass
++        except Exception:
++            # Do not expose implementation details.  Ordinary malformed
++            # requests are handled above; this is only a final containment
++            # guard for a damaged local store or transport.
++            try:
++                self.respond(500, {"error": {"code": "server_error"}})
++            except (BrokenPipeError, ConnectionResetError):
++                pass
+ 
+     do_GET = do_POST = do_PUT = do_PATCH = process
+ 
+ 
+-if __name__ == '__main__':
++if __name__ == "__main__":
+     parser = argparse.ArgumentParser()
+-    parser.add_argument('--host', default='0.0.0.0')
+-    parser.add_argument('--port', type=int, default=8080)
+-    parser.add_argument('--db', required=True)
+-    parser.add_argument('--fixture', required=True)
+-    parser.add_argument('--clock', required=True)
++    parser.add_argument("--host", default="0.0.0.0")
++    parser.add_argument("--port", type=int, default=8080)
++    parser.add_argument("--db", required=True)
++    parser.add_argument("--fixture", required=True)
++    parser.add_argument("--clock", required=True)
+     args = parser.parse_args()
+     server = ThreadingHTTPServer((args.host, args.port), Handler)
+     server.store = Store(args.db, args.fixture, args.clock)
+-    server.serve_forever()
++    try:
++        server.serve_forever()
++    finally:
++        server.server_close()
+diff --git a/store.py b/store.py
+index 455209c8b8137fa6399748b3954e9a25da753b85..41d2fb6f58a917c3f412072211e1a1ad82822863 100644
+--- a/store.py
++++ b/store.py
+@@ -1,4 +1,12 @@
+-"""Synthetic loyalty domain with serialized, durable SQLite transactions."""
++"""Durable transactional store for the synthetic loyalty workspace.
++
++The HTTP layer deliberately stays thin: all authorization, validation and
++business changes live here and are committed together in one SQLite
++transaction.  The state is kept as a single JSON document because the domain
++is small, while SQLite still supplies durable atomic commits and serializes
++all writers.
++"""
++import base64
+ import datetime
+ import hashlib
+ import hmac
+@@ -15,16 +23,18 @@ from media import sanitize
+ 
+ class Fault(Exception):
+     def __init__(self, status, code):
+-        self.status, self.code = status, code
++        self.status = status
++        self.code = code
+         super().__init__(code)
+ 
+ 
+-def fail(status=400, code='invalid_request'):
++def fail(status=400, code="invalid_request"):
+     raise Fault(status, code)
+ 
+ 
+-def string(value, maximum=100, trim=False):
+-    if not isinstance(value, str) or any(0xD800 <= ord(c) <= 0xDFFF for c in value):
++def scalar_string(value, maximum=100, trim=False):
++    """Validate a Unicode string and optionally trim only its ends."""
++    if not isinstance(value, str) or any(0xD800 <= ord(char) <= 0xDFFF for char in value):
+         fail()
+     if trim:
+         value = value.strip()
+@@ -33,7 +43,16 @@ def string(value, maximum=100, trim=False):
+     return value
+ 
+ 
+-def integer(value, maximum=2000000000):
++def identifier(value):
++    return scalar_string(value, 100, False)
++
++
++def human_text(value, maximum=100):
++    return scalar_string(value, maximum, True)
++
++
++def integer(value, maximum):
++    # type(...) rather than isinstance(...) intentionally rejects booleans.
+     if type(value) is not int or not 0 <= value <= maximum:
+         fail()
+     return value
+@@ -45,223 +64,739 @@ def boolean(value):
+     return value
+ 
+ 
+-def choices(value, allowed):
++def choice(value, allowed):
+     if not isinstance(value, str) or value not in allowed:
+         fail()
+     return value
+ 
+ 
+-def identifiers(value, minimum=0, maximum=None):
++def id_list(value, minimum=0, maximum=None):
+     if not isinstance(value, list) or len(value) < minimum or (maximum is not None and len(value) > maximum):
+         fail()
+-    result = [string(item) for item in value]
++    result = [identifier(item) for item in value]
+     if len(set(result)) != len(result):
+         fail()
+     return result
+ 
+ 
+ def uid():
++    # 160 bits is comfortably above the session/record uniqueness needs.
+     return secrets.token_hex(20)
+ 
+ 
+ def public_user(user):
+-    return {key: user[key] for key in ('id', 'username', 'role')}
++    return {key: user[key] for key in ("id", "username", "role")}
+ 
+ 
+ class Store:
+     def __init__(self, database, fixture, clock):
+         Path(database).parent.mkdir(parents=True, exist_ok=True)
+         self.db = sqlite3.connect(database, check_same_thread=False, isolation_level=None)
+-        self.db.execute('PRAGMA journal_mode=WAL')
+-        self.db.execute('PRAGMA synchronous=FULL')
+-        self.db.execute('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL)')
++        self.db.execute("PRAGMA journal_mode=WAL")
++        self.db.execute("PRAGMA synchronous=FULL")
++        self.db.execute("CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL)")
+         self.lock = threading.RLock()
+         self.sessions = {}
+         self.clock = Path(clock)
+-        if not self.db.execute('SELECT 1 FROM state').fetchone():
+-            state = json.loads(Path(fixture).read_text())
+-            for user in state['users']:
++
++        if not self.db.execute("SELECT 1 FROM state WHERE id=1").fetchone():
++            # Never mutate the fixture object: it is also useful to the test
++            # harness and may be reused to create another disposable server.
++            state = json.loads(Path(fixture).read_text(encoding="utf-8"))
++            for user in state.get("users", []):
++                password = user.pop("password")
+                 salt = secrets.token_hex(16)
+-                password = user.pop('password')
+-                user['salt'] = salt
+-                user['digest'] = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 120000).hex()
+-            for name in ('assets', 'receipts', 'promotions', 'messages', 'ledger', 'redemptions'):
+-                state[name] = []
+-            state['preferences'] = {}
+-            self.db.execute('INSERT INTO state VALUES(1,?)', (json.dumps(state, ensure_ascii=True),))
++                user["salt"] = salt
++                user["digest"] = hashlib.pbkdf2_hmac(
++                    "sha256", password.encode("utf-8"), salt.encode("ascii"), 120000
++                ).hex()
++            state.setdefault("assets", [])
++            state.setdefault("receipts", [])
++            state.setdefault("preferences", {})
++            state.setdefault("promotions", [])
++            state.setdefault("messages", [])
++            state.setdefault("ledger", [])
++            state.setdefault("redemptions", [])
++            state.setdefault("last_delivery", {})
++            self.db.execute(
++                "INSERT INTO state(id, body) VALUES(1, ?)",
++                (json.dumps(state, ensure_ascii=True, allow_nan=False),),
++            )
++
++    # ------------------------------------------------------------------
++    # Authentication and transaction plumbing
++    # ------------------------------------------------------------------
++    def _load_state(self):
++        row = self.db.execute("SELECT body FROM state WHERE id=1").fetchone()
++        if row is None:
++            # This should only be possible for a corrupted database.  Keep it
++            # an ordinary API failure rather than leaking a traceback.
++            fail(500, "storage_error")
++        state = json.loads(row[0])
++        # Defaults make a database made by the starter compatible with the
++        # completed implementation without changing any durable records.
++        state.setdefault("assets", [])
++        state.setdefault("receipts", [])
++        state.setdefault("preferences", {})
++        state.setdefault("promotions", [])
++        state.setdefault("messages", [])
++        state.setdefault("ledger", [])
++        state.setdefault("redemptions", [])
++        if not isinstance(state.get("last_delivery"), dict):
++            state["last_delivery"] = {}
++        # A database made by the starter has messages but no cooldown map.
++        # Reconstructing it from real stored messages keeps restart semantics
++        # correct without treating a notification state flag as delivery.
++        for message in state["messages"]:
++            consumer_id = message.get("owner_id")
++            delivered_at = message.get("delivered_at")
++            if consumer_id is None or type(delivered_at) is not int:
++                continue
++            previous = state["last_delivery"].get(consumer_id)
++            if previous is None or delivered_at > previous:
++                state["last_delivery"][consumer_id] = delivered_at
++        return state
++
++    def _active_user_for_token(self, token, state):
++        owner = self.sessions.get(token)
++        if owner is None:
++            return None
++        return next(
++            (user for user in state["users"] if user["id"] == owner and user.get("active") is True),
++            None,
++        )
+ 
+     def authorize(self, method, path, token):
+-        """Check identity and endpoint role before HTTP payload syntax."""
+-        if (method, path) in (('GET', '/health'), ('POST', '/api/login')):
++        """Authenticate and enforce endpoint role before parsing request JSON."""
++        if (method, path) == ("GET", "/health") or (method, path) == ("POST", "/api/login"):
+             return
++
+         with self.lock:
+-            state = json.loads(self.db.execute('SELECT body FROM state WHERE id=1').fetchone()[0])
+-            owner = self.sessions.get(token)
+-            user = next((u for u in state['users'] if u['id'] == owner and u['active']), None)
++            state = self._load_state()
++            user = self._active_user_for_token(token, state)
+             if user is None:
+-                fail(401, 'unauthenticated')
++                fail(401, "unauthenticated")
++
+             roles = None
+-            if path == '/api/merchant-owners' or method == 'POST' and path in ('/api/malls', '/api/shops', '/api/branches', '/api/dispatch') or method == 'PATCH' and re.fullmatch(r'/api/branches/[^/]+', path) or method == 'POST' and re.fullmatch(r'/api/receipts/[^/]+/review', path):
+-                roles = ('administrator',)
+-            elif path in ('/api/preferences', '/api/inbox', '/api/wallet', '/api/assets') or method == 'POST' and path in ('/api/receipts', '/api/redemptions'):
+-                roles = ('consumer',)
+-            elif method == 'POST' and (path == '/api/promotions' or re.fullmatch(r'/api/promotions/[^/]+/cancel', path)):
+-                roles = ('merchant',)
+-            elif method == 'GET' and path in ('/api/receipts', '/api/redemptions'):
+-                roles = ('consumer', 'administrator')
+-            elif method == 'GET' and path == '/api/promotions':
+-                roles = ('merchant', 'administrator')
+-            if roles:
++            if path == "/api/merchant-owners":
++                roles = ("administrator",)
++            elif method == "POST" and path in (
++                "/api/malls", "/api/shops", "/api/branches", "/api/dispatch"
++            ):
++                roles = ("administrator",)
++            elif method == "PATCH" and self._matches_path(path, "/api/branches", 1):
++                roles = ("administrator",)
++            elif method == "POST" and self._matches_path(path, "/api/receipts", 1, suffix="review"):
++                roles = ("administrator",)
++            elif path == "/api/assets":
++                roles = ("consumer",)
++            elif path == "/api/preferences" or path in ("/api/inbox", "/api/wallet"):
++                roles = ("consumer",)
++            elif method == "POST" and path in ("/api/receipts", "/api/redemptions"):
++                roles = ("consumer",)
++            elif method == "POST" and (
++                path == "/api/promotions" or self._matches_path(path, "/api/promotions", 1, suffix="cancel")
++            ):
++                roles = ("merchant",)
++            elif method == "GET" and path in ("/api/receipts", "/api/redemptions"):
++                roles = ("consumer", "administrator")
++            elif method == "GET" and path == "/api/promotions":
++                roles = ("merchant", "administrator")
++
++            if roles is not None:
+                 self.role(user, *roles)
+ 
++    @staticmethod
++    def _matches_path(path, root, components, suffix=None):
++        """Match a parameterized path without decoding its ID yet.
++
++        URL-encoded slashes remain part of one path component until the route
++        decodes them, which is exactly what IDs containing punctuation need.
++        """
++        pattern = re.escape(root) + "(?:/[^/]+)" * components
++        if suffix is not None:
++            pattern += "/" + re.escape(suffix)
++        return re.fullmatch(pattern, path) is not None
++
+     def handle(self, method, path, token, body=None):
+         with self.lock:
+-            self.db.execute('BEGIN IMMEDIATE')
++            self.db.execute("BEGIN IMMEDIATE")
+             try:
+-                self.s = json.loads(self.db.execute('SELECT body FROM state WHERE id=1').fetchone()[0])
+-                answer = self.route(method, path, token, body or {})
+-                self.db.execute('UPDATE state SET body=? WHERE id=1', (json.dumps(self.s, ensure_ascii=True),))
+-                self.db.execute('COMMIT')
++                self.s = self._load_state()
++                answer = self.route(method, path, token, body if body is not None else {})
++                self.db.execute(
++                    "UPDATE state SET body=? WHERE id=1",
++                    (json.dumps(self.s, ensure_ascii=True, allow_nan=False),),
++                )
++                self.db.execute("COMMIT")
+                 return answer
+             except BaseException:
+-                self.db.execute('ROLLBACK')
++                self.db.execute("ROLLBACK")
+                 raise
+ 
++    # ------------------------------------------------------------------
++    # Small domain helpers
++    # ------------------------------------------------------------------
+     def lookup(self, collection, identity):
+-        return next((row for row in self.s[collection] if row['id'] == identity), None)
++        return next((row for row in self.s[collection] if row.get("id") == identity), None)
+ 
+     def need(self, collection, identity):
+         row = self.lookup(collection, identity)
+         if row is None:
+-            fail(404, 'not_found')
++            fail(404, "not_found")
+         return row
+ 
+     def role(self, user, *roles):
+-        if user['role'] not in roles:
+-            fail(403, 'forbidden')
++        if user.get("role") not in roles:
++            fail(403, "forbidden")
++
++    @staticmethod
++    def _decoded_path_id(segment):
++        try:
++            value = unquote(segment, encoding="utf-8", errors="strict")
++        except (UnicodeDecodeError, ValueError):
++            fail(404, "not_found")
++        return identifier(value)
++
++    def _path_id(self, path, root, suffix=None):
++        if suffix is None:
++            match = re.fullmatch(re.escape(root) + r"/([^/]+)", path)
++        else:
++            match = re.fullmatch(re.escape(root) + r"/([^/]+)/" + re.escape(suffix), path)
++        if not match:
++            return None
++        return self._decoded_path_id(match.group(1))
+ 
+-    def asset(self, row):
+-        return {key: row[key] for key in ('id', 'width', 'height', 'url')}
++    @staticmethod
++    def _public_asset(asset):
++        return {key: asset[key] for key in ("id", "width", "height", "url")}
+ 
+-    def balance(self, owner):
+-        return sum(row['delta'] for row in self.s['ledger'] if row['owner_id'] == owner)
++    @staticmethod
++    def _public_receipt(receipt):
++        return {
++            key: receipt[key]
++            for key in (
++                "id", "owner_id", "request_id", "branch_id", "receipt_number", "date",
++                "amount_cents", "asset_id", "status", "points", "reviewed_by",
++            )
++        }
+ 
++    @staticmethod
++    def _public_promotion(promotion):
++        return {
++            key: promotion[key]
++            for key in (
++                "id", "shop_id", "branch_ids", "title", "body", "due_at", "expires_at",
++                "status", "delivered_count",
++            )
++        }
++
++    @staticmethod
++    def _public_message(message):
++        return {
++            key: message[key]
++            for key in (
++                "id", "promotion_id", "title", "body", "shop_id", "branch_ids", "delivered_at",
++            )
++        }
++
++    @staticmethod
++    def _public_ledger(entry):
++        return {key: entry[key] for key in ("id", "kind", "reference_id", "delta", "balance")}
++
++    @staticmethod
++    def _public_redemption(redemption):
++        return {
++            key: redemption[key]
++            for key in ("id", "owner_id", "request_id", "reward_id", "cost", "status")
++        }
++
++    def _balance(self, owner):
++        return sum(entry["delta"] for entry in self.s["ledger"] if entry.get("owner_id") == owner)
++
++    def _append_ledger(self, owner, kind, reference_id, delta):
++        balance = self._balance(owner) + delta
++        self.s["ledger"].append(
++            {
++                "id": uid(),
++                "owner_id": owner,
++                "kind": kind,
++                "reference_id": reference_id,
++                "delta": delta,
++                "balance": balance,
++            }
++        )
++        return balance
++
++    def _preferences(self, owner):
++        value = self.s["preferences"].get(owner)
++        if not isinstance(value, dict):
++            return {"categories": [], "mall_ids": []}
++        return {
++            "categories": list(value.get("categories", [])),
++            "mall_ids": list(value.get("mall_ids", [])),
++        }
++
++    def _read_clock(self):
++        try:
++            raw = json.loads(self.clock.read_text(encoding="utf-8"), parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
++            if not isinstance(raw, dict) or type(raw.get("now")) is not int or not 0 <= raw["now"] <= 2000000000:
++                raise ValueError("clock")
++            return raw["now"]
++        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
++            fail(500, "clock_error")
++
++    # ------------------------------------------------------------------
++    # Routing
++    # ------------------------------------------------------------------
+     def route(self, method, path, token, b):
+-        if method == 'GET' and path == '/health':
+-            return 200, {'ok': True}
+-        if method == 'POST' and path == '/api/login':
+-            username = string(b.get('username'))
+-            password = string(b.get('password'), 10000)
+-            user = next((u for u in self.s['users'] if u['username'] == username), None)
+-            if not user or not user['active'] or not hmac.compare_digest(user['digest'], hashlib.pbkdf2_hmac(
+-                    'sha256', password.encode(), user['salt'].encode(), 120000).hex()):
+-                fail(401, 'unauthenticated')
++        if method == "GET" and path == "/health":
++            return 200, {"ok": True}
++
++        if method == "POST" and path == "/api/login":
++            username = scalar_string(b.get("username"), 100, False)
++            password = scalar_string(b.get("password"), 10000, False)
++            user = next((item for item in self.s["users"] if item.get("username") == username), None)
++            valid = False
++            if user is not None and user.get("active") is True:
++                digest = hashlib.pbkdf2_hmac(
++                    "sha256", password.encode("utf-8"), user["salt"].encode("ascii"), 120000
++                ).hex()
++                valid = hmac.compare_digest(user["digest"], digest)
++            if not valid:
++                fail(401, "unauthenticated")
+             session = secrets.token_urlsafe(32)
+-            self.sessions[session] = user['id']
+-            return 200, {'token': session, 'user': public_user(user)}
+-        user = self.lookup('users', self.sessions.get(token))
+-        if user is None or not user['active']:
+-            fail(401, 'unauthenticated')
+-        owner = user['id']
+-        if method == 'GET' and path == '/api/me':
+-            return 200, {'user': public_user(user)}
+-        if method == 'POST' and path == '/api/logout':
++            self.sessions[session] = user["id"]
++            return 200, {"token": session, "user": public_user(user)}
++
++        user = self._active_user_for_token(token, self.s)
++        if user is None:
++            fail(401, "unauthenticated")
++        owner = user["id"]
++
++        # Basic account/session endpoints.
++        if method == "GET" and path == "/api/me":
++            return 200, {"user": public_user(user)}
++        if method == "POST" and path == "/api/logout":
+             self.sessions.pop(token, None)
+-            return 200, {'ok': True}
+-        if method == 'GET' and path == '/api/merchant-owners':
+-            self.role(user, 'administrator')
+-            return 200, {'merchant_owners': [{'id': u['id']} for u in self.s['users'] if u['role'] == 'merchant' and u['active']]}
+-        if method == 'GET' and path == '/api/catalog':
+-            return 200, {key: self.s[key] for key in ('malls', 'shops', 'branches', 'rewards')}
+-        if method == 'POST' and path in ('/api/malls', '/api/shops', '/api/branches'):
+-            self.role(user, 'administrator')
+-            collection = path.split('/')[-1]
+-            row = {'id': string(b.get('id'))}
+-            if collection in ('malls', 'shops'):
+-                row['name'] = string(b.get('name'), trim=True)
+-            if collection == 'shops':
+-                row.update(owner_id=string(b.get('owner_id')), category=choices(b.get('category'), ('food', 'home', 'leisure')))
+-            if collection == 'branches':
+-                row.update(shop_id=string(b.get('shop_id')), mall_id=string(b.get('mall_id')), participating=boolean(b.get('participating')))
+-            if self.lookup(collection, row['id']):
+-                fail(409, 'duplicate_id')
+-            if collection == 'shops':
+-                merchant = self.need('users', row['owner_id'])
+-                if merchant['role'] != 'merchant' or not merchant['active']:
+-                    fail(422, 'invalid_owner')
+-            if collection == 'branches':
+-                self.need('shops', row['shop_id'])
+-                self.need('malls', row['mall_id'])
++            return 200, {"ok": True}
++
++        # Authenticated directory reads and administrator writes.
++        if method == "GET" and path == "/api/catalog":
++            return 200, {
++                "malls": [dict(row) for row in self.s["malls"]],
++                "shops": [dict(row) for row in self.s["shops"]],
++                "branches": [dict(row) for row in self.s["branches"]],
++                "rewards": [dict(row) for row in self.s["rewards"]],
++            }
++
++        if method == "GET" and path == "/api/merchant-owners":
++            self.role(user, "administrator")
++            return 200, {
++                "merchant_owners": [
++                    {"id": item["id"]}
++                    for item in self.s["users"]
++                    if item.get("role") == "merchant" and item.get("active") is True
++                ]
++            }
++
++        if method == "POST" and path in ("/api/malls", "/api/shops", "/api/branches"):
++            self.role(user, "administrator")
++            collection = path.rsplit("/", 1)[1]
++            row = {"id": identifier(b.get("id"))}
++            if collection in ("malls", "shops"):
++                row["name"] = human_text(b.get("name"), 100)
++            if collection == "shops":
++                row["owner_id"] = identifier(b.get("owner_id"))
++                row["category"] = choice(b.get("category"), ("food", "home", "leisure"))
++            elif collection == "branches":
++                row["shop_id"] = identifier(b.get("shop_id"))
++                row["mall_id"] = identifier(b.get("mall_id"))
++                row["participating"] = boolean(b.get("participating"))
++
++            if self.lookup(collection, row["id"]) is not None:
++                fail(409, "duplicate_id")
++            if collection == "shops":
++                merchant = self.lookup("users", row["owner_id"])
++                if merchant is None:
++                    fail(404, "not_found")
++                if merchant.get("role") != "merchant" or merchant.get("active") is not True:
++                    fail(422, "invalid_owner")
++            elif collection == "branches":
++                self.need("shops", row["shop_id"])
++                self.need("malls", row["mall_id"])
++
+             self.s[collection].append(row)
+-            return 201, {{'malls': 'mall', 'shops': 'shop', 'branches': 'branch'}[collection]: row}
+-        match = re.fullmatch(r'/api/branches/([^/]+)', path)
+-        if match and method == 'PATCH':
+-            self.role(user, 'administrator')
+-            value = boolean(b.get('participating'))
+-            row = self.need('branches', string(unquote(match[1])))
+-            row['participating'] = value
+-            return 200, {'branch': row}
+-        if path == '/api/assets' and method in ('GET', 'POST'):
+-            self.role(user, 'consumer')
+-            if method == 'GET':
+-                return 200, {'assets': [self.asset(a) for a in self.s['assets'] if a['owner_id'] == owner]}
+-            import base64
++            key = {"malls": "mall", "shops": "shop", "branches": "branch"}[collection]
++            return 201, {key: dict(row)}
++
++        branch_id = self._path_id(path, "/api/branches")
++        if branch_id is not None and method == "PATCH":
++            self.role(user, "administrator")
++            participating = boolean(b.get("participating"))
++            branch = self.need("branches", branch_id)
++            branch["participating"] = participating
++            return 200, {"branch": dict(branch)}
++
++        # Assets: metadata is intentionally a consumer-only view.  The image
++        # endpoint has finer-grained owner/audit access below.
++        if path == "/api/assets" and method in ("GET", "POST"):
++            self.role(user, "consumer")
++            if method == "GET":
++                return 200, {
++                    "assets": [self._public_asset(asset) for asset in self.s["assets"] if asset["owner_id"] == owner]
++                }
+             try:
+-                raw, width, height = sanitize(b.get('png_base64'))
++                raw, width, height = sanitize(b.get("png_base64"))
+             except Exception:
+-                fail()
++                fail(400, "invalid_request")
+             identity = uid()
+-            row = dict(id=identity, owner_id=owner, width=width, height=height,
+-                       url='/api/assets/' + quote(identity, safe=''), png=base64.b64encode(raw).decode())
+-            self.s['assets'].append(row)
+-            return 201, {'asset': self.asset(row)}
+-        match = re.fullmatch(r'/api/assets/([^/]+)', path)
+-        if match and method == 'GET':
+-            import base64
+-            row = self.need('assets', string(unquote(match[1])))
+-            attached = any(r['asset_id'] == row['id'] for r in self.s['receipts'])
+-            if not (user['role'] == 'consumer' and row['owner_id'] == owner or user['role'] == 'administrator' and attached):
+-                fail(404, 'not_found')
+-            return 200, base64.b64decode(row['png'])
+-        if path == '/api/receipts' and method == 'POST':
+-            self.role(user, 'consumer')
+-            fields = {key: string(b.get(key)) for key in ('request_id', 'branch_id', 'asset_id')}
+-            fields['receipt_number'] = string(b.get('receipt_number'), trim=True)
+-            fields['date'] = string(b.get('date'))
+-            fields['amount_cents'] = integer(b.get('amount_cents'), 100000000)
++            asset = {
++                "id": identity,
++                "owner_id": owner,
++                "width": width,
++                "height": height,
++                "url": "/api/assets/" + quote(identity, safe=""),
++                "png": base64.b64encode(raw).decode("ascii"),
++            }
++            self.s["assets"].append(asset)
++            return 201, {"asset": self._public_asset(asset)}
++
++        asset_id = self._path_id(path, "/api/assets")
++        if asset_id is not None and method == "GET":
++            asset = self.need("assets", asset_id)
++            attached = any(receipt.get("asset_id") == asset_id for receipt in self.s["receipts"])
++            if not (
++                (user.get("role") == "consumer" and asset.get("owner_id") == owner)
++                or (user.get("role") == "administrator" and attached)
++            ):
++                fail(404, "not_found")
++            return 200, base64.b64decode(asset["png"])
++
++        # Receipt submission and listing.
++        if path == "/api/receipts" and method == "POST":
++            self.role(user, "consumer")
++            request_id = identifier(b.get("request_id"))
++            branch_id_value = identifier(b.get("branch_id"))
++            receipt_number = human_text(b.get("receipt_number"), 100)
++            date_value = scalar_string(b.get("date"), 10, False)
++            amount_cents = integer(b.get("amount_cents"), 100000000)
++            asset_id_value = identifier(b.get("asset_id"))
++            if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", date_value) is None:
++                fail()
+             try:
+-                if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', fields['date']):
+-                    fail()
+-                datetime.date.fromisoformat(fields['date'])
++                datetime.date.fromisoformat(date_value)
+             except ValueError:
+                 fail()
+-            asset = self.need('assets', fields['asset_id'])
+-            if asset['owner_id'] != owner:
+-                fail(404, 'not_found')
+-            branch = self.need('branches', fields['branch_id'])
+-            if not branch['participating']:
+-                fail(422, 'not_participating')
+-            row = dict(fields, id=uid(), owner_id=owner, status='pending', points=0, reviewed_by=None)
+-            self.s['receipts'].append(row)
+-            return 201, {'receipt': row}
+-        if path == '/api/receipts' and method == 'GET':
+-            self.role(user, 'consumer', 'administrator')
+-            rows = [r for r in self.s['receipts'] if user['role'] == 'administrator' or r['owner_id'] == owner]
+-            return 200, {'receipts': sorted(rows, key=lambda r: r['status'] != 'pending')}
+-        if path == '/api/preferences' and method == 'GET':
+-            self.role(user, 'consumer')
+-            return 200, {'preferences': {'categories': [], 'mall_ids': []}}
+-        if path == '/api/promotions' and method == 'GET':
+-            self.role(user, 'merchant', 'administrator')
+-            return 200, {'promotions': []}
+-        if path == '/api/inbox' and method == 'GET':
+-            self.role(user, 'consumer')
+-            return 200, {'messages': [{k: v for k, v in r.items() if k != 'owner_id'} for r in self.s['messages'] if r['owner_id'] == owner]}
+-        if path == '/api/wallet' and method == 'GET':
+-            self.role(user, 'consumer')
+-            return 200, dict(balance=self.balance(owner), ledger=[{k: v for k, v in r.items() if k != 'owner_id'} for r in self.s['ledger'] if r['owner_id'] == owner],
+-                             redemptions=[r for r in self.s['redemptions'] if r['owner_id'] == owner])
+-        if path == '/api/redemptions' and method == 'GET':
+-            self.role(user, 'consumer', 'administrator')
+-            return 200, {'redemptions': [r for r in self.s['redemptions'] if user['role'] == 'administrator' or r['owner_id'] == owner]}
+-        fail(404, 'not_found')
++
++            asset = self.need("assets", asset_id_value)
++            if asset.get("owner_id") != owner:
++                fail(404, "not_found")
++            branch = self.need("branches", branch_id_value)
++
++            submitted = {
++                "request_id": request_id,
++                "branch_id": branch_id_value,
++                "receipt_number": receipt_number,
++                "date": date_value,
++                "amount_cents": amount_cents,
++                "asset_id": asset_id_value,
++            }
++            existing = next(
++                (
++                    receipt
++                    for receipt in self.s["receipts"]
++                    if receipt.get("owner_id") == owner and receipt.get("request_id") == request_id
++                ),
++                None,
++            )
++            if existing is not None:
++                existing_payload = {key: existing[key] for key in submitted}
++                if existing_payload != submitted:
++                    fail(409, "request_conflict")
++                return 200, {"receipt": self._public_receipt(existing)}
++
++            if not branch.get("participating"):
++                fail(422, "not_participating")
++            collision = any(
++                receipt.get("status") in ("pending", "approved")
++                and receipt.get("branch_id") == branch_id_value
++                and receipt.get("receipt_number") == receipt_number
++                and receipt.get("date") == date_value
++                for receipt in self.s["receipts"]
++            )
++            if collision:
++                fail(409, "duplicate_receipt")
++
++            receipt = {
++                "id": uid(),
++                "owner_id": owner,
++                "request_id": request_id,
++                "branch_id": branch_id_value,
++                "receipt_number": receipt_number,
++                "date": date_value,
++                "amount_cents": amount_cents,
++                "asset_id": asset_id_value,
++                "status": "pending",
++                "points": 0,
++                "reviewed_by": None,
++            }
++            self.s["receipts"].append(receipt)
++            return 201, {"receipt": self._public_receipt(receipt)}
++
++        if path == "/api/receipts" and method == "GET":
++            self.role(user, "consumer", "administrator")
++            rows = [
++                receipt
++                for receipt in self.s["receipts"]
++                if user.get("role") == "administrator" or receipt.get("owner_id") == owner
++            ]
++            # Python's sort is stable, so the original append order is retained
++            # within both the pending and finalized groups.
++            rows = sorted(rows, key=lambda receipt: receipt.get("status") != "pending")
++            return 200, {"receipts": [self._public_receipt(receipt) for receipt in rows]}
++
++        receipt_id = self._path_id(path, "/api/receipts", suffix="review")
++        if receipt_id is not None and method == "POST":
++            self.role(user, "administrator")
++            decision = choice(b.get("decision"), ("approved", "rejected"))
++            receipt = self.need("receipts", receipt_id)
++            if receipt["status"] != "pending":
++                if receipt["status"] == decision:
++                    return 200, {"receipt": self._public_receipt(receipt)}
++                fail(409, "review_conflict")
++
++            if decision == "approved":
++                branch = self.need("branches", receipt["branch_id"])
++                if not branch.get("participating"):
++                    fail(422, "not_participating")
++                points = receipt["amount_cents"] // 250
++                receipt["status"] = "approved"
++                receipt["points"] = points
++                receipt["reviewed_by"] = owner
++                self._append_ledger(owner=receipt["owner_id"], kind="receipt", reference_id=receipt["id"], delta=points)
++            else:
++                receipt["status"] = "rejected"
++                receipt["points"] = 0
++                receipt["reviewed_by"] = owner
++            return 200, {"receipt": self._public_receipt(receipt)}
++
++        # Consumer preferences are normalized on write into public category and
++        # mall creation order.
++        if path == "/api/preferences" and method == "GET":
++            self.role(user, "consumer")
++            return 200, {"preferences": self._preferences(owner)}
++
++        if path == "/api/preferences" and method == "PUT":
++            self.role(user, "consumer")
++            categories = b.get("categories")
++            mall_ids = b.get("mall_ids")
++            if not isinstance(categories, list) or not isinstance(mall_ids, list):
++                fail()
++            category_values = [identifier(value) for value in categories]
++            mall_values = [identifier(value) for value in mall_ids]
++            if len(set(category_values)) != len(category_values) or len(set(mall_values)) != len(mall_values):
++                fail()
++            if any(value not in ("food", "home", "leisure") for value in category_values):
++                fail()
++            for mall_id_value in mall_values:
++                self.need("malls", mall_id_value)
++            normalized_categories = [
++                category for category in ("food", "home", "leisure") if category in category_values
++            ]
++            normalized_malls = [
++                mall["id"] for mall in self.s["malls"] if mall["id"] in set(mall_values)
++            ]
++            preferences = {"categories": normalized_categories, "mall_ids": normalized_malls}
++            self.s["preferences"][owner] = preferences
++            return 200, {"preferences": dict(preferences)}
++
++        # Promotions.
++        if path == "/api/promotions" and method == "POST":
++            self.role(user, "merchant")
++            shop_id_value = identifier(b.get("shop_id"))
++            branch_ids = id_list(b.get("branch_ids"), minimum=1, maximum=20)
++            title = human_text(b.get("title"), 100)
++            # Titles are human text and are trimmed; message bodies retain
++            # their supplied whitespace while observing their own length rule.
++            body = scalar_string(b.get("body"), 400, False)
++            due_at = integer(b.get("due_at"), 2000000000)
++            expires_at = integer(b.get("expires_at"), 2000000000)
++            if due_at >= expires_at:
++                fail()
++            shop = self.need("shops", shop_id_value)
++            if shop.get("owner_id") != owner:
++                fail(404, "not_found")
++            for branch_id_value in branch_ids:
++                branch = self.need("branches", branch_id_value)
++                if branch.get("shop_id") != shop_id_value:
++                    fail(404, "not_found")
++            promotion = {
++                "id": uid(),
++                "shop_id": shop_id_value,
++                "branch_ids": branch_ids,
++                "title": title,
++                "body": body,
++                "due_at": due_at,
++                "expires_at": expires_at,
++                "status": "scheduled",
++                "delivered_count": 0,
++            }
++            self.s["promotions"].append(promotion)
++            return 201, {"promotion": self._public_promotion(promotion)}
++
++        if path == "/api/promotions" and method == "GET":
++            self.role(user, "merchant", "administrator")
++            if user.get("role") == "administrator":
++                rows = self.s["promotions"]
++            else:
++                owned_shop_ids = {shop["id"] for shop in self.s["shops"] if shop.get("owner_id") == owner}
++                rows = [promotion for promotion in self.s["promotions"] if promotion.get("shop_id") in owned_shop_ids]
++            return 200, {"promotions": [self._public_promotion(promotion) for promotion in rows]}
++
++        promotion_id = self._path_id(path, "/api/promotions", suffix="cancel")
++        if promotion_id is not None and method == "POST":
++            self.role(user, "merchant")
++            promotion = self.need("promotions", promotion_id)
++            shop = self.need("shops", promotion["shop_id"])
++            if shop.get("owner_id") != owner:
++                fail(404, "not_found")
++            promotion["status"] = "cancelled"
++            return 200, {"promotion": self._public_promotion(promotion)}
++
++        # Dispatch reads the manager clock exactly once, and all deliveries,
++        # cooldown updates and promotion counts are part of this transaction.
++        if path == "/api/dispatch" and method == "POST":
++            self.role(user, "administrator")
++            now = self._read_clock()
++            promotions = [
++                (index, promotion)
++                for index, promotion in enumerate(self.s["promotions"])
++                if promotion.get("status") == "scheduled"
++                and promotion.get("due_at") <= now < promotion.get("expires_at")
++            ]
++            promotions.sort(key=lambda item: (item[1]["due_at"], item[0]))
++            delivered = 0
++            # Fixture order is the stable consumer order.  No user identity is
++            # returned to a merchant or administrator by any endpoint.
++            for consumer in self.s["users"]:
++                if consumer.get("role") != "consumer" or consumer.get("active") is not True:
++                    continue
++                consumer_id = consumer["id"]
++                preferences = self._preferences(consumer_id)
++                last = self.s["last_delivery"].get(consumer_id)
++                if last is not None and now - last < 120:
++                    continue
++
++                selected = None
++                for _, promotion in promotions:
++                    if any(
++                        message.get("owner_id") == consumer_id
++                        and message.get("promotion_id") == promotion["id"]
++                        for message in self.s["messages"]
++                    ):
++                        continue
++                    shop = self.lookup("shops", promotion["shop_id"])
++                    if shop is None or shop.get("category") not in preferences["categories"]:
++                        continue
++                    eligible_branches = []
++                    for branch_id_value in promotion["branch_ids"]:
++                        branch = self.lookup("branches", branch_id_value)
++                        if (
++                            branch is not None
++                            and branch.get("participating") is True
++                            and branch.get("mall_id") in preferences["mall_ids"]
++                        ):
++                            eligible_branches.append(branch_id_value)
++                    if not eligible_branches:
++                        continue
++                    selected = (promotion, eligible_branches)
++                    break
++
++                if selected is None:
++                    continue
++                promotion, eligible_branches = selected
++                message = {
++                    "id": uid(),
++                    "owner_id": consumer_id,
++                    "promotion_id": promotion["id"],
++                    "title": promotion["title"],
++                    "body": promotion["body"],
++                    "shop_id": promotion["shop_id"],
++                    "branch_ids": eligible_branches,
++                    "delivered_at": now,
++                }
++                self.s["messages"].append(message)
++                self.s["last_delivery"][consumer_id] = now
++                promotion["delivered_count"] += 1
++                delivered += 1
++            return 200, {"delivered_count": delivered}
++
++        if path == "/api/inbox" and method == "GET":
++            self.role(user, "consumer")
++            return 200, {
++                "messages": [
++                    self._public_message(message)
++                    for message in self.s["messages"]
++                    if message.get("owner_id") == owner
++                ]
++            }
++
++        # Wallet and redemptions.
++        if path == "/api/wallet" and method == "GET":
++            self.role(user, "consumer")
++            ledger = [entry for entry in self.s["ledger"] if entry.get("owner_id") == owner]
++            redemptions = [item for item in self.s["redemptions"] if item.get("owner_id") == owner]
++            return 200, {
++                "balance": self._balance(owner),
++                "ledger": [self._public_ledger(entry) for entry in ledger],
++                "redemptions": [self._public_redemption(item) for item in redemptions],
++            }
++
++        if path == "/api/redemptions" and method == "GET":
++            self.role(user, "consumer", "administrator")
++            rows = [
++                item
++                for item in self.s["redemptions"]
++                if user.get("role") == "administrator" or item.get("owner_id") == owner
++            ]
++            return 200, {"redemptions": [self._public_redemption(item) for item in rows]}
++
++        if path == "/api/redemptions" and method == "POST":
++            self.role(user, "consumer")
++            request_id = identifier(b.get("request_id"))
++            reward_id = identifier(b.get("reward_id"))
++            existing = next(
++                (
++                    item
++                    for item in self.s["redemptions"]
++                    if item.get("owner_id") == owner and item.get("request_id") == request_id
++                ),
++                None,
++            )
++            if existing is not None:
++                if existing.get("reward_id") != reward_id:
++                    fail(409, "request_conflict")
++                return 200, {"redemption": self._public_redemption(existing)}
++
++            reward = self.need("rewards", reward_id)
++            if reward.get("stock", 0) == 0:
++                fail(409, "out_of_stock")
++            cost = reward["cost"]
++            if self._balance(owner) < cost:
++                fail(409, "insufficient_points")
++
++            redemption = {
++                "id": uid(),
++                "owner_id": owner,
++                "request_id": request_id,
++                "reward_id": reward_id,
++                "cost": cost,
++                "status": "reserved",
++            }
++            reward["stock"] -= 1
++            self.s["redemptions"].append(redemption)
++            self._append_ledger(owner=owner, kind="redemption", reference_id=redemption["id"], delta=-cost)
++            return 201, {"redemption": self._public_redemption(redemption)}
++
++        fail(404, "not_found")

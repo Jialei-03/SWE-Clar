@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-090",
+  "public": {
+    "readme": "# Archive-to-PDF project\n\nComplete `build_article_package(params, archive_url, output_dir, fetch_text=None)` in solution.py. The supplied HTTP reader retrieves raw HTML; the optional callable(url) adapter returns HTML text. The archive parser and PDF renderer are extension points. Return a dictionary with title, articles and filename, and write the actual PDF under output_dir; failures return error.code. Do not change input parameters. Python 3.11+ and reportlab 4.4.9 are required.\n\nThis benchmark's synthetic HTML archive uses article.archive-entry elements with data-id, data-date and data-publication attributes. Each contains an h2 title, an element with data-field=\"body\", and optionally data-field=\"summary\". Extract nested visible text and HTML entities, excluding scripts/styles. Dates are ISO calendar dates. All text fixtures use characters supported by the standard PDF fonts. params requires title, start_date and end_date and may contain publication/query filters. The small example is fictional and contains no client article or account information.\n\nThe project evaluates actual HTML ingestion, selection and PDF generation using a local test server. The HTML schema is a disclosed reconstruction choice; it does not reproduce a private publisher's website or claim to bypass live website access controls.\n\nOptional supplied summaries are source fields, not generated AI text. The publication filter matches without case distinctions; query searches visible title and body text. Exact HTML rules and PDF layout/reproducibility policies are independent benchmark conventions, not customer-confirmed publisher specifications. The prepared environment includes rendering dependencies; run `python /public_tests/example.py` for the synthetic example.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "build_article_package",
+          "signature": "build_article_package(params, archive_url, output_dir, fetch_text=None) -> dict"
+        },
+        "inputs": {
+          "params": "title/start_date/end_date plus optional filters and summary option",
+          "archive_url": "Raw HTML source URL",
+          "output_dir": "Directory for generated PDF",
+          "fetch_text": "Optional callable(url) returning HTML"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "title, normalized articles and filename plus observable PDF bytes, or error.code"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "build_article_package",
+        "signature": "build_article_package(params, archive_url, output_dir, fetch_text=None) -> dict"
+      },
+      "inputs": {
+        "params": "title/start_date/end_date plus optional filters and summary option",
+        "archive_url": "Raw HTML source URL",
+        "output_dir": "Directory for generated PDF",
+        "fetch_text": "Optional callable(url) returning HTML"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "title, normalized articles and filename plus observable PDF bytes, or error.code"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "build_article_package",
+        "signature": "build_article_package(params, archive_url, output_dir, fetch_text=None) -> dict"
+      },
+      "inputs": {
+        "params": "title/start_date/end_date plus optional filters and summary option",
+        "archive_url": "Raw HTML source URL",
+        "output_dir": "Directory for generated PDF",
+        "fetch_text": "Optional callable(url) returning HTML"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "title, normalized articles and filename plus observable PDF bytes, or error.code"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "build_article_package",
+        "signature": "build_article_package(params, archive_url, output_dir, fetch_text=None) -> dict"
+      },
+      "inputs": {
+        "params": "title/start_date/end_date plus optional filters and summary option",
+        "archive_url": "Raw HTML source URL",
+        "output_dir": "Directory for generated PDF",
+        "fetch_text": "Optional callable(url) returning HTML"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "title, normalized articles and filename plus observable PDF bytes, or error.code"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "build_article_package",
+        "signature": "build_article_package(params, archive_url, output_dir, fetch_text=None) -> dict"
+      },
+      "inputs": {
+        "params": "title/start_date/end_date plus optional filters and summary option",
+        "archive_url": "Raw HTML source URL",
+        "output_dir": "Directory for generated PDF",
+        "fetch_text": "Optional callable(url) returning HTML"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "title, normalized articles and filename plus observable PDF bytes, or error.code"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "build_article_package",
+        "signature": "build_article_package(params, archive_url, output_dir, fetch_text=None) -> dict"
+      },
+      "inputs": {
+        "params": "title/start_date/end_date plus optional filters and summary option",
+        "archive_url": "Raw HTML source URL",
+        "output_dir": "Directory for generated PDF",
+        "fetch_text": "Optional callable(url) returning HTML"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "title, normalized articles and filename plus observable PDF bytes, or error.code"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "e833ccb14384c2a360a8140a80fc2d01809f3c20ae3dc035655c94b50abf11eb",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "354827d0946fa16f75ef41727ea7c12776527f1985165a48511c4a5b4392e6fc",
+    "evaluation/tests/conftest.py": "18022d1b2360dffe46dff102d98c413a124a43d3fbd3eaf396e73c3c1a6ec6ac",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "5b622cf29680f9c582d617050eae914f9fe6999b61317b31e53d8f2828b13fa8",
+    "evaluation/tests/run_contract.py": "bbbdb22944a8cc1d029dd15585a37e8552dd6d74710247cd657622b68f54c7ac",
+    "evaluation/tests/source_test.sh": "91977c713c35814676d53081e1143c233721c59bf26b037d412d1fb21af2ab10",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "0d7be69db4ebcd0273b10d2519a1c1e1d8ac7ec5ad574af0a5f45ee194b64354"
+  },
+  "public_environment_sha256": "a95c7b85a65011eb9bbd81f447345754e5dae92bf6141ba91f15358ab6aaeaa1",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

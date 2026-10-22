@@ -1,0 +1,184 @@
+schema_version: 1
+task_id: SWECLAR-096
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Server-side area calculator with responsive form and actual PDF report
+requirement_units:
+- ru_id: RU-001
+  name: Calculation entry point
+  content: Complete the supplied responsive browser calculator and Python backend. calculate(values) returns
+    a new JSON-compatible result with deterministic calculation fields (optional metadata may vary) without
+    changing inputs. POST /calculate and POST /report process each request independently, including concurrent
+    requests. Browser assets display server results; calculation code and original source files are not
+    served by public routes.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for calculation entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: calculator.py
+      function: calculate
+      signature: calculate(values) -> dict
+    inputs:
+      values: land_area_sqft,site_area_sqft,plot_ratio numeric fields
+    output:
+      type: dict
+      meaning: Independent computed result; actual PDF bytes are produced by report_pdf and /report.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/calculator_contract.py
+  notes: Independently rebuilt area-calculation component. The relation has explicit earlier client confirmation;
+    final commercial revision selection is not asserted. Layout, conversion precision and PDF presentation
+    are synthetic benchmark choices. Full financial model, source spreadsheet and customer/project identifiers
+    are excluded.
+- ru_id: RU-002
+  name: Area conversion
+  content: Accept numeric nonnegative finite land_area_sqft,site_area_sqft,plot_ratio values. Convert
+    each area to square metres using benchmark factor 0.092903 and display converted values to two decimal
+    places with half-up rounding. Return converted.land_area_sqm and converted.site_area_sqm. This factor/rounding
+    convention is a disclosed benchmark choice.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for area conversion.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: calculator.py
+      function: calculate
+      signature: calculate(values) -> dict
+    inputs:
+      values: land_area_sqft,site_area_sqft,plot_ratio numeric fields
+    output:
+      type: dict
+      meaning: Independent computed result; actual PDF bytes are produced by report_pdf and /report.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/calculator_contract.py
+  notes: Independently rebuilt area-calculation component. The relation has explicit earlier client confirmation;
+    final commercial revision selection is not asserted. Layout, conversion precision and PDF presentation
+    are synthetic benchmark choices. Full financial model, source spreadsheet and customer/project identifiers
+    are excluded.
+- ru_id: RU-003
+  name: Gross floor area formula
+  content: 'Use the selected area-calculation snapshot: gross_floor_area_sqft = (land_area_sqft + site_area_sqft)
+    * plot_ratio, rounded half-up to two decimal places. Compute on the backend from each request’s current
+    inputs, never a fixed cached value or only one area. This relation is supported by an explicitly discussed
+    and client-confirmed earlier version; it does not represent the full later valuation model.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for gross floor area formula.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: calculator.py
+      function: calculate
+      signature: calculate(values) -> dict
+    inputs:
+      values: land_area_sqft,site_area_sqft,plot_ratio numeric fields
+    output:
+      type: dict
+      meaning: Independent computed result; actual PDF bytes are produced by report_pdf and /report.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/calculator_contract.py
+  notes: Independently rebuilt area-calculation component. The relation has explicit earlier client confirmation;
+    final commercial revision selection is not asserted. Layout, conversion precision and PDF presentation
+    are synthetic benchmark choices. Full financial model, source spreadsheet and customer/project identifiers
+    are excluded.
+- ru_id: RU-004
+  name: Report summary
+  content: Return inputs,converted,result and summary containing the converted/result fields. Render the
+    summary in the responsive page. POST /report must return a valid PDF with original inputs, converted
+    areas and the calculated floor area as readable text, using matching values and units. The browser
+    Download PDF action downloads those actual PDF bytes, not a manifest or pdf_ready flag.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for report summary.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: calculator.py
+      function: calculate
+      signature: calculate(values) -> dict
+    inputs:
+      values: land_area_sqft,site_area_sqft,plot_ratio numeric fields
+    output:
+      type: dict
+      meaning: Independent computed result; actual PDF bytes are produced by report_pdf and /report.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/calculator_contract.py
+  notes: Independently rebuilt area-calculation component. The relation has explicit earlier client confirmation;
+    final commercial revision selection is not asserted. Layout, conversion precision and PDF presentation
+    are synthetic benchmark choices. Full financial model, source spreadsheet and customer/project identifiers
+    are excluded.
+- ru_id: RU-005
+  name: Reset and validation
+  content: Reset first warns the user; cancellation preserves inputs/results, confirmation clears them
+    and disables report access until another successful calculation. Reject missing,negative,bool,non-numeric
+    or non-finite inputs and unrepresentable outputs with HTTP 400 / invalid_input and no partial result/PDF.
+    A failed form submission must hide stale results. Do not expose backend Python files, source spreadsheets
+    or another request’s data through HTTP.
+  requirement_category: refinement
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for reset and validation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: calculator.py
+      function: calculate
+      signature: calculate(values) -> dict
+    inputs:
+      values: land_area_sqft,site_area_sqft,plot_ratio numeric fields
+    output:
+      type: dict
+      meaning: Independent computed result; actual PDF bytes are produced by report_pdf and /report.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/calculator_contract.py
+  notes: Independently rebuilt area-calculation component. The relation has explicit earlier client confirmation;
+    final commercial revision selection is not asserted. Layout, conversion precision and PDF presentation
+    are synthetic benchmark choices. Full financial model, source spreadsheet and customer/project identifiers
+    are excluded.

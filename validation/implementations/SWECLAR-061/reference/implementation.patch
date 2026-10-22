@@ -1,0 +1,995 @@
+diff --git a/app.js b/app.js
+index 523b454a9b423e043cc8d2558fae2092583b894c..453409f0d9b9a9bc141c43f8b8e8e29e723ced38 100644
+--- a/app.js
++++ b/app.js
+@@ -2,8 +2,8 @@ let token='',user=null,selected='';const $=s=>document.querySelector(s);const bl
+ async function api(path,data){const r=await fetch(path,{method:data?'POST':'GET',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:data?JSON.stringify(data):undefined});if(!r.ok)throw Error((await r.json()).error);return r.headers.get('content-type').includes('json')?r.json():r.blob();}
+ async function action(fn){try{$('#error').textContent='';await fn();}catch(e){$('#error').textContent=e.message;}}
+ function el(tag,text){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;return e;}
+-async function refresh(){user=await api('/me');$('#plan').textContent=user.plan?'Paid plan: '+user.plan:user.trial?'Trial account':'No active access';$('#auth').hidden=true;$('#workspace').hidden=false;const rooms=await api('/rooms');$('#room-options').replaceChildren(...rooms.map(r=>{const o=el('option',r.name);o.value=r.id;return o;}));const rows=await api('/content');$('#items').replaceChildren(...rows.map(row=>{const b=el('button',row.title);b.onclick=()=>action(()=>report(row.id));return b;}));}
+-async function report(id){selected=id;const r=await api('/report/'+encodeURIComponent(id));$('#report').hidden=false;$('#report-title').textContent=r.title;$('#report-details').textContent=r.details;$('#edit-title').value=r.title;$('#edit-details').value=r.details;$('#complete-status').textContent=r.complete?'Completed':'Draft';$('#images').replaceChildren();for(const url of blobs)URL.revokeObjectURL(url);blobs.length=0;for(const asset of r.assets){const blob=await api('/assets/'+encodeURIComponent(asset.id));const img=el('img');img.src=URL.createObjectURL(blob);blobs.push(img.src);img.alt=asset.kind+' '+asset.id;$('#images').append(img);}$('#export').disabled=!user.plan;$('#share').disabled=!user.plan;}
++async function refresh(){user=await api('/me');const paid=Boolean(user.plan);$('#plan').textContent=paid?'Paid plan: '+user.plan:user.trial?'Trial account':'No active access';$('#entitlement-note').textContent=paid?'Paid access includes printable PDF export and local share copies.':user.trial?'Trial access includes creating, viewing, editing, completing, and uploading to reports. Printable export and share copies require a paid plan.':'Start a trial or activate a paid plan to create reports.';$('#trial').disabled=Boolean(user.trial||user.plan);$('#auth').hidden=true;$('#workspace').hidden=false;const rooms=await api('/rooms');$('#room-options').replaceChildren(...rooms.map(r=>{const o=el('option',r.name);o.value=r.id;return o;}));const rows=await api('/content');$('#items').replaceChildren(...rows.map(row=>{const b=el('button',row.title);b.onclick=()=>action(()=>report(row.id));return b;}));}
++async function report(id){selected=id;const r=await api('/report/'+encodeURIComponent(id));$('#report').hidden=false;$('#report-title').textContent=r.title;$('#report-details').textContent=r.details;$('#edit-title').value=r.title;$('#edit-details').value=r.details;$('#complete-status').textContent=r.complete?'Completed':'Draft';$('#images').replaceChildren();for(const url of blobs)URL.revokeObjectURL(url);blobs.length=0;for(const asset of r.assets){const blob=await api('/assets/'+encodeURIComponent(asset.id));const img=el('img');img.src=URL.createObjectURL(blob);blobs.push(img.src);img.alt=asset.kind+' '+asset.id;$('#images').append(img);}const paid=Boolean(user.plan);$('#export').disabled=!paid;$('#share').disabled=!paid;$('#export').title=paid?'Download a printable PDF':'Printable PDF export requires a paid plan';$('#share').title=paid?'Create a local share copy':'Share copies require a paid plan';}
+ $('#signin').onclick=()=>action(async()=>{const r=await api('/login',{email:$('#email').value,password:$('#password').value});token=r.token;$('#password').value='';await refresh();});
+ $('#register').onclick=()=>action(async()=>{const r=await api('/register',{email:$('#email').value,password:$('#password').value});token=r.token;$('#password').value='';await refresh();});
+ $('#logout').onclick=()=>action(async()=>{await api('/logout',{});token='';selected='';$('#workspace').hidden=true;$('#report').hidden=true;$('#auth').hidden=false;});
+diff --git a/index.html b/index.html
+index c6148f7e4565ed178f88a82fe5bbb42f7c12dfd1..4fc29076caf895e85f8e8985571bfa1bd8c37f1e 100644
+--- a/index.html
++++ b/index.html
+@@ -1 +1 @@
+-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Content reports</title><link rel="stylesheet" href="/style.css"><main><header><h1>Content reports</h1></header><p id="error" role="alert"></p><section id="auth"><h2>Account</h2><label>Email<input id="email" type="email"></label><label>Password<input id="password" type="password"></label><button id="signin">Sign in</button><button id="register">Create account</button></section><section id="workspace" hidden><div class="bar"><p id="plan"></p><button id="logout">Sign out</button></div><section><h2>Access</h2><button id="trial">Start trial</button><label>Local payment receipt<input id="payment"></label><button id="activate">Activate plan</button></section><div class="columns"><section><h2>Rooms and content</h2><form id="create-room"><label>Room name<input id="room-name" required></label><button>Create room</button></form><form id="create-content"><label>Room<select id="room-options"></select></label><label>Title<input id="title" required></label><label>Details<textarea id="details" required></textarea></label><button>Create content</button></form><nav id="items" aria-label="Content records"></nav></section><section id="report" hidden><h2 id="report-title"></h2><p id="report-details"></p><p id="complete-status"></p><div id="images"></div><form id="upload"><label>Kind<select id="kind"><option value="image">Image</option><option value="receipt">Receipt</option></select></label><label>Image file<input id="file" type="file" accept="image/*" required></label><button>Upload image</button></form><form id="edit"><label>Report title<input id="edit-title" required></label><label>Report details<textarea id="edit-details" required></textarea></label><button>Save report</button></form><button id="complete">Mark complete</button><div class="bar"><button id="export">Download printable PDF</button><button id="share">Create share copy</button></div><pre id="share-copy"></pre></section></div></section></main><script src="/app.js"></script></html>
++<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Content reports</title><link rel="stylesheet" href="/style.css"><main><header><h1>Content reports</h1></header><p id="error" role="alert"></p><section id="auth"><h2>Account</h2><label>Email<input id="email" type="email"></label><label>Password<input id="password" type="password"></label><button id="signin">Sign in</button><button id="register">Create account</button></section><section id="workspace" hidden><div class="bar"><p id="plan"></p><button id="logout">Sign out</button></div><section><h2>Access</h2><p id="entitlement-note" class="hint"></p><button id="trial">Start trial</button><label>Local payment receipt<input id="payment"></label><button id="activate">Activate plan</button></section><div class="columns"><section><h2>Rooms and content</h2><form id="create-room"><label>Room name<input id="room-name" required></label><button>Create room</button></form><form id="create-content"><label>Room<select id="room-options"></select></label><label>Title<input id="title" required></label><label>Details<textarea id="details" required></textarea></label><button>Create content</button></form><nav id="items" aria-label="Content records"></nav></section><section id="report" hidden><h2 id="report-title"></h2><p id="report-details"></p><p id="complete-status"></p><div id="images"></div><form id="upload"><label>Kind<select id="kind"><option value="image">Image</option><option value="receipt">Receipt</option></select></label><label>Image file<input id="file" type="file" accept="image/*" required></label><button>Upload image</button></form><form id="edit"><label>Report title<input id="edit-title" required></label><label>Report details<textarea id="edit-details" required></textarea></label><button>Save report</button></form><button id="complete">Mark complete</button><div class="bar"><button id="export">Download printable PDF</button><button id="share">Create share copy</button></div><pre id="share-copy"></pre></section></div></section></main><script src="/app.js"></script></html>
+diff --git a/server.py b/server.py
+index 26ae59b2a366456c64767352d49a38f77f0e5c4e..74bb065dad182fdf0b92b235eb3a94301eec25f0 100644
+--- a/server.py
++++ b/server.py
+@@ -1,133 +1,832 @@
+-"""Synthetic property-report SaaS component with local storage and payment fixture."""
+-from pathlib import Path
+-from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
++"""Small, self-contained content-report SaaS service.
++
++The application deliberately keeps the local protocol simple: account data,
++sessions, report relationships, and normalized image bytes live in SQLite.  The
++HTTP layer is only an adapter around :class:`Store`; the same Store methods are
++also useful to the local integration tests.
++"""
++
++from __future__ import annotations
++
++import base64
++import hashlib
++import hmac
++import json
++import os
++import secrets
++import sqlite3
++import textwrap
++import urllib.error
++import urllib.parse
++import urllib.request
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from io import BytesIO
+-import base64,hashlib,hmac,json,os,secrets,sqlite3,urllib.request,urllib.error
+-from PIL import Image,ImageOps
++from pathlib import Path
++from typing import Any
++
++from PIL import Image, ImageOps
++from reportlab.lib.pagesizes import letter
++from reportlab.lib.utils import ImageReader
++from reportlab.pdfbase import pdfmetrics
++from reportlab.pdfbase.ttfonts import TTFont
+ from reportlab.pdfgen import canvas
++
++
++MAX_REQUEST_BYTES = 7_000_000
++MAX_IMAGE_BYTES = 5_000_000
++
++
+ class Error(Exception):
+- def __init__(self,message,status=400):self.message=message;self.status=status
++    """An expected application error that can be returned to an HTTP client."""
++
++    def __init__(self, message: str, status: int = 400):
++        super().__init__(message)
++        self.message = message
++        self.status = status
++
++
+ class Store:
+- def __init__(self,path,config):
+-  self.path=path;self.config=config
+-  with self.db() as db:db.executescript('''CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT UNIQUE,salt TEXT,verifier TEXT,trial INTEGER DEFAULT 0,plan TEXT);CREATE TABLE IF NOT EXISTS sessions(hash TEXT PRIMARY KEY,user TEXT);CREATE TABLE IF NOT EXISTS payments(id TEXT PRIMARY KEY,user TEXT,plan TEXT);CREATE TABLE IF NOT EXISTS rooms(id TEXT PRIMARY KEY,user TEXT,name TEXT);CREATE TABLE IF NOT EXISTS content(id TEXT PRIMARY KEY,room TEXT,title TEXT,details TEXT,complete INTEGER DEFAULT 0);CREATE TABLE IF NOT EXISTS assets(id TEXT PRIMARY KEY,content TEXT,kind TEXT,data BLOB);''')
+- def db(self):
+-  db=sqlite3.connect(self.path,timeout=10);db.row_factory=sqlite3.Row;return db
+- def verifier(self,password,salt):return hashlib.scrypt(password.encode(),salt=bytes.fromhex(salt),n=16384,r=8,p=1).hex()
+- def auth(self,path,a):
+-  email=a.get('email','').strip().lower();password=a.get('password','')
+-  if not email or '@' not in email or len(password)<8:raise Error('invalid_credentials')
+-  with self.db() as db:
+-   if path=='/register':
+-    ident=secrets.token_hex(12);salt=secrets.token_hex(16);db.execute('INSERT INTO users(id,email,salt,verifier) VALUES(?,?,?,?)',(ident,email,salt,self.verifier(password,salt)))
+-   user=db.execute('SELECT * FROM users WHERE email=?',(email,)).fetchone()
+-   if not user or not secrets.compare_digest(user['verifier'],self.verifier(password,user['salt'])):raise Error('invalid_credentials',401)
+-   token=secrets.token_urlsafe(32);db.execute('INSERT INTO sessions VALUES(?,?)',(hashlib.sha256(token.encode()).hexdigest(),user['id']));return {'token':token,'id':user['id']}
+- def user(self,token):
+-  with self.db() as db:u=db.execute('SELECT u.id,u.email,u.trial,u.plan FROM users u JOIN sessions s ON s.user=u.id WHERE s.hash=?',(hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+-  if not u:raise Error('unauthorized',401)
+-  return dict(u)
+- def owner(self,db,user,content):
+-  row=db.execute('SELECT c.*,r.user,r.name room_name FROM content c JOIN rooms r ON c.room=r.id WHERE c.id=?',(content,)).fetchone()
+-  if not row or row['user']!=user['id']:raise Error('not_found',404)
+-  return dict(row)
+- def act(self,user,path,a):
+-  with self.db() as db:
+-   if path=='/trial':
+-    db.execute('BEGIN IMMEDIATE');changed=db.execute('UPDATE users SET trial=1 WHERE id=? AND trial=0 AND plan IS NULL',(user['id'],)).rowcount
+-    if not changed:raise Error('trial_unavailable',409)
+-    return {'trial':True}
+-   if path=='/activate':
+-    payment=a['payment_id'];url=self.config['provider']+'/receipts/'+urllib.parse.quote(payment,safe='');opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+-    try:receipt=json.load(opener.open(url,timeout=5))
+-    except (urllib.error.URLError,ValueError):raise Error('provider_unavailable',502)
+-    payload=receipt['payload'];encoded=json.dumps(payload,sort_keys=True,separators=(',',':')).encode();signature=hmac.new(bytes.fromhex(self.config['provider_key']),encoded,hashlib.sha256).hexdigest()
+-    if not hmac.compare_digest(signature,receipt.get('signature','')):raise Error('invalid_receipt')
+-    plan=self.config['plans'].get(payload.get('plan'))
+-    if not plan or payload.get('id')!=payment or payload.get('user')!=user['id'] or payload.get('status')!='paid' or payload.get('amount')!=plan['amount'] or payload.get('currency')!=plan['currency']:raise Error('invalid_receipt')
+-    db.execute('BEGIN IMMEDIATE');old=db.execute('SELECT * FROM payments WHERE id=?',(payment,)).fetchone()
+-    if old and (old['user']!=user['id'] or old['plan']!=payload['plan']):raise Error('payment_conflict',409)
+-    if not old:db.execute('INSERT INTO payments VALUES(?,?,?)',(payment,user['id'],payload['plan']))
+-    db.execute('UPDATE users SET plan=? WHERE id=?',(payload['plan'],user['id']));return {'plan':payload['plan']}
+-   if not (user['trial'] or user['plan']):raise Error('access_required',403)
+-   if path=='/rooms':
+-    if not a['name'].strip():raise Error('name_required')
+-    db.execute('INSERT INTO rooms VALUES(?,?,?)',(a['id'],user['id'],a['name']));return {'id':a['id']}
+-   if path=='/content':
+-    room=db.execute('SELECT * FROM rooms WHERE id=? AND user=?',(a['room'],user['id'])).fetchone()
+-    if not room:raise Error('room_required')
+-    if not a['title'].strip() or not a['details'].strip():raise Error('details_required')
+-    db.execute('INSERT INTO content(id,room,title,details) VALUES(?,?,?,?)',(a['id'],a['room'],a['title'],a['details']));return {'id':a['id']}
+-   if path=='/edit':
+-    self.owner(db,user,a['id'])
+-    if not a['title'].strip() or not a['details'].strip():raise Error('details_required')
+-    db.execute('UPDATE content SET title=?,details=? WHERE id=?',(a['title'],a['details'],a['id']));return {'id':a['id']}
+-   if path=='/complete':
+-    self.owner(db,user,a['id']);db.execute('UPDATE content SET complete=1 WHERE id=?',(a['id'],));return {'id':a['id']}
+-   if path=='/assets':
+-    self.owner(db,user,a['content']);kind=a['kind']
+-    if kind not in ['image','receipt']:raise Error('invalid_kind')
+-    try:
+-     raw=base64.b64decode(a['data'],validate=True)
+-     if len(raw)>5000000:raise ValueError()
+-     image=Image.open(BytesIO(raw));image.load();image=ImageOps.exif_transpose(image).convert('RGB');out=BytesIO();image.save(out,format='JPEG')
+-    except Exception:raise Error('invalid_image')
+-    raise Error('upload_not_implemented',501)
+-    db.execute('INSERT INTO assets VALUES(?,?,?,?)',(a['id'],a['content'],kind,out.getvalue()));return {'id':a['id']}
+-   if path=='/share':
+-    row=self.owner(db,user,a['id'])
+-    if not (user['plan'] or user['trial']):raise Error('paid_plan_required',403)
+-    # Downloadable share copy stays local; no public publication or email.
+-    return {'content':row['id'],'title':row['title'],'details':row['details']}
+-   raise Error('not_found',404)
+- def read(self,user,path):
+-  with self.db() as db:
+-   if path=='/me':return user
+-   if path=='/rooms':return [dict(r) for r in db.execute('SELECT id,name FROM rooms WHERE user=? ORDER BY id',(user['id'],))]
+-   if path=='/content':return [dict(r) for r in db.execute('SELECT c.id,c.room,c.title,c.details,c.complete FROM content c JOIN rooms r ON r.id=c.room WHERE r.user=? ORDER BY c.id',(user['id'],))]
+-   if path.startswith('/assets/'):
+-    row=db.execute('SELECT * FROM assets WHERE id=?',(path.split('/')[-1],)).fetchone()
+-    if not row:raise Error('not_found',404)
+-    self.owner(db,user,row['content']);return row['data'],'image/jpeg'
+-   if path.startswith('/report/'):
+-    row=self.owner(db,user,path.split('/')[-1]);row['assets']=[dict(x) for x in db.execute('SELECT id,kind FROM assets WHERE content=? ORDER BY id',(row['id'],))];return row
+-   if path.startswith('/export/'):
+-    row=self.owner(db,user,path.split('/')[-1])
+-    if not (user['plan'] or user['trial']):raise Error('paid_plan_required',403)
+-    out=BytesIO();pdf=canvas.Canvas(out);pdf.setTitle('Synthetic content report');pdf.drawString(48,780,row['title']);y=744
+-    import textwrap
+-    for line in textwrap.wrap(row['details'],85):
+-     if y<48:pdf.showPage();y=780
+-     pdf.drawString(48,y,line);y-=16
+-    pdf.save();return out.getvalue(),'application/pdf'
+-   raise Error('not_found',404)
+-def main():
+- root=Path(__file__).parent;config=json.loads(Path(os.environ['SAAS_CONFIG']).read_text());store=Store(os.environ['SAAS_DATABASE'],config)
+- class Handler(BaseHTTPRequestHandler):
+-  def log_message(self,*args):pass
+-  def send(self,status,data):
+-   mime='application/json'
+-   if isinstance(data,tuple):data,mime=data
+-   else:data=json.dumps(data).encode()
+-   self.send_response(status);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(data)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(data)
+-  def execute(self):
+-   try:
+-    path=urllib.parse.urlsplit(self.path).path
+-    if self.command=='GET' and path in ['/','/app.js','/style.css']:
+-     name={'/':'index.html','/app.js':'app.js','/style.css':'style.css'}[path];return self.send(200,((root/name).read_bytes(),{'/':'text/html','/app.js':'text/javascript','/style.css':'text/css'}[path]))
+-    size=int(self.headers.get('Content-Length','0'))
+-    if size>7000000:raise Error('request_too_large',413)
+-    a=json.loads(self.rfile.read(size) or b'{}')
+-    if not isinstance(a,dict):raise Error('invalid_input')
+-    if self.command=='POST' and path in ['/register','/login']:return self.send(200,store.auth(path,a))
+-    token=self.headers.get('Authorization','').removeprefix('Bearer ');user=store.user(token)
+-    if path=='/logout' and self.command=='POST':
+-     with store.db() as db:db.execute('DELETE FROM sessions WHERE hash=?',(hashlib.sha256(token.encode()).hexdigest(),))
+-     return self.send(200,{})
+-    self.send(200,store.read(user,path) if self.command=='GET' else store.act(user,path,a))
+-   except Error as e:self.send(e.status,{'error':e.message})
+-   except sqlite3.IntegrityError:self.send(409,{'error':'conflict'})
+-   except (ValueError,KeyError,TypeError):self.send(400,{'error':'invalid_input'})
+-  do_GET=execute;do_POST=execute
+- server=ThreadingHTTPServer(('127.0.0.1',int(os.environ.get('PORT','0'))),Handler);print(server.server_port,flush=True);server.serve_forever()
+-if __name__=='__main__':main()
++    """Persistent account, report, asset, and local-payment storage."""
++
++    def __init__(self, path: str | os.PathLike[str], config: dict[str, Any]):
++        self.path = os.fspath(path)
++        self.config = config
++        self._memory_connection: sqlite3.Connection | None = None
++        if self.path == ":memory:":
++            self._memory_connection = sqlite3.connect(":memory:", check_same_thread=False)
++
++        # The benchmark normally creates the runtime directory.  Creating the
++        # parent here also makes the service useful when started by hand.
++        if self.path != ":memory:":
++            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
++
++        with self.db() as db:
++            db.executescript(
++                """
++                CREATE TABLE IF NOT EXISTS users(
++                    id TEXT PRIMARY KEY,
++                    email TEXT UNIQUE NOT NULL,
++                    salt TEXT NOT NULL,
++                    verifier TEXT NOT NULL,
++                    trial INTEGER NOT NULL DEFAULT 0,
++                    plan TEXT
++                );
++                CREATE TABLE IF NOT EXISTS sessions(
++                    hash TEXT PRIMARY KEY,
++                    user TEXT NOT NULL
++                );
++                CREATE TABLE IF NOT EXISTS payments(
++                    id TEXT PRIMARY KEY,
++                    user TEXT NOT NULL,
++                    plan TEXT NOT NULL
++                );
++                CREATE TABLE IF NOT EXISTS rooms(
++                    id TEXT PRIMARY KEY,
++                    user TEXT NOT NULL,
++                    name TEXT NOT NULL
++                );
++                CREATE TABLE IF NOT EXISTS content(
++                    id TEXT PRIMARY KEY,
++                    room TEXT NOT NULL,
++                    title TEXT NOT NULL,
++                    details TEXT NOT NULL,
++                    complete INTEGER NOT NULL DEFAULT 0
++                );
++                CREATE TABLE IF NOT EXISTS assets(
++                    id TEXT PRIMARY KEY,
++                    content TEXT NOT NULL,
++                    kind TEXT NOT NULL,
++                    data BLOB NOT NULL
++                );
++                CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user);
++                CREATE INDEX IF NOT EXISTS rooms_user_idx ON rooms(user);
++                CREATE INDEX IF NOT EXISTS content_room_idx ON content(room);
++                CREATE INDEX IF NOT EXISTS assets_content_idx ON assets(content);
++                """
++            )
++
++    def db(self) -> sqlite3.Connection:
++        """Open a short-lived SQLite connection with row-shaped results."""
++
++        if self._memory_connection is not None:
++            db = self._memory_connection
++        else:
++            db = sqlite3.connect(self.path, timeout=10)
++        db.row_factory = sqlite3.Row
++        db.execute("PRAGMA busy_timeout = 10000")
++        return db
++
++    def verifier(self, password: str, salt: str) -> str:
++        """Return the public scrypt password verifier for a hex salt."""
++
++        return hashlib.scrypt(
++            password.encode(),
++            salt=bytes.fromhex(salt),
++            n=16384,
++            r=8,
++            p=1,
++        ).hex()
++
++    @staticmethod
++    def _normal_email(value: Any) -> str:
++        if not isinstance(value, str):
++            raise Error("invalid_credentials")
++        email = value.strip().lower()
++        # This is intentionally modest validation.  The service needs a stable
++        # account key, not a full RFC mail parser, while retaining the starter
++        # application's useful rejection of obviously invalid addresses.
++        if not email or "@" not in email:
++            raise Error("invalid_credentials")
++        return email
++
++    @staticmethod
++    def _password(value: Any) -> str:
++        if not isinstance(value, str) or len(value) < 8:
++            raise Error("invalid_credentials")
++        return value
++
++    @staticmethod
++    def _identifier(value: Any, message: str = "invalid_input") -> str:
++        if not isinstance(value, str) or not value.strip():
++            raise Error(message)
++        return value
++
++    @staticmethod
++    def _required_text(value: Any, message: str) -> str:
++        if not isinstance(value, str) or not value.strip():
++            raise Error(message)
++        return value
++
++    @staticmethod
++    def _account_id(user: Any) -> str:
++        try:
++            user_id = user["id"]
++        except (KeyError, IndexError, TypeError):
++            raise Error("unauthorized", 401) from None
++        if not isinstance(user_id, str):
++            raise Error("unauthorized", 401)
++        return user_id
++
++    @staticmethod
++    def _public_account(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
++        return {
++            "id": row["id"],
++            "email": row["email"],
++            "trial": row["trial"],
++            "plan": row["plan"],
++        }
++
++    def _account_row(self, db: sqlite3.Connection, user: dict[str, Any]) -> sqlite3.Row:
++        user_id = self._account_id(user)
++        row = db.execute(
++            "SELECT id,email,trial,plan FROM users WHERE id=?", (user_id,)
++        ).fetchone()
++        if row is None:
++            raise Error("unauthorized", 401)
++        return row
++
++    @staticmethod
++    def _has_access(account: sqlite3.Row | dict[str, Any]) -> bool:
++        return bool(account["trial"] or account["plan"])
++
++    def auth(self, path: str, action: dict[str, Any]) -> dict[str, str]:
++        """Register or log in and create a server-side session."""
++
++        if path not in ("/register", "/login"):
++            raise Error("not_found", 404)
++        if not isinstance(action, dict):
++            raise Error("invalid_input")
++
++        email = self._normal_email(action.get("email"))
++        password = self._password(action.get("password"))
++
++        with self.db() as db:
++            if path == "/register":
++                if db.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
++                    raise Error("account_exists", 409)
++                ident = secrets.token_hex(12)
++                salt = secrets.token_hex(16)
++                try:
++                    db.execute(
++                        "INSERT INTO users(id,email,salt,verifier) VALUES(?,?,?,?)",
++                        (ident, email, salt, self.verifier(password, salt)),
++                    )
++                except sqlite3.IntegrityError as exc:
++                    # The explicit lookup above gives a useful normal path;
++                    # this handles a concurrent registration race as well.
++                    raise Error("account_exists", 409) from exc
++
++            account = db.execute(
++                "SELECT id,email,salt,verifier FROM users WHERE email=?", (email,)
++            ).fetchone()
++            if account is None or not secrets.compare_digest(
++                account["verifier"], self.verifier(password, account["salt"])
++            ):
++                raise Error("invalid_credentials", 401)
++
++            token = secrets.token_urlsafe(32)
++            db.execute(
++                "INSERT INTO sessions(hash,user) VALUES(?,?)",
++                (hashlib.sha256(token.encode()).hexdigest(), account["id"]),
++            )
++            return {"token": token, "id": account["id"]}
++
++    def user(self, token: str) -> dict[str, Any]:
++        """Resolve an untrusted bearer token to the server-owned account."""
++
++        if not isinstance(token, str) or not token:
++            raise Error("unauthorized", 401)
++        token_hash = hashlib.sha256(token.encode()).hexdigest()
++        with self.db() as db:
++            row = db.execute(
++                """
++                SELECT u.id,u.email,u.trial,u.plan
++                FROM users AS u JOIN sessions AS s ON s.user=u.id
++                WHERE s.hash=?
++                """,
++                (token_hash,),
++            ).fetchone()
++        if row is None:
++            raise Error("unauthorized", 401)
++        return dict(row)
++
++    def revoke(self, token: str) -> None:
++        """Revoke exactly one session token."""
++
++        if not isinstance(token, str) or not token:
++            raise Error("unauthorized", 401)
++        with self.db() as db:
++            db.execute(
++                "DELETE FROM sessions WHERE hash=?",
++                (hashlib.sha256(token.encode()).hexdigest(),),
++            )
++
++    def owner(
++        self, db: sqlite3.Connection, user: dict[str, Any], content_id: str
++    ) -> dict[str, Any]:
++        """Return a content row only when it belongs to the given account."""
++
++        user_id = self._account_id(user)
++        row = db.execute(
++            """
++            SELECT c.*,r.user,r.name AS room_name
++            FROM content AS c JOIN rooms AS r ON c.room=r.id
++            WHERE c.id=?
++            """,
++            (content_id,),
++        ).fetchone()
++        if row is None or row["user"] != user_id:
++            # Do not disclose whether another account owns the record.
++            raise Error("not_found", 404)
++        return dict(row)
++
++    def _receipt(self, payment_id: str) -> dict[str, Any]:
++        """Fetch and cryptographically verify a local-provider receipt."""
++
++        provider = self.config.get("provider")
++        if not isinstance(provider, str) or not provider:
++            raise Error("provider_unavailable", 502)
++        url = provider.rstrip("/") + "/receipts/" + urllib.parse.quote(
++            payment_id, safe=""
++        )
++        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
++        try:
++            with opener.open(url, timeout=5) as response:
++                raw = response.read(1_000_000)
++            receipt = json.loads(raw)
++        except urllib.error.HTTPError as exc:
++            # A missing or rejected receipt is a bad activation request, not a
++            # reason to grant access.
++            if exc.code in range(400, 500):
++                raise Error("invalid_receipt") from exc
++            raise Error("provider_unavailable", 502) from exc
++        except (urllib.error.URLError, TimeoutError, OSError) as exc:
++            raise Error("provider_unavailable", 502) from exc
++        except (ValueError, TypeError) as exc:
++            raise Error("invalid_receipt") from exc
++
++        if not isinstance(receipt, dict) or not isinstance(
++            receipt.get("payload"), dict
++        ):
++            raise Error("invalid_receipt")
++        payload = receipt["payload"]
++        signature = receipt.get("signature")
++        if not isinstance(signature, str):
++            raise Error("invalid_receipt")
++
++        try:
++            provider_key = bytes.fromhex(str(self.config["provider_key"]))
++            encoded = json.dumps(
++                payload, sort_keys=True, separators=(",", ":")
++            ).encode()
++            expected = hmac.new(provider_key, encoded, hashlib.sha256).hexdigest()
++        except (KeyError, TypeError, ValueError) as exc:
++            raise Error("invalid_receipt") from exc
++        if not hmac.compare_digest(expected, signature):
++            raise Error("invalid_receipt")
++        return payload
++
++    def _activate(
++        self,
++        db: sqlite3.Connection,
++        account: sqlite3.Row,
++        action: dict[str, Any],
++        user: dict[str, Any],
++    ) -> dict[str, Any]:
++        payment_id = action.get("payment_id")
++        if not isinstance(payment_id, str) or not payment_id:
++            raise Error("invalid_receipt")
++
++        payload = self._receipt(payment_id)
++        plan_id = payload.get("plan")
++        plans = self.config.get("plans")
++        plan = plans.get(plan_id) if isinstance(plans, dict) and isinstance(plan_id, str) else None
++
++        def exact_match(actual: Any, expected: Any) -> bool:
++            # Python considers True equal to 1; a receipt field must match the
++            # configured JSON value, including its basic type.
++            return type(actual) is type(expected) and actual == expected
++
++        if (
++            not isinstance(plan, dict)
++            or "amount" not in plan
++            or "currency" not in plan
++            or "amount" not in payload
++            or "currency" not in payload
++            or payload.get("id") != payment_id
++            or payload.get("user") != account["id"]
++            or payload.get("status") != "paid"
++            or not exact_match(payload.get("amount"), plan.get("amount"))
++            or not exact_match(payload.get("currency"), plan.get("currency"))
++        ):
++            raise Error("invalid_receipt")
++
++        # Lock before checking/inserting the idempotency record.  A replay for
++        # the same account and plan succeeds without creating another row;
++        # using this payment for a different account or plan is rejected.
++        db.execute("BEGIN IMMEDIATE")
++        previous = db.execute(
++            "SELECT id,user,plan FROM payments WHERE id=?", (payment_id,)
++        ).fetchone()
++        if previous is not None:
++            if previous["user"] != account["id"] or previous["plan"] != plan_id:
++                raise Error("payment_conflict", 409)
++        else:
++            try:
++                db.execute(
++                    "INSERT INTO payments(id,user,plan) VALUES(?,?,?)",
++                    (payment_id, account["id"], plan_id),
++                )
++            except sqlite3.IntegrityError as exc:
++                # Normally the transaction lock makes this unnecessary, but a
++                # pre-existing database may still expose a concurrent race.
++                raise Error("payment_conflict", 409) from exc
++
++        db.execute("UPDATE users SET plan=? WHERE id=?", (plan_id, account["id"]))
++        if isinstance(user, dict):
++            user["plan"] = plan_id
++        return {"plan": plan_id}
++
++    @staticmethod
++    def _normalise_image(raw: bytes) -> bytes:
++        """Decode an image, apply EXIF orientation, and emit clean JPEG bytes."""
++
++        if not raw or len(raw) > MAX_IMAGE_BYTES:
++            raise ValueError("image size")
++        with Image.open(BytesIO(raw)) as source:
++            source.load()
++            oriented = ImageOps.exif_transpose(source)
++            rgb = oriented.convert("RGB")
++            # Image.convert can carry selected info fields forward.  Clearing
++            # them and passing an empty EXIF block prevents private source
++            # metadata (EXIF, ICC, comments, and the like) from being copied.
++            rgb.info.clear()
++            output = BytesIO()
++            rgb.save(
++                output,
++                format="JPEG",
++                quality=95,
++                optimize=True,
++                exif=b"",
++            )
++            return output.getvalue()
++
++    def act(
++        self,
++        authenticated_user: dict[str, Any],
++        path: str,
++        action: dict[str, Any],
++    ) -> dict[str, Any]:
++        """Apply one authenticated documented HTTP action."""
++
++        user = authenticated_user
++        if not isinstance(path, str) or not isinstance(action, dict):
++            raise Error("invalid_input")
++
++        with self.db() as db:
++            account = self._account_row(db, user)
++            user_id = account["id"]
++
++            if path == "/trial":
++                db.execute("BEGIN IMMEDIATE")
++                changed = db.execute(
++                    """
++                    UPDATE users SET trial=1
++                    WHERE id=? AND trial=0 AND (plan IS NULL OR plan='')
++                    """,
++                    (user_id,),
++                ).rowcount
++                if not changed:
++                    raise Error("trial_unavailable", 409)
++                if isinstance(user, dict):
++                    user["trial"] = 1
++                return {"trial": True}
++
++            if path == "/activate":
++                return self._activate(db, account, action, user)
++
++            if path not in {
++                "/rooms",
++                "/content",
++                "/edit",
++                "/complete",
++                "/assets",
++                "/share",
++            }:
++                raise Error("not_found", 404)
++
++            if not self._has_access(account):
++                raise Error("access_required", 403)
++
++            if path == "/rooms":
++                room_id = self._identifier(action.get("id"))
++                name = self._required_text(action.get("name"), "name_required")
++                try:
++                    db.execute(
++                        "INSERT INTO rooms(id,user,name) VALUES(?,?,?)",
++                        (room_id, user_id, name),
++                    )
++                except sqlite3.IntegrityError as exc:
++                    raise Error("conflict", 409) from exc
++                return {"id": room_id}
++
++            if path == "/content":
++                content_id = self._identifier(action.get("id"))
++                room_id = self._identifier(action.get("room"), "room_required")
++                title = self._required_text(action.get("title"), "details_required")
++                details = self._required_text(
++                    action.get("details"), "details_required"
++                )
++                room = db.execute(
++                    "SELECT id FROM rooms WHERE id=? AND user=?", (room_id, user_id)
++                ).fetchone()
++                if room is None:
++                    raise Error("room_required")
++                try:
++                    db.execute(
++                        """
++                        INSERT INTO content(id,room,title,details)
++                        VALUES(?,?,?,?)
++                        """,
++                        (content_id, room_id, title, details),
++                    )
++                except sqlite3.IntegrityError as exc:
++                    raise Error("conflict", 409) from exc
++                return {"id": content_id}
++
++            if path == "/edit":
++                content_id = self._identifier(action.get("id"))
++                self.owner(db, user, content_id)
++                title = self._required_text(action.get("title"), "details_required")
++                details = self._required_text(
++                    action.get("details"), "details_required"
++                )
++                db.execute(
++                    "UPDATE content SET title=?,details=? WHERE id=?",
++                    (title, details, content_id),
++                )
++                return {"id": content_id}
++
++            if path == "/complete":
++                content_id = self._identifier(action.get("id"))
++                self.owner(db, user, content_id)
++                db.execute("UPDATE content SET complete=1 WHERE id=?", (content_id,))
++                return {"id": content_id}
++
++            if path == "/assets":
++                asset_id = self._identifier(action.get("id"))
++                content_id = self._identifier(action.get("content"))
++                self.owner(db, user, content_id)
++                kind = action.get("kind")
++                if kind not in ("image", "receipt"):
++                    raise Error("invalid_kind")
++                encoded = action.get("data")
++                if not isinstance(encoded, str):
++                    raise Error("invalid_image")
++                try:
++                    raw = base64.b64decode(encoded, validate=True)
++                    jpeg = self._normalise_image(raw)
++                except Exception as exc:
++                    # Pillow raises several format-specific exceptions.  They
++                    # are all one invalid uploaded file from the API's point of
++                    # view; never persist a partial asset.
++                    raise Error("invalid_image") from exc
++                try:
++                    db.execute(
++                        "INSERT INTO assets(id,content,kind,data) VALUES(?,?,?,?)",
++                        (asset_id, content_id, kind, sqlite3.Binary(jpeg)),
++                    )
++                except sqlite3.IntegrityError as exc:
++                    raise Error("conflict", 409) from exc
++                return {"id": asset_id}
++
++            # The caller must own the report before the entitlement check so a
++            # foreign report cannot be used to probe plan state or content.
++            content_id = self._identifier(action.get("id"))
++            row = self.owner(db, user, content_id)
++            if not account["plan"]:
++                raise Error("paid_plan_required", 403)
++            # Downloadable sharing is intentionally only a local copy; it does
++            # not publish the report or contact an external service.
++            return {
++                "content": row["id"],
++                "title": row["title"],
++                "details": row["details"],
++            }
++
++    def _pdf(self, db: sqlite3.Connection, row: dict[str, Any]) -> bytes:
++        """Build a real printable PDF containing report text and stored images."""
++
++        output = BytesIO()
++        document = canvas.Canvas(output, pagesize=letter)
++        document.setTitle("Synthetic content report")
++
++        # DejaVu is available in the supplied Python image; use a standard font
++        # fallback for installations that do not have system fonts.  A TTF
++        # avoids failures when a legitimate report contains non-ASCII text.
++        font = "Helvetica"
++        bold_font = "Helvetica-Bold"
++        regular_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
++        bold_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
++        try:
++            if "ReportSans" not in pdfmetrics.getRegisteredFontNames():
++                pdfmetrics.registerFont(TTFont("ReportSans", regular_path))
++            if "ReportSans-Bold" not in pdfmetrics.getRegisteredFontNames():
++                pdfmetrics.registerFont(TTFont("ReportSans-Bold", bold_path))
++            font = "ReportSans"
++            bold_font = "ReportSans-Bold"
++        except Exception:
++            # Font registration is a convenience; the standard PDF fonts still
++            # produce a valid export on systems without the bundled TTF files.
++            font = "Helvetica"
++            bold_font = "Helvetica-Bold"
++
++        left = 48
++        top = 752
++        bottom = 48
++        width = letter[0] - 96
++        y = top
++
++        def set_body() -> None:
++            document.setFont(font, 10)
++
++        def new_page() -> None:
++            nonlocal y
++            document.showPage()
++            y = top
++            set_body()
++
++        document.setFont(bold_font, 18)
++        title_lines = textwrap.wrap(
++            str(row["title"]), width=70, break_long_words=True, break_on_hyphens=False
++        ) or [""]
++        for line in title_lines:
++            if y < bottom + 24:
++                new_page()
++                document.setFont(bold_font, 18)
++            document.drawString(left, y, line)
++            y -= 25
++
++        set_body()
++        y -= 4
++        details_lines = textwrap.wrap(
++            str(row["details"]),
++            width=95,
++            break_long_words=True,
++            break_on_hyphens=False,
++        ) or [""]
++        for line in details_lines:
++            if y < bottom:
++                new_page()
++            document.drawString(left, y, line)
++            y -= 15
++
++        assets = db.execute(
++            "SELECT kind,data FROM assets WHERE content=? ORDER BY id", (row["id"],)
++        ).fetchall()
++        for asset in assets:
++            try:
++                image = ImageReader(BytesIO(bytes(asset["data"])))
++                image_width, image_height = image.getSize()
++                if not image_width or not image_height:
++                    continue
++                max_width = width
++                max_height = 270
++                scale = min(max_width / image_width, max_height / image_height, 1.0)
++                draw_width = image_width * scale
++                draw_height = image_height * scale
++                if y - draw_height - 20 < bottom:
++                    new_page()
++                document.setFont(font, 9)
++                document.drawString(left, y, str(asset["kind"]).title())
++                y -= 12
++                document.drawImage(
++                    image,
++                    left,
++                    y - draw_height,
++                    width=draw_width,
++                    height=draw_height,
++                    preserveAspectRatio=True,
++                    mask="auto",
++                )
++                y -= draw_height + 18
++                set_body()
++            except Exception:
++                # An asset should already be a valid normalized JPEG.  If an
++                # old database contains a damaged blob, still produce the text
++                # report rather than failing the paid export altogether.
++                continue
++
++        document.save()
++        return output.getvalue()
++
++    def read(self, user: dict[str, Any], path: str) -> Any:
++        """Read one documented authenticated resource."""
++
++        if not isinstance(path, str):
++            raise Error("not_found", 404)
++        with self.db() as db:
++            account = self._account_row(db, user)
++            if path == "/me":
++                result = self._public_account(account)
++                if isinstance(user, dict):
++                    user.update(result)
++                return result
++
++            if path == "/rooms":
++                return [
++                    dict(row)
++                    for row in db.execute(
++                        "SELECT id,name FROM rooms WHERE user=? ORDER BY id",
++                        (account["id"],),
++                    )
++                ]
++
++            if path == "/content":
++                return [
++                    dict(row)
++                    for row in db.execute(
++                        """
++                        SELECT c.id,c.room,c.title,c.details,c.complete
++                        FROM content AS c JOIN rooms AS r ON r.id=c.room
++                        WHERE r.user=? ORDER BY c.id
++                        """,
++                        (account["id"],),
++                    )
++                ]
++
++            if path.startswith("/assets/"):
++                asset_id = path[len("/assets/") :]
++                if not asset_id or "/" in asset_id:
++                    raise Error("not_found", 404)
++                row = db.execute(
++                    "SELECT id,content,data FROM assets WHERE id=?", (asset_id,)
++                ).fetchone()
++                if row is None:
++                    raise Error("not_found", 404)
++                self.owner(db, user, row["content"])
++                return bytes(row["data"]), "image/jpeg"
++
++            if path.startswith("/report/"):
++                content_id = path[len("/report/") :]
++                if not content_id or "/" in content_id:
++                    raise Error("not_found", 404)
++                row = self.owner(db, user, content_id)
++                row["assets"] = [
++                    dict(asset)
++                    for asset in db.execute(
++                        "SELECT id,kind FROM assets WHERE content=? ORDER BY id",
++                        (content_id,),
++                    )
++                ]
++                return row
++
++            if path.startswith("/export/"):
++                content_id = path[len("/export/") :]
++                if not content_id or "/" in content_id:
++                    raise Error("not_found", 404)
++                row = self.owner(db, user, content_id)
++                if not account["plan"]:
++                    # Trial access intentionally stops at viewing/editing.
++                    raise Error("paid_plan_required", 403)
++                return self._pdf(db, row), "application/pdf"
++
++            raise Error("not_found", 404)
++
++
++def main() -> None:
++    root = Path(__file__).parent
++    config_path = os.environ.get("SAAS_CONFIG")
++    database_path = os.environ.get("SAAS_DATABASE")
++    if not config_path or not database_path:
++        raise SystemExit("SAAS_CONFIG and SAAS_DATABASE are required")
++    config = json.loads(Path(config_path).read_text())
++    store = Store(database_path, config)
++
++    class Handler(BaseHTTPRequestHandler):
++        def log_message(self, fmt: str, *args: Any) -> None:
++            # The port on stdout is the startup protocol; normal request logs
++            # are intentionally quiet so browser smoke tests can read it.
++            return
++
++        def send_data(self, status: int, data: Any) -> None:
++            mime = "application/json"
++            if isinstance(data, tuple):
++                data, mime = data
++            if isinstance(data, str):
++                data = data.encode()
++            elif not isinstance(data, (bytes, bytearray)):
++                data = json.dumps(data, separators=(",", ":")).encode()
++            self.send_response(status)
++            self.send_header("Content-Type", mime)
++            self.send_header("Content-Length", str(len(data)))
++            self.send_header("Cache-Control", "no-store")
++            self.end_headers()
++            self.wfile.write(data)
++
++        def execute(self) -> None:
++            try:
++                path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
++                if self.command == "GET" and path in ("/", "/app.js", "/style.css"):
++                    filename = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css"}[path]
++                    mime = {
++                        "/": "text/html; charset=utf-8",
++                        "/app.js": "text/javascript; charset=utf-8",
++                        "/style.css": "text/css; charset=utf-8",
++                    }[path]
++                    return self.send_data(200, (root.joinpath(filename).read_bytes(), mime))
++
++                if self.command != "GET":
++                    try:
++                        size = int(self.headers.get("Content-Length", "0"))
++                    except ValueError as exc:
++                        raise Error("invalid_input") from exc
++                    if size < 0:
++                        raise Error("invalid_input")
++                    if size > MAX_REQUEST_BYTES:
++                        raise Error("request_too_large", 413)
++                    try:
++                        action = json.loads(self.rfile.read(size) or b"{}")
++                    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
++                        raise Error("invalid_input") from exc
++                    if not isinstance(action, dict):
++                        raise Error("invalid_input")
++                else:
++                    action = {}
++
++                if self.command == "POST" and path in ("/register", "/login"):
++                    return self.send_data(200, store.auth(path, action))
++
++                authorization = self.headers.get("Authorization", "")
++                token = authorization[7:] if authorization.startswith("Bearer ") else ""
++                user = store.user(token)
++
++                if self.command == "POST" and path == "/logout":
++                    store.revoke(token)
++                    return self.send_data(200, {})
++
++                if self.command == "GET":
++                    return self.send_data(200, store.read(user, path))
++                if self.command == "POST":
++                    return self.send_data(200, store.act(user, path, action))
++                raise Error("method_not_allowed", 405)
++            except Error as exc:
++                self.send_data(exc.status, {"error": exc.message})
++            except sqlite3.IntegrityError:
++                self.send_data(409, {"error": "conflict"})
++            except (KeyError, TypeError, ValueError):
++                self.send_data(400, {"error": "invalid_input"})
++
++        do_GET = execute
++        do_POST = execute
++        do_PUT = execute
++        do_PATCH = execute
++        do_DELETE = execute
++
++    server = ThreadingHTTPServer(("127.0.0.1", int(os.environ.get("PORT", "0"))), Handler)
++    print(server.server_port, flush=True)
++    server.serve_forever()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/style.css b/style.css
+index f2a262911c608352d9b6ec164c0532fa17ef8bce..d2259b3d19ecf9799552e86d7afc03df5845d0ca 100644
+--- a/style.css
++++ b/style.css
+@@ -1 +1 @@
+-*{box-sizing:border-box}body{margin:0;background:#eef3f2;color:#183d36;font:16px system-ui}main{max-width:1120px;margin:auto;padding:28px}h1{font-size:36px}h2{font-size:22px}section{background:white;padding:22px;margin:14px 0;border-radius:10px}.columns{display:grid;grid-template-columns:1fr 1.4fr;gap:22px}.columns>section{min-width:0}label{display:grid;gap:6px;margin:14px 0}button,input,textarea,select{font:inherit;padding:10px;border:1px solid #bdcbc7;border-radius:5px;max-width:100%;min-width:0}button{background:#e2efeb;cursor:pointer}button:disabled{opacity:.4;cursor:default}textarea{min-height:75px;resize:vertical}form{border-bottom:1px solid #ddd;padding-block:14px}.bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap}#items{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}#images{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}#images img{width:100%;height:160px;object-fit:contain;background:#f5f6f4}pre{white-space:pre-wrap;overflow-wrap:anywhere}#error{color:#a52c34}#auth{max-width:440px}@media(max-width:720px){main{padding:12px}.columns{grid-template-columns:1fr}section{padding:16px}}@media print{body{display:none}}
++*{box-sizing:border-box}body{margin:0;background:#eef3f2;color:#183d36;font:16px system-ui}main{max-width:1120px;margin:auto;padding:28px}h1{font-size:36px}h2{font-size:22px}section{background:white;padding:22px;margin:14px 0;border-radius:10px}.columns{display:grid;grid-template-columns:1fr 1.4fr;gap:22px}.columns>section{min-width:0}label{display:grid;gap:6px;margin:14px 0}button,input,textarea,select{font:inherit;padding:10px;border:1px solid #bdcbc7;border-radius:5px;max-width:100%;min-width:0}button{background:#e2efeb;cursor:pointer}button:disabled{opacity:.4;cursor:default}textarea{min-height:75px;resize:vertical}form{border-bottom:1px solid #ddd;padding-block:14px}.bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap}#items{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}#images{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}#images img{width:100%;height:160px;object-fit:contain;background:#f5f6f4}pre{white-space:pre-wrap;overflow-wrap:anywhere}#error{color:#a52c34}.hint{color:#4d6861;max-width:70ch}#auth{max-width:440px}@media(max-width:720px){main{padding:12px}.columns{grid-template-columns:1fr}section{padding:16px}}@media print{body{display:none}}

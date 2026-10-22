@@ -1,0 +1,47 @@
+{
+  "screens": {
+    "home": {
+      "title": "Home",
+      "design_ref": "synthetic-home",
+      "platforms": [
+        "android",
+        "ios",
+        "web"
+      ]
+    },
+    "bookings": {
+      "title": "Bookings",
+      "design_ref": "synthetic-bookings",
+      "platforms": [
+        "android",
+        "ios",
+        "web"
+      ]
+    },
+    "messages": {
+      "title": "Messages",
+      "design_ref": "synthetic-messages",
+      "platforms": [
+        "android",
+        "ios",
+        "web"
+      ]
+    }
+  },
+  "users": {
+    "member": {
+      "role": "member"
+    },
+    "guest": {
+      "role": "member"
+    },
+    "manager": {
+      "role": "admin"
+    }
+  },
+  "route": "home",
+  "history": [],
+  "bookings": {},
+  "messages": {},
+  "audit": {}
+}

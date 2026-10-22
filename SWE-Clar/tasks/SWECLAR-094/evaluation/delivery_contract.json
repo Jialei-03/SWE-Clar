@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-094",
+  "public": {
+    "readme": "# Transaction and note API\n\nComplete this independently reconstructed ASP.NET Core project. The HTTP host, /health endpoint and SQLite schema already run. Implement TransactionsService.cs using the supplied Storage connection. Use .NET SDK 8.0 and Microsoft.Data.Sqlite 8.0.11. Start with `dotnet run --project TransactionsApi.csproj -- --urls http://127.0.0.1:5080`; TRANSACTIONS_DB selects a database path outside the source tree.\n\nImplement actual POST /transactions, POST /transactions/{id}/notes and GET /transactions/{id} endpoints with JSON request/response bodies. Transaction fields are transaction_id, numeric amount and type; note fields are note_id and text. Persist transactions, notes and response records in SQLite across process restarts. Idempotency-Key is the optional request identifier header. AUTO_REMOVE_NOTE_TYPES is a comma-separated configuration list for note policy. Unknown routes return JSON error=route_not_found with status 404.\n\nThe local HTTP interface, SQLite schema and environment configuration are disclosed reconstruction choices for the API component. Fixtures contain invented IDs and text. No customer database, original .NET source, production endpoint or credential is included. This task does not claim the original production database engine or deployment has been reproduced.\n\nPrepared workspace: /workspace. Run `python build.py`, `python start.py`, or `python /public_tests/test_public.py`. Dependencies restore offline from the supplied NuGet feed. Stop the service and delete the chosen TRANSACTIONS_DB file to reset synthetic local state. No external server or credentials are required.",
+    "interfaces": [
+      {
+        "type": "api",
+        "entry": {
+          "language": "csharp",
+          "file": "TransactionsApi.csproj",
+          "command": "dotnet run --project TransactionsApi.csproj -- --urls http://127.0.0.1:5080"
+        },
+        "inputs": {
+          "transport": "Real HTTP JSON",
+          "storage": "TRANSACTIONS_DB SQLite path",
+          "configuration": "AUTO_REMOVE_NOTE_TYPES comma-separated type tokens",
+          "request_id": "Optional Idempotency-Key header"
+        },
+        "output": {
+          "type": "http",
+          "meaning": "Actual status/body plus persistent transactions, notes and response cache"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "api",
+      "entry": {
+        "language": "csharp",
+        "file": "TransactionsApi.csproj",
+        "command": "dotnet run --project TransactionsApi.csproj -- --urls http://127.0.0.1:5080"
+      },
+      "inputs": {
+        "transport": "Real HTTP JSON",
+        "storage": "TRANSACTIONS_DB SQLite path",
+        "configuration": "AUTO_REMOVE_NOTE_TYPES comma-separated type tokens",
+        "request_id": "Optional Idempotency-Key header"
+      },
+      "output": {
+        "type": "http",
+        "meaning": "Actual status/body plus persistent transactions, notes and response cache"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "api",
+      "entry": {
+        "language": "csharp",
+        "file": "TransactionsApi.csproj",
+        "command": "dotnet run --project TransactionsApi.csproj -- --urls http://127.0.0.1:5080"
+      },
+      "inputs": {
+        "transport": "Real HTTP JSON",
+        "storage": "TRANSACTIONS_DB SQLite path",
+        "configuration": "AUTO_REMOVE_NOTE_TYPES comma-separated type tokens",
+        "request_id": "Optional Idempotency-Key header"
+      },
+      "output": {
+        "type": "http",
+        "meaning": "Actual status/body plus persistent transactions, notes and response cache"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "api",
+      "entry": {
+        "language": "csharp",
+        "file": "TransactionsApi.csproj",
+        "command": "dotnet run --project TransactionsApi.csproj -- --urls http://127.0.0.1:5080"
+      },
+      "inputs": {
+        "transport": "Real HTTP JSON",
+        "storage": "TRANSACTIONS_DB SQLite path",
+        "configuration": "AUTO_REMOVE_NOTE_TYPES comma-separated type tokens",
+        "request_id": "Optional Idempotency-Key header"
+      },
+      "output": {
+        "type": "http",
+        "meaning": "Actual status/body plus persistent transactions, notes and response cache"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "api",
+      "entry": {
+        "language": "csharp",
+        "file": "TransactionsApi.csproj",
+        "command": "dotnet run --project TransactionsApi.csproj -- --urls http://127.0.0.1:5080"
+      },
+      "inputs": {
+        "transport": "Real HTTP JSON",
+        "storage": "TRANSACTIONS_DB SQLite path",
+        "configuration": "AUTO_REMOVE_NOTE_TYPES comma-separated type tokens",
+        "request_id": "Optional Idempotency-Key header"
+      },
+      "output": {
+        "type": "http",
+        "meaning": "Actual status/body plus persistent transactions, notes and response cache"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "api",
+      "entry": {
+        "language": "csharp",
+        "file": "TransactionsApi.csproj",
+        "command": "dotnet run --project TransactionsApi.csproj -- --urls http://127.0.0.1:5080"
+      },
+      "inputs": {
+        "transport": "Real HTTP JSON",
+        "storage": "TRANSACTIONS_DB SQLite path",
+        "configuration": "AUTO_REMOVE_NOTE_TYPES comma-separated type tokens",
+        "request_id": "Optional Idempotency-Key header"
+      },
+      "output": {
+        "type": "http",
+        "meaning": "Actual status/body plus persistent transactions, notes and response cache"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "c2e1d61cce1253611706ad8191c860989bf7aad479565c5363fdd7a25e61eb24",
+  "test_sources_sha256": {
+    "evaluation/tests/candidate_proxy.py": "f4577b3ed9b0629a65af3c4ffae4314a2278bbd70b11c367a62566af031a942b",
+    "evaluation/tests/conftest.py": "8b7860e7d8d0902169fab1abc22d2daff6c02906e44d3d565cdd16e3cb0ac45f",
+    "evaluation/tests/evaluate.py": "152d3e09a5974c879604a0271ab759bdcfdbf61673d194b7ba386a935ea23e73",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "d938c08b45030dbad04440021f5eb2636ce9a53f6466a44db6643e7e8be5c8be"
+  },
+  "public_environment_sha256": "010772ddb7606773fbd0bcd5217e62fb1eb5912fceef29e4700d77d91394e5f8",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

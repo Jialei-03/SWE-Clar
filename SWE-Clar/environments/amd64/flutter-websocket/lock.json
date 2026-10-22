@@ -1,0 +1,7 @@
+{
+  "platform": "linux/amd64",
+  "base_profile": "flutter-component",
+  "source_profile": "flutter-websocket",
+  "wheels": [],
+  "archives": []
+}

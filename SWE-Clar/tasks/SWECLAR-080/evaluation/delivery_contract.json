@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-080",
+  "public": {
+    "readme": "# WordPress directory repair\n\nIndependent WordPress 6.8.3 plugin, verified with PHP 8.3, MariaDB 11.4.5 and web-vitals 4.2.4. Install this folder as wp-content/plugins/synthetic-directory and activate directory.php in a private local test installation. The component pages are /?directory_page=members and /?directory_page=about. The fixture uses WordPress options directory_members (records with id,name,group_code,activity_count), directory_content_version and directory_render_count. The render counter is diagnostic and records real uncached component renders.\n\nComplete the directory's cache and field normalization while preserving the working WordPress hooks, pages and assets. CSS/scripts should use native WordPress enqueue APIs. Fixture content and layouts are synthetic; do not import customer themes, plugins, member lists, screenshots, URLs or credentials. This is a directory/plugin component rather than a recreation of the customer's entire site.\n\nThe bundled web-vitals library observes actual browser LCP, INP and CLS. window.directoryReadiness evaluates a values object in milliseconds for LCP/INP and unitless CLS. Missing/invalid observations remain missing, not zero. The local test harness may add a controlled interaction workload to obtain measurable event timing. Such short lab observations and a cache hit do not establish field performance or production readiness. Exact thresholds, transient schema, fixture records and instrumentation are disclosed benchmark choices. Real WordPress rendering/asset loading is required; returning flags is insufficient.\n\nThe prepared single-container profile includes WordPress 6.8.3, PHP 8.3, MariaDB 11.4.5 and Chromium. Before the task budget, protected preflight creates an independent database, activates this plugin and starts the local page server at http://127.0.0.1:8080. Edit the existing plugin files here and reload the page. `python /workspace/dev_runtime/start.py` checks the running service and prints its address; `python /public_tests/test_public.py` tests the existing pages/filter. Session-scoped runtime files live outside the deliverable or under Git-ignored `runtime/`; a fresh prepared session resets them. No Docker daemon or external network is available to the candidate. Resources: 2 CPUs, 2 GiB RAM, 256 processes. WordPress, MariaDB and their licenses remain in the reusable image; vendor retains the web-vitals Apache-2.0 license.\n\nMetric policy is checked using fixed values at and around the disclosed boundaries. Separately, an actual Chromium page is compared with independent PerformanceObserver entries using a synthetic 60 ms interaction workload and an induced layout shift. Actual observations may exceed the example thresholds without failing the repair; the page must report the resulting decision correctly. Unsupported/missing native workload evidence is an environment issue, not a fabricated zero observation. Additional result metadata and ordering of metric-name lists are permitted.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "php",
+          "file": "directory.php",
+          "function": "directory_normalize_member",
+          "signature": "directory_normalize_member(array $raw): array"
+        },
+        "inputs": {
+          "raw": "synthetic member fields"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "normalized member"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "php",
+        "file": "directory.php",
+        "function": "directory_normalize_member",
+        "signature": "directory_normalize_member(array $raw): array"
+      },
+      "inputs": {
+        "raw": "synthetic member fields"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "normalized member"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "php",
+        "file": "directory.php",
+        "function": "directory_normalize_member",
+        "signature": "directory_normalize_member(array $raw): array"
+      },
+      "inputs": {
+        "raw": "synthetic member fields"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "normalized member"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "php",
+        "file": "directory.php",
+        "function": "directory_normalize_member",
+        "signature": "directory_normalize_member(array $raw): array"
+      },
+      "inputs": {
+        "raw": "synthetic member fields"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "normalized member"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "php",
+        "file": "directory.php",
+        "function": "directory_normalize_member",
+        "signature": "directory_normalize_member(array $raw): array"
+      },
+      "inputs": {
+        "raw": "synthetic member fields"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "normalized member"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "php",
+        "file": "directory.php",
+        "function": "directory_normalize_member",
+        "signature": "directory_normalize_member(array $raw): array"
+      },
+      "inputs": {
+        "raw": "synthetic member fields"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "normalized member"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "40ae18dbe8723d9a7690f6725d09a43e1d15b98e9eec7abfb695ec5d8300a639",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "7f3b609429ad168896a0f1f7e9bce7b687cd541ade21597438afcd586ef3c2cc",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "e8bc0a6de65387e37bc3e5bef14798cd66ff90cb2d27388accd4cb60b740b591",
+    "evaluation/tests/source_test.sh": "7be9bdecc6fd0434a73a02293203865bf2714509eeafe7af0e7def4ec7c074a3",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "c7e1e8a7554bf43f7b1367b6e331fef1347342d39cafa40937d4dc509af6ceae",
+    "evaluation/tests/wordpress_contract.py": "cf75fd4b12657438b80f4ea6a3d8d3d9b8b9a08ecb6d3ec960a099abba48de2a"
+  },
+  "public_environment_sha256": "26d9a47e5c562c490782d07579dff035af8e429bd87c05078f31cd1cdf3081a8",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

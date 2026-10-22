@@ -1,0 +1,20 @@
+{
+  "profile": "python-web",
+  "platform": "linux/amd64",
+  "workdir": "/workspace",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "workspace_mb": 256,
+    "evaluation_wall_seconds": 180
+  },
+  "dependencies": "Prepared Python3.12.3/SQLite; standard-library CLI",
+  "public_test": [
+    "python",
+    "/public_tests/smoke.py"
+  ],
+  "start": "python cli.py runtime/commands.sqlite snapshot (after init)",
+  "health": "Successful CLI snapshot; no network port",
+  "reset": "Initialize a new runtime database"
+}

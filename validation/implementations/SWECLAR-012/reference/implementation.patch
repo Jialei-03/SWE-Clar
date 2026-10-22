@@ -1,0 +1,1795 @@
+diff --git a/lib/api.dart b/lib/api.dart
+index f65aa1fc606db697342f3b244f684a6d0e1b3e9c..9959261b9894ee25713128452a9d0457b64645d6 100644
+--- a/lib/api.dart
++++ b/lib/api.dart
+@@ -13,30 +13,51 @@ class ApiFailure implements Exception {
+ class ClinicApi {
+   final String origin;
+   final HttpClient _client = HttpClient();
+-  ClinicApi(this.origin);
++
++  ClinicApi(String value) : origin = value.endsWith('/') ? value.substring(0, value.length - 1) : value;
+ 
+   Future<Map<String, dynamic>> call(String method, String path,
+       {Map<String, dynamic>? body, String? token}) async {
+     try {
+-      final request = await _client.openUrl(method, Uri.parse('$origin$path'));
+-      if (token != null) request.headers.set('Authorization', 'Bearer $token');
++      final request = await _client
++          .openUrl(method, Uri.parse('$origin$path'))
++          .timeout(const Duration(seconds: 10));
++      if (token != null) {
++        request.headers.set('Authorization', 'Bearer $token');
++      }
+       if (body != null) {
+         final bytes = utf8.encode(jsonEncode(body));
+         request.headers.contentType = ContentType.json;
++        // Explicit Content-Length is part of the public write transport
++        // contract and avoids chunked requests to the local service.
+         request.contentLength = bytes.length;
+         request.add(bytes);
+       }
+-      final response = await request.close().timeout(const Duration(seconds: 10));
+-      final text = await utf8.decoder.bind(response).join().timeout(const Duration(seconds: 10));
+-      final value = jsonDecode(text) as Map<String, dynamic>;
++      final response = await request
++          .close()
++          .timeout(const Duration(seconds: 10));
++      final text = await utf8.decoder
++          .bind(response)
++          .join()
++          .timeout(const Duration(seconds: 10));
++      final decoded = jsonDecode(text);
++      if (decoded is! Map) {
++        throw const ApiFailure('Invalid service response.');
++      }
++      final value = Map<String, dynamic>.from(decoded);
+       if (response.statusCode >= 400) {
+-        throw ApiFailure(value['error']?.toString() ?? 'request_failed', response.statusCode);
++        throw ApiFailure(
++          value['error']?.toString() ?? 'request_failed',
++          response.statusCode,
++        );
+       }
+       return value;
+     } on ApiFailure {
+       rethrow;
+     } catch (_) {
+-      throw const ApiFailure('Connection interrupted. Retry the action or refresh.');
++      throw const ApiFailure(
++        'Connection interrupted. Retry the action or refresh.',
++      );
+     }
+   }
+ 
+diff --git a/lib/controller.dart b/lib/controller.dart
+index f9e32f9cde7a34fb905f8746b09b38349d4f61e7..1f827d93c42e6a20d12cbbfb9ba09602b9ec5c18 100644
+--- a/lib/controller.dart
++++ b/lib/controller.dart
+@@ -1,24 +1,55 @@
++import 'dart:math';
++
+ import 'package:flutter/foundation.dart';
++
+ import 'api.dart';
+ 
+ class ClinicController extends ChangeNotifier {
+   final ClinicApi api;
+   ClinicController({required String origin}) : api = ClinicApi(origin);
++
+   bool busy = false;
+   String? error;
+   String? token;
+   Map<String, dynamic>? user;
+-  List<Map<String, dynamic>> clinics = [], providers = [], slots = [], appointments = [], moveSlots = [];
+-  String? clinicId, providerId, moveSlotId;
++  List<Map<String, dynamic>> clinics = [];
++  List<Map<String, dynamic>> providers = [];
++  List<Map<String, dynamic>> slots = [];
++  List<Map<String, dynamic>> appointments = [];
++  List<Map<String, dynamic>> moveSlots = [];
++  String? clinicId;
++  String? providerId;
++  String? moveSlotId;
+   String page = 'availability';
+   String? dialog;
+   Map<String, dynamic>? dialogAppointment;
+   int nowMs = 0;
+-  Future<void> _pending = Future.value();
++
++  Future<void> _pending = Future<void>.value();
++
++  // Action IDs are client-generated opaque identifiers.  They are deliberately
++  // kept in controller state so a lost HTTP response can be retried exactly.
++  static final Random _random = Random.secure();
++  static int _actionCounter = 0;
++  String? _pendingBookingSlotId;
++  String? _pendingBookingRequestId;
++  String? _pendingMoveAppointmentId;
++  String? _pendingMoveTargetId;
++  int? _pendingMoveRevision;
++  String? _pendingMoveOperationId;
+ 
+   Future<void> settle() => _pending;
+ 
+-  List<Map<String, dynamic>> rows(dynamic value) => (value as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
++  List<Map<String, dynamic>> rows(dynamic value) =>
++      (value as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
++
++  String _actionId(String prefix) {
++    final counter = ++_actionCounter;
++    final random = _random.nextInt(1 << 32).toRadixString(16);
++    // The prefix and separators are in the public identifier alphabet and the
++    // total length remains comfortably below 64 characters.
++    return '${prefix}_${counter}_$random';
++  }
+ 
+   Future<void> run(Future<void> Function() work) {
+     if (busy) return _pending;
+@@ -38,35 +69,82 @@ class ClinicController extends ChangeNotifier {
+     return _pending;
+   }
+ 
+-  Future<Map<String, dynamic>> call(String method, String path, [Map<String, dynamic>? body]) =>
++  Future<Map<String, dynamic>> call(String method, String path,
++          [Map<String, dynamic>? body]) =>
+       api.call(method, path, body: body, token: token);
+ 
+   Future<void> login(String username, String password) => run(() async {
+-    final result = await api.call('POST', '/api/login', body: {'username': username, 'password': password});
+-    token = result['token'] as String;
+-    user = Map<String, dynamic>.from(result['user']);
+-    final catalog = await call('GET', '/api/catalog');
+-    clinics = rows(catalog['clinics']);
+-    providers = rows(catalog['providers']);
+-    nowMs = catalog['now_ms'] as int;
+-    clinicId = user!['clinic_id'] as String? ?? clinics.first['id'] as String;
+-    providerId = null;
+-    page = 'availability';
+-    await loadAvailability();
+-  });
++        final result = await api.call(
++          'POST',
++          '/api/login',
++          body: {'username': username, 'password': password},
++        );
++        final newToken = result['token'] as String;
++        final newUser = Map<String, dynamic>.from(result['user'] as Map);
++        // Load the authenticated catalog with the new session before exposing
++        // the session in the rendered tree.
++        final catalog = await api.call(
++          'GET',
++          '/api/catalog',
++          token: newToken,
++        );
++        final newClinics = rows(catalog['clinics']);
++        final newProviders = rows(catalog['providers']);
++        token = newToken;
++        user = newUser;
++        clinics = newClinics;
++        providers = newProviders;
++        nowMs = catalog['now_ms'] as int;
++        final ownClinic = newUser['clinic_id'] as String?;
++        clinicId = ownClinic ??
++            (newClinics.isEmpty ? null : newClinics.first['id'] as String);
++        providerId = null;
++        page = 'availability';
++        dialog = null;
++        dialogAppointment = null;
++        moveSlots = [];
++        moveSlotId = null;
++        _clearActionIntents();
++        await loadAvailability();
++      });
+ 
+   Future<void> logout() => run(() async {
+-    await call('POST', '/api/logout', {});
+-    token = null;
+-    user = null;
+-    clinics = []; providers = []; slots = []; appointments = []; moveSlots = [];
+-    clinicId = null; providerId = null; moveSlotId = null;
+-    dialog = null; dialogAppointment = null;
+-  });
++        Object? failure;
++        try {
++          await call('POST', '/api/logout', {});
++        } catch (caught) {
++          failure = caught;
++        } finally {
++          // A local sign-out must clear all user-specific rendered state even
++          // if the server reply was interrupted.
++          token = null;
++          user = null;
++          clinics = [];
++          providers = [];
++          slots = [];
++          appointments = [];
++          moveSlots = [];
++          clinicId = null;
++          providerId = null;
++          moveSlotId = null;
++          dialog = null;
++          dialogAppointment = null;
++          _clearActionIntents();
++        }
++        if (failure != null) throw failure;
++      });
+ 
+   Future<void> loadAvailability() async {
+-    if (clinicId == null) { slots = []; return; }
+-    final query = Uri(queryParameters: {'clinic_id': clinicId!, if (providerId != null) 'provider_id': providerId!}).query;
++    if (clinicId == null) {
++      slots = [];
++      return;
++    }
++    final query = Uri(
++      queryParameters: {
++        'clinic_id': clinicId!,
++        if (providerId != null) 'provider_id': providerId!,
++      },
++    ).query;
+     slots = rows((await call('GET', '/api/slots?$query'))['slots']);
+   }
+ 
+@@ -75,82 +153,250 @@ class ClinicController extends ChangeNotifier {
+   }
+ 
+   Future<void> navigate(String value) => run(() async {
+-    page = value;
+-    dialog = null;
+-    dialogAppointment = null;
+-    if (value == 'appointments') await loadAppointments();
+-    if (value == 'availability') await loadAvailability();
+-    if (value == 'publish') {
+-      clinicId = user!['clinic_id'] as String;
+-      providerId = providers.firstWhere((p) => p['clinic_id'] == clinicId)['id'] as String;
+-    }
+-  });
++        page = value;
++        dialog = null;
++        dialogAppointment = null;
++        moveSlots = [];
++        moveSlotId = null;
++        _clearMoveIntent();
++        if (value == 'appointments') await loadAppointments();
++        if (value == 'availability') await loadAvailability();
++        if (value == 'publish') {
++          clinicId = user!['clinic_id'] as String?;
++          final ownProviders = providers
++              .where((provider) => provider['clinic_id'] == clinicId)
++              .toList();
++          providerId = ownProviders.isEmpty ? null : ownProviders.first['id'] as String;
++        }
++      });
+ 
+   Future<void> chooseClinic(String value) => run(() async {
+-    clinicId = value;
+-    providerId = null;
+-    await loadAvailability();
+-  });
++        clinicId = value;
++        // A provider from the previous clinic must never remain selected.
++        providerId = null;
++        await loadAvailability();
++      });
+ 
+   Future<void> chooseProvider(String? value) => run(() async {
+-    providerId = value;
+-    if (page == 'availability') await loadAvailability();
+-  });
++        providerId = value;
++        if (page == 'availability') await loadAvailability();
++      });
+ 
+   Future<void> refreshAvailability() => run(loadAvailability);
+   Future<void> refreshAppointments() => run(loadAppointments);
+ 
+   Future<void> publish(String id, String time) => run(() async {
+-    final start = int.tryParse(time.trim());
+-    if (start == null || providerId == null) throw const ApiFailure('Enter a provider and UTC millisecond time.', 400);
+-    await call('POST', '/api/slots', {'id': id, 'provider_id': providerId, 'start_ms': start});
+-    page = 'availability';
+-    await loadAvailability();
+-  });
++        final start = int.tryParse(time.trim());
++        if (start == null || providerId == null) {
++          throw const ApiFailure(
++            'Enter a provider and UTC millisecond time.',
++            400,
++          );
++        }
++        await call('POST', '/api/slots', {
++          'id': id,
++          'provider_id': providerId,
++          'start_ms': start,
++        });
++        page = 'availability';
++        await loadAvailability();
++      });
+ 
+   void updateAppointment(Map<String, dynamic> appointment) {
+-    appointments = [...appointments.where((a) => a['id'] != appointment['id']), appointment];
++    appointments = [
++      ...appointments.where((a) => a['id'] != appointment['id']),
++      Map<String, dynamic>.from(appointment),
++    ];
+     appointments.sort((a, b) {
+       final time = (a['start_ms'] as int).compareTo(b['start_ms'] as int);
+-      return time != 0 ? time : (a['id'] as String).compareTo(b['id'] as String);
++      return time != 0
++          ? time
++          : (a['id'] as String).compareTo(b['id'] as String);
+     });
+   }
+ 
+   Future<void> book(String slotId) => run(() async {
+-    throw const ApiFailure('Booking is not implemented.', 501);
+-  });
++        if (_pendingBookingSlotId != slotId ||
++            _pendingBookingRequestId == null) {
++          _pendingBookingSlotId = slotId;
++          _pendingBookingRequestId = _actionId('request');
++        }
++        final requestId = _pendingBookingRequestId!;
++        try {
++          final result = await call('POST', '/api/book', {
++            'request_id': requestId,
++            'slot_id': slotId,
++          });
++          final appointment =
++              Map<String, dynamic>.from(result['appointment'] as Map);
++          // The booking is acknowledged before any best-effort screen
++          // refresh.  Do not create a second request ID if refresh fails.
++          _pendingBookingSlotId = null;
++          _pendingBookingRequestId = null;
++          updateAppointment(appointment);
++          page = 'appointments';
++          await loadAvailability();
++        } catch (failure) {
++          // A transport failure may mean the server committed the booking.
++          // Preserve the exact intent for the next tap.  A definite HTTP
++          // response is a completed rejection and can start a new intent.
++          if (failure is! ApiFailure || !failure.transport) {
++            _pendingBookingSlotId = null;
++            _pendingBookingRequestId = null;
++          }
++          rethrow;
++        }
++      });
+ 
+   Future<void> openCancel(Map<String, dynamic> appointment) => run(() async {
+-    dialogAppointment = Map<String, dynamic>.from(appointment);
+-    dialog = 'cancel';
+-  });
++        dialogAppointment = Map<String, dynamic>.from(appointment);
++        dialog = 'cancel';
++      });
+ 
+   Future<void> cancel(String reason) => run(() async {
+-    throw const ApiFailure('Cancellation is not implemented.', 501);
+-  });
++        final appointment = dialogAppointment;
++        if (appointment == null) return;
++        final id = Uri.encodeComponent(appointment['id'] as String);
++        final result = await call(
++          'POST',
++          '/api/appointments/$id/cancel',
++          {'reason': reason},
++        );
++        final updated = Map<String, dynamic>.from(result['appointment'] as Map);
++        updateAppointment(updated);
++        dialog = null;
++        dialogAppointment = null;
++        await loadAvailability();
++      });
+ 
+   Future<void> openMove(Map<String, dynamic> appointment) => run(() async {
+-    dialogAppointment = Map<String, dynamic>.from(appointment);
+-    moveSlots = [];
+-    moveSlotId = null;
+-    dialog = 'move';
+-  });
++        dialogAppointment = Map<String, dynamic>.from(appointment);
++        dialog = 'move';
++        moveSlots = [];
++        moveSlotId = null;
++        _clearMoveIntent();
++        final clinic = appointment['clinic_id'] as String;
++        final provider = appointment['provider_id'] as String;
++        final query = Uri(
++          queryParameters: {
++            'clinic_id': clinic,
++            'provider_id': provider,
++          },
++        ).query;
++        final available = rows((await call('GET', '/api/slots?$query'))['slots']);
++        final currentSlot = appointment['slot_id'];
++        moveSlots = available
++            .where((slot) => slot['id'] != currentSlot)
++            .toList();
++      });
+ 
+   void chooseMoveSlot(String value) {
+     if (busy) return;
++    if (_pendingMoveTargetId != null && _pendingMoveTargetId != value) {
++      // Selecting another target explicitly abandons a possibly lost action.
++      _clearMoveIntent();
++    }
+     moveSlotId = value;
+     notifyListeners();
+   }
+ 
++  Future<void> _refreshAppointmentAfterConflict(String id) async {
++    try {
++      final refreshed = await call(
++        'GET',
++        '/api/appointments/${Uri.encodeComponent(id)}',
++      );
++      final appointment =
++          Map<String, dynamic>.from(refreshed['appointment'] as Map);
++      dialogAppointment = appointment;
++      updateAppointment(appointment);
++      // The target list may have changed after the conflicting operation.
++      if (dialog == 'move') {
++        final clinic = appointment['clinic_id'] as String;
++        final provider = appointment['provider_id'] as String;
++        final query = Uri(
++          queryParameters: {'clinic_id': clinic, 'provider_id': provider},
++        ).query;
++        final available = rows((await call('GET', '/api/slots?$query'))['slots']);
++        moveSlots = available
++            .where((slot) => slot['id'] != appointment['slot_id'])
++            .toList();
++        moveSlotId = null;
++      }
++    } catch (_) {
++      // Keep the original conflict visible if a follow-up refresh is itself
++      // interrupted.  The next explicit refresh can recover the screen.
++    }
++  }
++
+   Future<void> move() => run(() async {
+-    throw const ApiFailure('Changing appointment time is not implemented.', 501);
+-  });
++        final appointment = dialogAppointment;
++        final target = moveSlotId;
++        if (appointment == null || target == null) {
++          throw const ApiFailure('Choose an available new time.', 400);
++        }
++        final id = appointment['id'] as String;
++        final revision = appointment['revision'] as int;
++        if (_pendingMoveAppointmentId != id ||
++            _pendingMoveTargetId != target ||
++            _pendingMoveRevision != revision ||
++            _pendingMoveOperationId == null) {
++          _pendingMoveAppointmentId = id;
++          _pendingMoveTargetId = target;
++          _pendingMoveRevision = revision;
++          _pendingMoveOperationId = _actionId('operation');
++        }
++        final operationId = _pendingMoveOperationId!;
++        try {
++          final result = await call(
++            'POST',
++            '/api/appointments/${Uri.encodeComponent(id)}/move',
++            {
++              'operation_id': operationId,
++              'to_slot_id': target,
++              'expected_revision': revision,
++            },
++          );
++          final updated =
++              Map<String, dynamic>.from(result['appointment'] as Map);
++          _clearMoveIntent();
++          updateAppointment(updated);
++          dialog = null;
++          dialogAppointment = null;
++          moveSlots = [];
++          moveSlotId = null;
++          await loadAvailability();
++        } catch (failure) {
++          if (failure is ApiFailure && failure.status == 409) {
++            _clearMoveIntent();
++            await _refreshAppointmentAfterConflict(id);
++          } else if (failure is! ApiFailure || !failure.transport) {
++            _clearMoveIntent();
++          }
++          rethrow;
++        }
++      });
++
++  void _clearMoveIntent() {
++    _pendingMoveAppointmentId = null;
++    _pendingMoveTargetId = null;
++    _pendingMoveRevision = null;
++    _pendingMoveOperationId = null;
++  }
++
++  void _clearActionIntents() {
++    _pendingBookingSlotId = null;
++    _pendingBookingRequestId = null;
++    _clearMoveIntent();
++  }
+ 
+   void closeDialog() {
+     if (busy) return;
+     dialog = null;
+     dialogAppointment = null;
+     moveSlotId = null;
++    moveSlots = [];
++    _clearMoveIntent();
+     error = null;
+     notifyListeners();
+   }
+diff --git a/lib/screens.dart b/lib/screens.dart
+index f72c5db1bfff720aca2389f96e094855c606ae6f..1fbfcb877be02591ac87bb1c5db05c47d1045c07 100644
+--- a/lib/screens.dart
++++ b/lib/screens.dart
+@@ -1,9 +1,11 @@
+ import 'package:flutter/material.dart';
++
+ import 'controller.dart';
+ 
+ class ClinicApp extends StatefulWidget {
+   final ClinicController controller;
+   const ClinicApp({super.key, required this.controller});
++
+   @override
+   State<ClinicApp> createState() => _ClinicAppState();
+ }
+@@ -14,140 +16,453 @@ class _ClinicAppState extends State<ClinicApp> {
+   final slotId = TextEditingController();
+   final slotStart = TextEditingController();
+   final reason = TextEditingController();
++
+   ClinicController get c => widget.controller;
+ 
+-  String time(dynamic value) => '${DateTime.fromMillisecondsSinceEpoch(value as int, isUtc: true).toIso8601String().replaceFirst('.000Z', '')} UTC';
+-  String providerLabel(dynamic id) => c.providers.where((p) => p['id'] == id).firstOrNull?['label'] as String? ?? id.toString();
+-  String clinicLabel(dynamic id) => c.clinics.where((p) => p['id'] == id).firstOrNull?['label'] as String? ?? id.toString();
++  String time(dynamic value) {
++    if (value is! int) return value.toString();
++    return '${DateTime.fromMillisecondsSinceEpoch(value, isUtc: true).toIso8601String().replaceFirst('.000Z', '')} UTC';
++  }
++
++  String providerLabel(dynamic id) {
++    for (final provider in c.providers) {
++      if (provider['id'] == id) return provider['label'].toString();
++    }
++    return id.toString();
++  }
++
++  String clinicLabel(dynamic id) {
++    for (final clinic in c.clinics) {
++      if (clinic['id'] == id) return clinic['label'].toString();
++    }
++    return id.toString();
++  }
+ 
+-  Widget input(String key, String label, TextEditingController control, {bool secret = false, bool numeric = false}) =>
+-      Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: TextField(
+-        key: ValueKey(key), controller: control, obscureText: secret,
++  Widget input(
++    String key,
++    String label,
++    TextEditingController control, {
++    bool secret = false,
++    bool numeric = false,
++  }) {
++    return Padding(
++      padding: const EdgeInsets.symmetric(vertical: 8),
++      child: TextField(
++        key: ValueKey(key),
++        controller: control,
++        obscureText: secret,
+         keyboardType: numeric ? TextInputType.number : TextInputType.text,
+-        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+-      ));
+-
+-  Widget button(String key, String label, VoidCallback onPressed) =>
+-      Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: FilledButton(
+-        key: ValueKey(key), onPressed: c.busy ? null : onPressed, child: Text(label)));
+-
+-  Widget select(String key, String label, String? value, List<Map<String, dynamic>> options,
+-      void Function(String) onChanged, {bool includeAll = false}) {
+-    final choices = [if (includeAll) {'id': '', 'label': 'All providers'}, ...options];
+-    return Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: InputDecorator(
+-      decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+-      child: DropdownButtonHideUnderline(child: DropdownButton<String>(
+-        key: ValueKey(key), isExpanded: true, value: includeAll ? (value ?? '') : value,
+-        hint: const Text('Choose'),
+-        items: choices.map((row) => DropdownMenuItem<String>(
+-          value: row['id'] as String,
+-          child: Text(row['label'] as String, key: ValueKey('$key-option-${row['id']}'), overflow: TextOverflow.ellipsis),
+-        )).toList(),
+-        onChanged: c.busy ? null : (value) { if (value != null) onChanged(value); },
+-      )),
+-    ));
++        decoration: InputDecoration(
++          labelText: label,
++          border: const OutlineInputBorder(),
++        ),
++      ),
++    );
++  }
++
++  Widget button(String key, String label, VoidCallback onPressed) {
++    return Padding(
++      padding: const EdgeInsets.symmetric(vertical: 4),
++      child: FilledButton(
++        key: ValueKey(key),
++        onPressed: c.busy ? null : onPressed,
++        child: Text(label, overflow: TextOverflow.ellipsis),
++      ),
++    );
+   }
+ 
+-  Widget login() => ListView(padding: const EdgeInsets.all(20), children: [
+-    const Text('Clinic appointments', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w600)),
+-    const Text('Synthetic scheduling application'),
+-    input('login-username', 'Username', username),
+-    input('login-password', 'Password', password, secret: true),
+-    button('login-submit', 'Sign in', () => c.login(username.text, password.text)),
+-  ]);
+-
+-  Widget availability() => ListView(padding: const EdgeInsets.all(16), children: [
+-    select('clinic-select', 'Clinic', c.clinicId, c.clinics, c.chooseClinic),
+-    select('provider-select', 'Provider', c.providerId, c.providers.where((p) => p['clinic_id'] == c.clinicId).toList(),
+-      (value) => c.chooseProvider(value.isEmpty ? null : value), includeAll: true),
+-    button('availability-refresh', 'Refresh available times', c.refreshAvailability),
+-    if (c.slots.isEmpty) const Text('No available times'),
+-    ...c.slots.map((slot) => Card(key: ValueKey('slot-${slot['id']}'), child: Padding(
+-      padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+-        Text(providerLabel(slot['provider_id']), style: const TextStyle(fontWeight: FontWeight.bold)),
+-        Text(clinicLabel(slot['clinic_id'])), Text(time(slot['start_ms'])), Text('Slot ${slot['id']}'),
+-        if (c.user!['role'] == 'patient') button('book-${slot['id']}', 'Book this time', () => c.book(slot['id'] as String)),
+-      ]),
+-    ))),
+-  ]);
+-
+-  Widget publish() => ListView(padding: const EdgeInsets.all(16), children: [
+-    Text('Publish a time at ${clinicLabel(c.user!['clinic_id'])}', style: const TextStyle(fontSize: 18)),
+-    select('provider-select', 'Provider', c.providerId, c.providers.where((p) => p['clinic_id'] == c.user!['clinic_id']).toList(), c.chooseProvider),
+-    input('slot-id', 'Slot identifier', slotId),
+-    input('slot-start', 'Start time — UTC milliseconds', slotStart, numeric: true),
+-    const Text('Each slot lasts 30 minutes. Use a future minute boundary.'),
+-    button('publish-submit', 'Publish time', () => c.publish(slotId.text, slotStart.text)),
+-  ]);
+-
+-  Widget appointments() => ListView(padding: const EdgeInsets.all(16), children: [
+-    button('appointments-refresh', 'Refresh appointments', c.refreshAppointments),
+-    if (c.appointments.isEmpty) const Text('No appointments yet'),
+-    ...c.appointments.map((appointment) => Card(key: ValueKey('appointment-${appointment['id']}'), child: Padding(
+-      padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+-        Text(providerLabel(appointment['provider_id']), style: const TextStyle(fontWeight: FontWeight.bold)),
+-        Text(clinicLabel(appointment['clinic_id'])), Text(time(appointment['start_ms'])),
+-        Text('Status: ${appointment['status']}'), Text('Patient: ${appointment['patient_id']}'),
+-        Text('Appointment: ${appointment['id']}'),
+-        if (appointment['cancel_reason'] != null) Text('Reason: ${appointment['cancel_reason']}'),
+-        if (appointment['status'] == 'active') Wrap(spacing: 8, children: [
+-          button('cancel-${appointment['id']}', 'Cancel', () { reason.clear(); c.openCancel(appointment); }),
+-          button('move-${appointment['id']}', 'Change time', () => c.openMove(appointment)),
+-        ]),
+-      ]),
+-    ))),
+-  ]);
+-
+-  Widget dialog() => Center(child: AlertDialog(
+-    title: Text(c.dialog == 'cancel' ? 'Cancel appointment' : 'Change appointment time'),
+-    content: SizedBox(width: 320, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+-      Text(time(c.dialogAppointment!['start_ms'])),
+-      if (c.dialog == 'cancel') input('cancel-reason', 'Reason', reason),
+-      if (c.dialog == 'move') select('move-slot-select', 'New time', c.moveSlotId,
+-        c.moveSlots.map((s) => {'id': s['id'], 'label': '${time(s['start_ms'])} · ${s['id']}'}).toList(), c.chooseMoveSlot),
+-      if (c.dialog == 'move' && c.moveSlots.isEmpty) const Text('No other times available'),
+-      if (c.error != null) Text(c.error!, style: const TextStyle(color: Colors.red)),
+-    ]))),
+-    actions: [
+-      button('dialog-close', 'Close', c.closeDialog),
+-      if (c.dialog == 'cancel') button('cancel-submit', 'Confirm cancellation', () => c.cancel(reason.text)),
+-      if (c.dialog == 'move') button('move-submit', 'Confirm new time', c.move),
+-    ],
+-  ));
++  Widget select(
++    String key,
++    String label,
++    String? value,
++    List<Map<String, dynamic>> options,
++    void Function(String) onChanged, {
++    bool includeAll = false,
++  }) {
++    final choices = <Map<String, dynamic>>[
++      if (includeAll) {'id': '', 'label': 'All providers'},
++      ...options,
++    ];
++    final candidate = includeAll ? (value ?? '') : value;
++    final selected = choices.any((row) => row['id'] == candidate)
++        ? candidate
++        : null;
++    return Padding(
++      padding: const EdgeInsets.symmetric(vertical: 8),
++      child: InputDecorator(
++        decoration: InputDecoration(
++          labelText: label,
++          border: const OutlineInputBorder(),
++        ),
++        child: DropdownButtonHideUnderline(
++          child: DropdownButton<String>(
++            key: ValueKey(key),
++            isExpanded: true,
++            value: selected,
++            hint: const Text('Choose'),
++            items: choices
++                .map(
++                  (row) => DropdownMenuItem<String>(
++                    value: row['id'] as String,
++                    child: Text(
++                      row['label'].toString(),
++                      key: ValueKey('$key-option-${row['id']}'),
++                      overflow: TextOverflow.ellipsis,
++                    ),
++                  ),
++                )
++                .toList(),
++            onChanged: c.busy
++                ? null
++                : (changed) {
++                    if (changed != null) onChanged(changed);
++                  },
++          ),
++        ),
++      ),
++    );
++  }
++
++  Widget login() => ListView(
++        padding: const EdgeInsets.all(20),
++        children: [
++          const Text(
++            'Clinic appointments',
++            style: TextStyle(fontSize: 26, fontWeight: FontWeight.w600),
++          ),
++          const SizedBox(height: 4),
++          const Text('Synthetic scheduling application'),
++          input('login-username', 'Username', username),
++          input('login-password', 'Password', password, secret: true),
++          button(
++            'login-submit',
++            'Sign in',
++            () => c.login(username.text, password.text),
++          ),
++        ],
++      );
++
++  Widget availability() {
++    final visibleProviders = c.providers
++        .where((provider) => provider['clinic_id'] == c.clinicId)
++        .toList();
++    return ListView(
++      padding: const EdgeInsets.all(16),
++      children: [
++        select('clinic-select', 'Clinic', c.clinicId, c.clinics, c.chooseClinic),
++        select(
++          'provider-select',
++          'Provider',
++          c.providerId,
++          visibleProviders,
++          (value) => c.chooseProvider(value.isEmpty ? null : value),
++          includeAll: true,
++        ),
++        button(
++          'availability-refresh',
++          'Refresh available times',
++          c.refreshAvailability,
++        ),
++        if (c.slots.isEmpty) const Text('No available times'),
++        ...c.slots.map(
++          (slot) => Card(
++            key: ValueKey('slot-${slot['id']}'),
++            child: Padding(
++              padding: const EdgeInsets.all(12),
++              child: Column(
++                crossAxisAlignment: CrossAxisAlignment.start,
++                children: [
++                  Text(
++                    providerLabel(slot['provider_id']),
++                    style: const TextStyle(fontWeight: FontWeight.bold),
++                    overflow: TextOverflow.ellipsis,
++                  ),
++                  Text(clinicLabel(slot['clinic_id']),
++                      overflow: TextOverflow.ellipsis),
++                  Text(time(slot['start_ms']), overflow: TextOverflow.ellipsis),
++                  Text('Slot ${slot['id']}', overflow: TextOverflow.ellipsis),
++                  if (c.user!['role'] == 'patient')
++                    button(
++                      'book-${slot['id']}',
++                      'Book this time',
++                      () => c.book(slot['id'] as String),
++                    ),
++                ],
++              ),
++            ),
++          ),
++        ),
++      ],
++    );
++  }
++
++  Widget publish() {
++    final clinic = c.user!['clinic_id'];
++    final ownProviders = c.providers
++        .where((provider) => provider['clinic_id'] == clinic)
++        .toList();
++    return ListView(
++      padding: const EdgeInsets.all(16),
++      children: [
++        Text(
++          'Publish a time at ${clinicLabel(clinic)}',
++          style: const TextStyle(fontSize: 18),
++          overflow: TextOverflow.ellipsis,
++        ),
++        select(
++          'provider-select',
++          'Provider',
++          c.providerId,
++          ownProviders,
++          c.chooseProvider,
++        ),
++        input('slot-id', 'Slot identifier', slotId),
++        input(
++          'slot-start',
++          'Start time — UTC milliseconds',
++          slotStart,
++          numeric: true,
++        ),
++        const Text('Each slot lasts 30 minutes. Use a future minute boundary.'),
++        button(
++          'publish-submit',
++          'Publish time',
++          () => c.publish(slotId.text, slotStart.text),
++        ),
++      ],
++    );
++  }
++
++  Widget appointments() => ListView(
++        padding: const EdgeInsets.all(16),
++        children: [
++          button(
++            'appointments-refresh',
++            'Refresh appointments',
++            c.refreshAppointments,
++          ),
++          if (c.appointments.isEmpty) const Text('No appointments yet'),
++          ...c.appointments.map(
++            (appointment) => Card(
++              key: ValueKey('appointment-${appointment['id']}'),
++              child: Padding(
++                padding: const EdgeInsets.all(12),
++                child: Column(
++                  crossAxisAlignment: CrossAxisAlignment.start,
++                  children: [
++                    Text(
++                      providerLabel(appointment['provider_id']),
++                      style: const TextStyle(fontWeight: FontWeight.bold),
++                      overflow: TextOverflow.ellipsis,
++                    ),
++                    Text(
++                      clinicLabel(appointment['clinic_id']),
++                      overflow: TextOverflow.ellipsis,
++                    ),
++                    Text(
++                      time(appointment['start_ms']),
++                      overflow: TextOverflow.ellipsis,
++                    ),
++                    Text('Status: ${appointment['status']}'),
++                    Text(
++                      'Patient: ${appointment['patient_id']}',
++                      overflow: TextOverflow.ellipsis,
++                    ),
++                    Text(
++                      'Appointment: ${appointment['id']}',
++                      overflow: TextOverflow.ellipsis,
++                    ),
++                    if (appointment['cancel_reason'] != null)
++                      Text(
++                        'Reason: ${appointment['cancel_reason']}',
++                        overflow: TextOverflow.ellipsis,
++                      ),
++                    if (appointment['status'] == 'active')
++                      Wrap(
++                        spacing: 8,
++                        children: [
++                          button(
++                            'cancel-${appointment['id']}',
++                            'Cancel',
++                            () {
++                              reason.clear();
++                              c.openCancel(appointment);
++                            },
++                          ),
++                          button(
++                            'move-${appointment['id']}',
++                            'Change time',
++                            () => c.openMove(appointment),
++                          ),
++                        ],
++                      ),
++                  ],
++                ),
++              ),
++            ),
++          ),
++        ],
++      );
++
++  Widget dialog() {
++    final appointment = c.dialogAppointment!;
++    final isCancel = c.dialog == 'cancel';
++    return Center(
++      child: AlertDialog(
++        title: Text(isCancel ? 'Cancel appointment' : 'Change appointment time'),
++        content: ConstrainedBox(
++          constraints: const BoxConstraints(maxWidth: 320, maxHeight: 360),
++          child: SingleChildScrollView(
++            child: Column(
++              mainAxisSize: MainAxisSize.min,
++              children: [
++                Text(time(appointment['start_ms']),
++                    overflow: TextOverflow.ellipsis),
++                if (isCancel) input('cancel-reason', 'Reason', reason),
++                if (!isCancel)
++                  select(
++                    'move-slot-select',
++                    'New time',
++                    c.moveSlotId,
++                    c.moveSlots
++                        .map(
++                          (slot) => <String, dynamic>{
++                            'id': slot['id'],
++                            'label': '${time(slot['start_ms'])} · ${slot['id']}',
++                          },
++                        )
++                        .toList(),
++                    c.chooseMoveSlot,
++                  ),
++                if (!isCancel && c.moveSlots.isEmpty)
++                  const Text('No other times available'),
++                if (c.error != null)
++                  Text(
++                    c.error!,
++                    style: const TextStyle(color: Colors.red),
++                  ),
++              ],
++            ),
++          ),
++        ),
++        actions: [
++          button('dialog-close', 'Close', c.closeDialog),
++          if (isCancel)
++            button(
++              'cancel-submit',
++              'Confirm cancellation',
++              () => c.cancel(reason.text),
++            ),
++          if (!isCancel)
++            button('move-submit', 'Confirm new time', c.move),
++        ],
++      ),
++    );
++  }
+ 
+   @override
+-  Widget build(BuildContext context) => AnimatedBuilder(animation: c, builder: (context, _) => MaterialApp(
+-    debugShowCheckedModeBanner: false,
+-    theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
+-    home: Scaffold(
+-      appBar: AppBar(title: Text(c.user == null ? 'Clinic' : c.user!['label'] as String), actions: [
+-        if (c.user != null) TextButton(key: const ValueKey('logout'), onPressed: c.busy ? null : () async {
+-          await c.logout();
+-          if (c.user == null) { username.clear(); password.clear(); }
+-        }, child: const Text('Sign out')),
+-      ]),
+-      body: Stack(children: [
+-        Column(children: [
+-          if (c.busy) const LinearProgressIndicator(),
+-          if (c.error != null && c.dialog == null) Padding(padding: const EdgeInsets.all(8), child: Text(c.error!, style: const TextStyle(color: Colors.red))),
+-          if (c.user != null) Wrap(spacing: 8, children: [
+-            button('nav-availability', 'Available times', () => c.navigate('availability')),
+-            button('nav-appointments', 'Appointments', () => c.navigate('appointments')),
+-            if (c.user!['role'] == 'staff') button('nav-publish', 'Publish', () => c.navigate('publish')),
+-          ]),
+-          Expanded(child: c.user == null ? login() : switch (c.page) {
+-            'appointments' => appointments(), 'publish' => publish(), _ => availability(),
+-          }),
+-        ]),
+-        if (c.dialog != null) const Positioned.fill(child: ModalBarrier(dismissible: false, color: Colors.black38)),
+-        if (c.dialog != null) dialog(),
+-      ]),
+-    ),
+-  ));
++  Widget build(BuildContext context) => AnimatedBuilder(
++        animation: c,
++        builder: (context, _) => MaterialApp(
++          debugShowCheckedModeBanner: false,
++          theme: ThemeData(
++            colorSchemeSeed: Colors.teal,
++            useMaterial3: true,
++          ),
++          home: Scaffold(
++            appBar: AppBar(
++              title: Text(
++                c.user == null ? 'Clinic' : c.user!['label'] as String,
++                overflow: TextOverflow.ellipsis,
++              ),
++              actions: [
++                if (c.user != null)
++                  TextButton(
++                    key: const ValueKey('logout'),
++                    onPressed: c.busy
++                        ? null
++                        : () async {
++                            await c.logout();
++                            if (c.user == null) {
++                              username.clear();
++                              password.clear();
++                            }
++                          },
++                    child: const Text('Sign out'),
++                  ),
++              ],
++            ),
++            body: Stack(
++              children: [
++                Column(
++                  children: [
++                    if (c.busy) const LinearProgressIndicator(),
++                    if (c.error != null && c.dialog == null)
++                      Padding(
++                        padding: const EdgeInsets.all(8),
++                        child: Text(
++                          c.error!,
++                          style: const TextStyle(color: Colors.red),
++                          maxLines: 3,
++                          overflow: TextOverflow.ellipsis,
++                        ),
++                      ),
++                    if (c.user != null)
++                      Wrap(
++                        spacing: 8,
++                        runSpacing: 2,
++                        alignment: WrapAlignment.center,
++                        children: [
++                          button(
++                            'nav-availability',
++                            'Available times',
++                            () => c.navigate('availability'),
++                          ),
++                          button(
++                            'nav-appointments',
++                            'Appointments',
++                            () => c.navigate('appointments'),
++                          ),
++                          if (c.user!['role'] == 'staff')
++                            button(
++                              'nav-publish',
++                              'Publish',
++                              () => c.navigate('publish'),
++                            ),
++                        ],
++                      ),
++                    Expanded(
++                      child: c.user == null
++                          ? login()
++                          : switch (c.page) {
++                              'appointments' => appointments(),
++                              'publish' => publish(),
++                              _ => availability(),
++                            },
++                    ),
++                  ],
++                ),
++                if (c.dialog != null)
++                  const Positioned.fill(
++                    child: ModalBarrier(
++                      dismissible: false,
++                      color: Colors.black38,
++                    ),
++                  ),
++                if (c.dialog != null) dialog(),
++              ],
++            ),
++          ),
++        ),
++      );
+ 
+   @override
+   void dispose() {
+-    username.dispose(); password.dispose(); slotId.dispose(); slotStart.dispose(); reason.dispose();
++    username.dispose();
++    password.dispose();
++    slotId.dispose();
++    slotStart.dispose();
++    reason.dispose();
+     super.dispose();
+   }
+ }
+diff --git a/server/main.py b/server/main.py
+index bf72a8b1fb88fbbf6b2336c0d7095fd727fca8f3..9bb094b65fa80fd4e0e2bacc47ccf68c658a4d65 100644
+--- a/server/main.py
++++ b/server/main.py
+@@ -16,7 +16,9 @@ def make_handler(store):
+             pass
+ 
+         def reply(self, status, value):
+-            data = json.dumps(value, ensure_ascii=False).encode()
++            # ASCII escaping keeps every JSON response UTF-8 encodable even
++            # when a user-supplied display string contains a lone surrogate.
++            data = json.dumps(value, ensure_ascii=True).encode('utf-8')
+             self.send_response(status)
+             self.send_header('Content-Type', 'application/json; charset=utf-8')
+             self.send_header('Content-Length', str(len(data)))
+@@ -30,13 +32,19 @@ def make_handler(store):
+ 
+         def body(self):
+             length = self.headers.get('Content-Length')
+-            if self.headers.get('Transfer-Encoding') or length is None or not length.isdecimal():
++            if (self.headers.get('Transfer-Encoding') or length is None or
++                    not length or any(char not in '0123456789' for char in length)):
+                 reject(400, 'invalid_request')
+             length = int(length)
+             if length < 1 or length > 32768:
+                 reject(400, 'invalid_request')
+             try:
+-                value = json.loads(self.rfile.read(length).decode('utf-8'))
++                def reject_constant(_):
++                    raise ValueError('non-standard JSON number')
++                value = json.loads(
++                    self.rfile.read(length).decode('utf-8'),
++                    parse_constant=reject_constant,
++                )
+             except (ValueError, UnicodeError):
+                 reject(400, 'invalid_request')
+             if not isinstance(value, dict):
+@@ -98,6 +106,17 @@ def make_handler(store):
+         def do_POST(self):
+             self.dispatch('POST')
+ 
++        # Keep unsupported verbs in the JSON wire contract instead of letting
++        # BaseHTTPRequestHandler emit an HTML 501 page.
++        def do_PUT(self):
++            self.reply(404, {'error': 'not_found'})
++
++        def do_PATCH(self):
++            self.reply(404, {'error': 'not_found'})
++
++        def do_DELETE(self):
++            self.reply(404, {'error': 'not_found'})
++
+     return Handler
+ 
+ 
+diff --git a/server/store.py b/server/store.py
+index a8b685622e00299bc2188033a58dacf88ca75ec3..b944d4fee4e0d6867241ae7c34ed0a12e96de91e 100644
+--- a/server/store.py
++++ b/server/store.py
+@@ -8,12 +8,16 @@ import re
+ import secrets
+ import sqlite3
+ 
++
+ IDENTIFIER = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z')
+ DURATION = 1_800_000
++MINUTE = 60_000
+ TIME_LIMIT = 4_102_444_800_000
+-APPOINTMENT_FIELDS = ('id', 'patient_id', 'clinic_id', 'provider_id', 'slot_id',
+-                      'start_ms', 'end_ms', 'status', 'revision', 'cancel_reason',
+-                      'created_at_ms', 'updated_at_ms')
++APPOINTMENT_FIELDS = (
++    'id', 'patient_id', 'clinic_id', 'provider_id', 'slot_id',
++    'start_ms', 'end_ms', 'status', 'revision', 'cancel_reason',
++    'created_at_ms', 'updated_at_ms',
++)
+ 
+ 
+ class Rejected(Exception):
+@@ -27,7 +31,8 @@ def reject(status, code):
+ 
+ 
+ def identifier(value):
+-    if not isinstance(value, str) or not IDENTIFIER.fullmatch(value):
++    """Validate a caller-supplied identifier and return it unchanged."""
++    if not isinstance(value, str) or IDENTIFIER.fullmatch(value) is None:
+         reject(400, 'invalid_request')
+     return value
+ 
+@@ -40,11 +45,19 @@ def public_appointment(row):
+     return {key: row[key] for key in APPOINTMENT_FIELDS}
+ 
+ 
++def appointment_path_id(value):
++    """Appointment IDs are server-created opaque, non-empty path segments."""
++    if not isinstance(value, str) or not value:
++        reject(404, 'not_found')
++    return value
++
++
+ class Store:
+     def __init__(self, database, fixture, clock_file):
+         self.database = Path(database)
+         self.clock_file = Path(clock_file)
+         self.database.parent.mkdir(parents=True, exist_ok=True)
++        # Validate the supplied infrastructure clock before opening the store.
+         self.now()
+         self.initialize(json.loads(Path(fixture).read_text()))
+ 
+@@ -56,60 +69,142 @@ class Store:
+ 
+     @contextmanager
+     def connect(self, write=False):
++        # A short-lived connection per operation keeps transactions independent
++        # across HTTP worker threads and makes service restarts unremarkable.
+         db = sqlite3.connect(self.database, timeout=10)
+         db.row_factory = sqlite3.Row
+         db.execute('PRAGMA foreign_keys=ON')
++        db.execute('PRAGMA busy_timeout=10000')
+         try:
+             if write:
++                # BEGIN IMMEDIATE serializes all state-changing scheduling
++                # operations before they inspect occupancy or revisions.
+                 db.execute('BEGIN IMMEDIATE')
+             yield db
+             if write:
+                 db.commit()
+         except Exception:
+-            db.rollback()
++            try:
++                db.rollback()
++            except sqlite3.Error:
++                pass
+             raise
+         finally:
+             db.close()
+ 
+     def initialize(self, fixture):
+-        with self.connect() as db:
++        # Schema creation is itself transactional.  CREATE IF NOT EXISTS also
++        # upgrades a database made by an earlier version without reseeding it.
++        with self.connect(write=True) as db:
+             db.executescript('''
+-                CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+-                CREATE TABLE IF NOT EXISTS clinics(id TEXT PRIMARY KEY, label TEXT NOT NULL);
++                CREATE TABLE IF NOT EXISTS metadata(
++                    key TEXT PRIMARY KEY,
++                    value TEXT NOT NULL
++                );
++                CREATE TABLE IF NOT EXISTS clinics(
++                    id TEXT PRIMARY KEY,
++                    label TEXT NOT NULL
++                );
+                 CREATE TABLE IF NOT EXISTS providers(
+-                    id TEXT PRIMARY KEY, clinic_id TEXT NOT NULL REFERENCES clinics(id), label TEXT NOT NULL);
++                    id TEXT PRIMARY KEY,
++                    clinic_id TEXT NOT NULL REFERENCES clinics(id),
++                    label TEXT NOT NULL
++                );
+                 CREATE TABLE IF NOT EXISTS users(
+-                    id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, label TEXT NOT NULL,
+-                    role TEXT NOT NULL CHECK(role IN ('patient','staff')), clinic_id TEXT REFERENCES clinics(id),
+-                    salt TEXT NOT NULL, password_hash TEXT NOT NULL);
++                    id TEXT PRIMARY KEY,
++                    username TEXT NOT NULL UNIQUE,
++                    label TEXT NOT NULL,
++                    role TEXT NOT NULL CHECK(role IN ('patient','staff')),
++                    clinic_id TEXT REFERENCES clinics(id),
++                    salt TEXT NOT NULL,
++                    password_hash TEXT NOT NULL
++                );
+                 CREATE TABLE IF NOT EXISTS sessions(
+-                    token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id));
++                    token_hash TEXT PRIMARY KEY,
++                    user_id TEXT NOT NULL REFERENCES users(id)
++                );
+                 CREATE TABLE IF NOT EXISTS slots(
+-                    id TEXT PRIMARY KEY, clinic_id TEXT NOT NULL REFERENCES clinics(id),
+-                    provider_id TEXT NOT NULL REFERENCES providers(id), start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL);
++                    id TEXT PRIMARY KEY,
++                    clinic_id TEXT NOT NULL REFERENCES clinics(id),
++                    provider_id TEXT NOT NULL REFERENCES providers(id),
++                    start_ms INTEGER NOT NULL,
++                    end_ms INTEGER NOT NULL
++                );
+                 CREATE TABLE IF NOT EXISTS appointments(
+-                    id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES users(id),
+-                    clinic_id TEXT NOT NULL REFERENCES clinics(id), provider_id TEXT NOT NULL REFERENCES providers(id),
+-                    slot_id TEXT NOT NULL REFERENCES slots(id), start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL,
+-                    status TEXT NOT NULL CHECK(status IN ('active','cancelled')), revision INTEGER NOT NULL,
+-                    cancel_reason TEXT, created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL);
++                    id TEXT PRIMARY KEY,
++                    patient_id TEXT NOT NULL REFERENCES users(id),
++                    clinic_id TEXT NOT NULL REFERENCES clinics(id),
++                    provider_id TEXT NOT NULL REFERENCES providers(id),
++                    slot_id TEXT NOT NULL REFERENCES slots(id),
++                    start_ms INTEGER NOT NULL,
++                    end_ms INTEGER NOT NULL,
++                    status TEXT NOT NULL CHECK(status IN ('active','cancelled')),
++                    revision INTEGER NOT NULL,
++                    cancel_reason TEXT,
++                    created_at_ms INTEGER NOT NULL,
++                    updated_at_ms INTEGER NOT NULL
++                );
++                CREATE TABLE IF NOT EXISTS booking_replays(
++                    patient_id TEXT NOT NULL REFERENCES users(id),
++                    request_id TEXT NOT NULL,
++                    slot_id TEXT NOT NULL REFERENCES slots(id),
++                    appointment_id TEXT NOT NULL REFERENCES appointments(id),
++                    PRIMARY KEY(patient_id, request_id)
++                );
++                CREATE TABLE IF NOT EXISTS move_replays(
++                    actor_id TEXT NOT NULL REFERENCES users(id),
++                    operation_id TEXT NOT NULL,
++                    appointment_id TEXT NOT NULL REFERENCES appointments(id),
++                    target_slot_id TEXT NOT NULL REFERENCES slots(id),
++                    expected_revision INTEGER NOT NULL,
++                    PRIMARY KEY(actor_id, operation_id)
++                );
++                CREATE INDEX IF NOT EXISTS appointments_patient_order
++                    ON appointments(patient_id, start_ms, id);
++                CREATE INDEX IF NOT EXISTS appointments_clinic_order
++                    ON appointments(clinic_id, start_ms, id);
++                CREATE INDEX IF NOT EXISTS appointments_slot_status
++                    ON appointments(slot_id, status);
++                CREATE UNIQUE INDEX IF NOT EXISTS one_active_appointment_per_slot
++                    ON appointments(slot_id) WHERE status='active';
+             ''')
++
++        # The metadata marker is the only seed guard.  In particular, a
++        # restart with a fixture file never resets appointments, slots or
++        # sessions already present in this database.
+         with self.connect(write=True) as db:
+             if db.execute("SELECT 1 FROM metadata WHERE key='initialized'").fetchone():
+                 return
+             for row in fixture['clinics']:
+                 db.execute('INSERT INTO clinics VALUES(?,?)', (row['id'], row['label']))
+             for row in fixture['providers']:
+-                db.execute('INSERT INTO providers VALUES(?,?,?)', (row['id'], row['clinic_id'], row['label']))
++                db.execute('INSERT INTO providers VALUES(?,?,?)',
++                           (row['id'], row['clinic_id'], row['label']))
+             for row in fixture['users']:
+                 salt = secrets.token_bytes(16)
+-                password_hash = hashlib.scrypt(row['password'].encode(), salt=salt, n=16384, r=8, p=1).hex()
+-                db.execute('INSERT INTO users VALUES(?,?,?,?,?,?,?)',
+-                           (row['id'], row['username'], row['label'], row['role'], row['clinic_id'], salt.hex(), password_hash))
++                password_hash = hashlib.scrypt(
++                    row['password'].encode('utf-8'), salt=salt,
++                    n=16384, r=8, p=1,
++                ).hex()
++                db.execute(
++                    'INSERT INTO users VALUES(?,?,?,?,?,?,?)',
++                    (row['id'], row['username'], row['label'], row['role'],
++                     row['clinic_id'], salt.hex(), password_hash),
++                )
+             for row in fixture['slots']:
+-                provider = db.execute('SELECT * FROM providers WHERE id=?', (row['provider_id'],)).fetchone()
+-                db.execute('INSERT INTO slots VALUES(?,?,?,?,?)',
+-                           (row['id'], provider['clinic_id'], provider['id'], row['start_ms'], row['start_ms'] + DURATION))
++                provider = db.execute(
++                    'SELECT id, clinic_id FROM providers WHERE id=?',
++                    (row['provider_id'],),
++                ).fetchone()
++                if provider is None:
++                    # A supplied fixture is expected to be valid; fail startup
++                    # transactionally rather than creating a malformed store.
++                    raise sqlite3.IntegrityError('fixture provider is missing')
++                db.execute(
++                    'INSERT INTO slots VALUES(?,?,?,?,?)',
++                    (row['id'], provider['clinic_id'], provider['id'],
++                     row['start_ms'], row['start_ms'] + DURATION),
++                )
+             db.execute("INSERT INTO metadata VALUES('initialized','1')")
+ 
+     def login(self, body):
+@@ -117,92 +212,373 @@ class Store:
+         if not isinstance(username, str) or not isinstance(password, str):
+             reject(400, 'invalid_request')
+         with self.connect(write=True) as db:
+-            row = db.execute('SELECT * FROM users WHERE username=?', (username,)).fetchone()
+-            salt = bytes.fromhex(row['salt']) if row else bytes(16)
+-            actual = hashlib.scrypt(password.encode(), salt=salt, n=16384, r=8, p=1).hex()
++            row = db.execute(
++                'SELECT * FROM users WHERE username=?', (username,)
++            ).fetchone()
++            # Hash a missing-user password with a real salt too, so the
++            # response does not disclose whether the username exists.
++            salt = bytes.fromhex(row['salt']) if row else secrets.token_bytes(16)
++            actual = hashlib.scrypt(
++                password.encode('utf-8'), salt=salt,
++                n=16384, r=8, p=1,
++            ).hex()
+             if row is None or not hmac.compare_digest(actual, row['password_hash']):
+                 reject(401, 'invalid_credentials')
+-            token = secrets.token_hex(32)
+-            db.execute('INSERT INTO sessions VALUES(?,?)', (hashlib.sha256(token.encode()).hexdigest(), row['id']))
++            token = secrets.token_hex(32)  # 32 secure random bytes
++            token_hash = hashlib.sha256(token.encode('ascii')).hexdigest()
++            db.execute(
++                'INSERT INTO sessions VALUES(?,?)', (token_hash, row['id'])
++            )
+             return {'token': token, 'user': public_user(row)}
+ 
++    @staticmethod
++    def token_hash(token):
++        return hashlib.sha256(token.encode('utf-8')).hexdigest()
++
+     def actor(self, token):
+         if not isinstance(token, str) or not token:
+             reject(401, 'unauthenticated')
+         with self.connect() as db:
+-            row = db.execute('SELECT u.* FROM users u JOIN sessions s ON s.user_id=u.id WHERE s.token_hash=?',
+-                             (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
++            row = db.execute(
++                '''SELECT u.* FROM users u
++                   JOIN sessions s ON s.user_id=u.id
++                   WHERE s.token_hash=?''',
++                (self.token_hash(token),),
++            ).fetchone()
+             if row is None:
+                 reject(401, 'unauthenticated')
+             return public_user(row)
+ 
+     def logout(self, token):
+         with self.connect(write=True) as db:
+-            db.execute('DELETE FROM sessions WHERE token_hash=?', (hashlib.sha256(token.encode()).hexdigest(),))
++            db.execute(
++                'DELETE FROM sessions WHERE token_hash=?',
++                (self.token_hash(token),),
++            )
+         return {'ok': True}
+ 
+     def catalog(self):
+         with self.connect() as db:
+-            return {'clinics': [dict(r) for r in db.execute('SELECT * FROM clinics ORDER BY id')],
+-                    'providers': [dict(r) for r in db.execute('SELECT * FROM providers ORDER BY id')], 'now_ms': self.now()}
++            clinics = [dict(row) for row in db.execute(
++                'SELECT id, label FROM clinics ORDER BY id'
++            )]
++            providers = [dict(row) for row in db.execute(
++                'SELECT id, clinic_id, label FROM providers ORDER BY id'
++            )]
++            return {'clinics': clinics, 'providers': providers, 'now_ms': self.now()}
+ 
+     def publish(self, actor, body):
++        # Role validation precedes provider lookup: patients cannot use this
++        # endpoint to probe the provider directory or publish cross-clinic.
+         if actor['role'] != 'staff':
+             reject(403, 'forbidden')
+         slot_id = identifier(body.get('id'))
+         provider_id = identifier(body.get('provider_id'))
+         start = body.get('start_ms')
+-        if type(start) is not int or start % 60000 or start < 0 or start + DURATION > TIME_LIMIT:
++        if (type(start) is not int or start % MINUTE != 0 or
++                start < 0 or start + DURATION > TIME_LIMIT):
+             reject(400, 'invalid_request')
+         with self.connect(write=True) as db:
+-            provider = db.execute('SELECT * FROM providers WHERE id=?', (provider_id,)).fetchone()
++            provider = db.execute(
++                'SELECT id, clinic_id FROM providers WHERE id=?',
++                (provider_id,),
++            ).fetchone()
+             if provider is None:
+                 reject(404, 'not_found')
+             if provider['clinic_id'] != actor['clinic_id']:
+                 reject(403, 'forbidden')
+-            if start <= self.now():
++            now = self.now()
++            if start <= now:
+                 reject(400, 'invalid_request')
+             end = start + DURATION
+-            if db.execute('SELECT 1 FROM slots WHERE id=? OR (provider_id=? AND start_ms<? AND end_ms>?)',
+-                          (slot_id, provider_id, end, start)).fetchone():
++            overlapping = db.execute(
++                '''SELECT 1 FROM slots
++                   WHERE id=? OR (provider_id=? AND start_ms<? AND end_ms>?)
++                   LIMIT 1''',
++                (slot_id, provider_id, end, start),
++            ).fetchone()
++            if overlapping is not None:
+                 reject(409, 'conflict')
+-            db.execute('INSERT INTO slots VALUES(?,?,?,?,?)', (slot_id, provider['clinic_id'], provider_id, start, end))
+-            return {'slot': dict(db.execute('SELECT * FROM slots WHERE id=?', (slot_id,)).fetchone())}
++            db.execute(
++                'INSERT INTO slots VALUES(?,?,?,?,?)',
++                (slot_id, provider['clinic_id'], provider_id, start, end),
++            )
++            row = db.execute('SELECT * FROM slots WHERE id=?', (slot_id,)).fetchone()
++            return {'slot': dict(row)}
+ 
+     def availability(self, query):
++        # The endpoint has one required filter and one optional filter.  Do
++        # not let arbitrary query parameters become an authorization escape
++        # hatch, while retaining the documented empty-result behavior.
++        if any(key not in ('clinic_id', 'provider_id') for key in query):
++            reject(400, 'invalid_request')
+         clinic = identifier(query.get('clinic_id'))
+         provider = query.get('provider_id')
+         if provider is not None:
+-            identifier(provider)
++            provider = identifier(provider)
+         with self.connect() as db:
+-            if not db.execute('SELECT 1 FROM clinics WHERE id=?', (clinic,)).fetchone():
++            if not db.execute(
++                'SELECT 1 FROM clinics WHERE id=?', (clinic,)
++            ).fetchone():
+                 reject(404, 'not_found')
+             if provider is not None:
+-                row = db.execute('SELECT * FROM providers WHERE id=?', (provider,)).fetchone()
++                row = db.execute(
++                    'SELECT id, clinic_id FROM providers WHERE id=?',
++                    (provider,),
++                ).fetchone()
+                 if row is None:
+                     reject(404, 'not_found')
+                 if row['clinic_id'] != clinic:
+                     reject(400, 'invalid_request')
+-            rows = db.execute('''SELECT s.* FROM slots s
+-                WHERE s.clinic_id=? AND (? IS NULL OR s.provider_id=?) AND s.start_ms>?
+-                  AND NOT EXISTS(SELECT 1 FROM appointments a WHERE a.slot_id=s.id AND a.status='active')
+-                ORDER BY s.start_ms,s.id''', (clinic, provider, provider, self.now()))
++            now = self.now()
++            rows = db.execute(
++                '''SELECT s.id, s.clinic_id, s.provider_id, s.start_ms, s.end_ms
++                   FROM slots s
++                   WHERE s.clinic_id=?
++                     AND (? IS NULL OR s.provider_id=?)
++                     AND s.start_ms>?
++                     AND NOT EXISTS(
++                       SELECT 1 FROM appointments a
++                       WHERE a.slot_id=s.id AND a.status='active'
++                     )
++                   ORDER BY s.start_ms, s.id''',
++                (clinic, provider, provider, now),
++            )
+             return {'slots': [dict(row) for row in rows]}
+ 
+     def authorized_appointment(self, db, actor, appointment_id):
+-        reject(501, 'not_implemented')
++        """Return an appointment only inside the authenticated actor's scope."""
++        appointment_id = appointment_path_id(appointment_id)
++        row = db.execute(
++            'SELECT * FROM appointments WHERE id=?', (appointment_id,)
++        ).fetchone()
++        if row is None:
++            reject(404, 'not_found')
++        allowed = (
++            (actor['role'] == 'patient' and row['patient_id'] == actor['id']) or
++            (actor['role'] == 'staff' and row['clinic_id'] == actor['clinic_id'])
++        )
++        if not allowed:
++            # Unknown and foreign records deliberately have the same outcome.
++            reject(404, 'not_found')
++        return row
+ 
+     def appointments(self, actor):
+-        reject(501, 'not_implemented')
++        with self.connect() as db:
++            if actor['role'] == 'patient':
++                rows = db.execute(
++                    '''SELECT * FROM appointments
++                       WHERE patient_id=?
++                       ORDER BY start_ms, id''',
++                    (actor['id'],),
++                )
++            else:
++                rows = db.execute(
++                    '''SELECT * FROM appointments
++                       WHERE clinic_id=?
++                       ORDER BY start_ms, id''',
++                    (actor['clinic_id'],),
++                )
++            return {'appointments': [public_appointment(row) for row in rows]}
+ 
+     def appointment(self, actor, appointment_id):
+-        reject(501, 'not_implemented')
++        with self.connect() as db:
++            row = self.authorized_appointment(db, actor, appointment_id)
++            return {'appointment': public_appointment(row)}
++
++    @staticmethod
++    def _appointment_id():
++        # A server-owned opaque ID; unlike caller IDs it has no policy meaning.
++        return secrets.token_hex(16)
+ 
+     def book(self, actor, body):
+-        reject(501, 'not_implemented')
++        if actor['role'] != 'patient':
++            reject(403, 'forbidden')
++        request_id = identifier(body.get('request_id'))
++        slot_id = identifier(body.get('slot_id'))
++        with self.connect(write=True) as db:
++            now = self.now()
++            replay = db.execute(
++                '''SELECT slot_id, appointment_id FROM booking_replays
++                   WHERE patient_id=? AND request_id=?''',
++                (actor['id'], request_id),
++            ).fetchone()
++            if replay is not None:
++                if replay['slot_id'] != slot_id:
++                    reject(409, 'conflict')
++                row = db.execute(
++                    'SELECT * FROM appointments WHERE id=?',
++                    (replay['appointment_id'],),
++                ).fetchone()
++                if row is None:
++                    # This can only indicate a damaged store; never create a
++                    # second booking or expose an incomplete replay.
++                    reject(500, 'storage_error')
++                return 200, {'appointment': public_appointment(row)}
++
++            slot = db.execute(
++                'SELECT * FROM slots WHERE id=?', (slot_id,)
++            ).fetchone()
++            if slot is None:
++                reject(404, 'not_found')
++            if slot['start_ms'] <= now:
++                reject(409, 'conflict')
++            if db.execute(
++                '''SELECT 1 FROM appointments
++                   WHERE slot_id=? AND status='active' LIMIT 1''',
++                (slot_id,),
++            ).fetchone() is not None:
++                reject(409, 'conflict')
++
++            appointment_id = self._appointment_id()
++            # The random ID collision is extraordinarily unlikely, but retry
++            # the ID insert without changing the transaction's business time.
++            for _ in range(4):
++                try:
++                    db.execute(
++                        '''INSERT INTO appointments
++                           (id, patient_id, clinic_id, provider_id, slot_id,
++                            start_ms, end_ms, status, revision, cancel_reason,
++                            created_at_ms, updated_at_ms)
++                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
++                        (appointment_id, actor['id'], slot['clinic_id'],
++                         slot['provider_id'], slot['id'], slot['start_ms'],
++                         slot['end_ms'], 'active', 1, None, now, now),
++                    )
++                    break
++                except sqlite3.IntegrityError:
++                    # Any other integrity failure should still be reported as a
++                    # storage failure rather than silently changing semantics.
++                    if db.execute(
++                        'SELECT 1 FROM appointments WHERE id=?',
++                        (appointment_id,),
++                    ).fetchone() is not None:
++                        appointment_id = self._appointment_id()
++                        continue
++                    raise
++            else:
++                raise sqlite3.IntegrityError('could not allocate appointment id')
++
++            db.execute(
++                '''INSERT INTO booking_replays
++                   (patient_id, request_id, slot_id, appointment_id)
++                   VALUES(?,?,?,?)''',
++                (actor['id'], request_id, slot['id'], appointment_id),
++            )
++            row = db.execute(
++                'SELECT * FROM appointments WHERE id=?',
++                (appointment_id,),
++            ).fetchone()
++            return 201, {'appointment': public_appointment(row)}
++
++    @staticmethod
++    def cancellation_reason(body):
++        reason = body.get('reason')
++        if not isinstance(reason, str):
++            reject(400, 'invalid_request')
++        reason = reason.strip()
++        if not 1 <= len(reason) <= 200:
++            reject(400, 'invalid_request')
++        return reason
+ 
+     def cancel(self, actor, appointment_id, body):
+-        reject(501, 'not_implemented')
++        with self.connect(write=True) as db:
++            now = self.now()
++            # Scope is checked before inspecting cancellation state or applying
++            # reason validation, so foreign and unknown IDs remain indistinct.
++            row = self.authorized_appointment(db, actor, appointment_id)
++            reason = self.cancellation_reason(body)
++            if row['status'] == 'cancelled':
++                # A valid later reason is an idempotent replay, not an update.
++                return {'appointment': public_appointment(row)}
++            if row['start_ms'] <= now:
++                reject(409, 'conflict')
++            updated = db.execute(
++                '''UPDATE appointments
++                   SET status='cancelled', cancel_reason=?, revision=revision+1,
++                       updated_at_ms=?
++                   WHERE id=? AND status='active' ''',
++                (reason, now, row['id']),
++            )
++            if updated.rowcount != 1:
++                # BEGIN IMMEDIATE normally makes this unreachable, but preserve
++                # the legal conflict result if a future schema changes that.
++                reject(409, 'conflict')
++            row = db.execute(
++                'SELECT * FROM appointments WHERE id=?', (row['id'],)
++            ).fetchone()
++            return {'appointment': public_appointment(row)}
+ 
+     def move(self, actor, appointment_id, body):
+-        reject(501, 'not_implemented')
++        operation_id = identifier(body.get('operation_id'))
++        target_slot_id = identifier(body.get('to_slot_id'))
++        expected_revision = body.get('expected_revision')
++        if type(expected_revision) is not int or expected_revision <= 0:
++            reject(400, 'invalid_request')
++
++        with self.connect(write=True) as db:
++            now = self.now()
++            # Authorization happens before replay lookup, target lookup, or any
++            # response that could reveal a foreign appointment's history.
++            row = self.authorized_appointment(db, actor, appointment_id)
++            replay = db.execute(
++                '''SELECT appointment_id, target_slot_id, expected_revision
++                   FROM move_replays
++                   WHERE actor_id=? AND operation_id=?''',
++                (actor['id'], operation_id),
++            ).fetchone()
++            if replay is not None:
++                if (replay['appointment_id'] != row['id'] or
++                        replay['target_slot_id'] != target_slot_id or
++                        replay['expected_revision'] != expected_revision):
++                    reject(409, 'conflict')
++                # A successful move replay always returns the current record,
++                # not the old snapshot, even after a later operation.
++                return {'appointment': public_appointment(row)}
++
++            if row['status'] != 'active':
++                reject(409, 'conflict')
++            if row['start_ms'] <= now:
++                reject(409, 'conflict')
++            if row['revision'] != expected_revision:
++                reject(409, 'conflict')
++
++            target = db.execute(
++                'SELECT * FROM slots WHERE id=?', (target_slot_id,)
++            ).fetchone()
++            if target is None:
++                reject(404, 'not_found')
++            if (target['id'] == row['slot_id'] or
++                    target['clinic_id'] != row['clinic_id'] or
++                    target['provider_id'] != row['provider_id'] or
++                    target['start_ms'] <= now):
++                reject(409, 'conflict')
++            if db.execute(
++                '''SELECT 1 FROM appointments
++                   WHERE slot_id=? AND status='active' LIMIT 1''',
++                (target_slot_id,),
++            ).fetchone() is not None:
++                reject(409, 'conflict')
++
++            updated = db.execute(
++                '''UPDATE appointments
++                   SET slot_id=?, start_ms=?, end_ms=?, revision=revision+1,
++                       updated_at_ms=?
++                   WHERE id=? AND status='active' AND revision=?''',
++                (target['id'], target['start_ms'], target['end_ms'], now,
++                 row['id'], expected_revision),
++            )
++            if updated.rowcount != 1:
++                reject(409, 'conflict')
++            db.execute(
++                '''INSERT INTO move_replays
++                   (actor_id, operation_id, appointment_id, target_slot_id,
++                    expected_revision)
++                   VALUES(?,?,?,?,?)''',
++                (actor['id'], operation_id, row['id'], target['id'],
++                 expected_revision),
++            )
++            row = db.execute(
++                'SELECT * FROM appointments WHERE id=?', (row['id'],)
++            ).fetchone()
++            return {'appointment': public_appointment(row)}

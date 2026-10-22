@@ -1,0 +1,1 @@
+Five independent browser gates check the existing React shell and real responsive card geometry, numeric chart marks, navigation and onboarding. UID1000 static HTTP worker and Chromium use environment allowlists; hidden assertions remain outside candidate/browser readable paths. Additional state/result metadata and unspecified error wording are accepted.

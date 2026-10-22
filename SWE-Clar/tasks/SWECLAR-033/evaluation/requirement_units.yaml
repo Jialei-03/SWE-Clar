@@ -1,0 +1,251 @@
+schema_version: 1
+task_id: SWECLAR-033
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: HTTP feed retrieval, real document parsing, exhibition upserts and city view-data projection
+requirement_units:
+- ru_id: RU-001
+  name: Exhibition workflow entry point
+  content: 'Complete the provided ingestion project: process source registration, synchronization and
+    view actions into a new state without mutating inputs. Synchronization fetches raw text from the registered
+    source URL through the optional fetch_text(url) adapter or the supplied default HTTP reader. Do not
+    use pre-parsed action.items.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for exhibition workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_exhibition_action
+      signature: process_exhibition_action(state, action, fetch_text=None) -> dict
+    inputs:
+      state: sources and exhibitions dictionaries
+      action: add_source(source), sync(source_id, current_date, fetched_at?), or city_views(city, current_date)
+      fetch_text: Optional callable(url) returning raw text; default uses HTTP
+    output:
+      type: dict
+      meaning: New state with result or error.code; input objects are unchanged
+      state_contract:
+        normal_sync_result:
+          required:
+          - updated
+          optional:
+            manual_entry_required: false
+        manual_sync_result:
+          updated: 0
+          manual_entry_required: true
+        last_fetch_on_success: fetched_at when supplied; current_date otherwise
+        exhibition_record: source_id plus documented display fields; duplicate exhibition_id is optional
+        url_normalization: strip surrounding whitespace before urljoin; preserve path case, query, fragment
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Wire formats and the adapter are explicit benchmark reconstruction choices. Fixture names and
+    pages are synthetic. Views mean structured projections, not live Notion UI creation.
+- ru_id: RU-002
+  name: Sources and exhibition records
+  content: Store Sources with source_id, museum, city, URL, feed_type and last_fetch. Parse the documented
+    JSON feed into Exhibitions with title, museum, city, start_date, end_date, URL, optional image and
+    computed status. Resolve relative links against the source URL. Validate a complete batch before changing
+    any record or last_fetch; report invalid_exhibition for missing fields or invalid date ranges, invalid_feed
+    for malformed documents and fetch_failed for transport errors. When fetched_at is omitted, a successful
+    supported sync sets last_fetch to current_date; otherwise use fetched_at. Strip surrounding URL/image
+    whitespace before resolving links. Each record includes source_id; a duplicated exhibition_id field
+    is optional. Normal result requires updated; manual_entry_required=false is optional.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for sources and exhibition records.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_exhibition_action
+      signature: process_exhibition_action(state, action, fetch_text=None) -> dict
+    inputs:
+      state: sources and exhibitions dictionaries
+      action: add_source(source), sync(source_id, current_date, fetched_at?), or city_views(city, current_date)
+      fetch_text: Optional callable(url) returning raw text; default uses HTTP
+    output:
+      type: dict
+      meaning: New state with result or error.code; input objects are unchanged
+      state_contract:
+        normal_sync_result:
+          required:
+          - updated
+          optional:
+            manual_entry_required: false
+        manual_sync_result:
+          updated: 0
+          manual_entry_required: true
+        last_fetch_on_success: fetched_at when supplied; current_date otherwise
+        exhibition_record: source_id plus documented display fields; duplicate exhibition_id is optional
+        url_normalization: strip surrounding whitespace before urljoin; preserve path case, query, fragment
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Wire formats and the adapter are explicit benchmark reconstruction choices. Fixture names and
+    pages are synthetic. Views mean structured projections, not live Notion UI creation.
+- ru_id: RU-003
+  name: Upsert and de-duplication
+  content: Synchronizing the same source and exhibition URL updates the existing record instead of creating
+    a duplicate; repeated identical synchronization is idempotent.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for upsert and de-duplication.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_exhibition_action
+      signature: process_exhibition_action(state, action, fetch_text=None) -> dict
+    inputs:
+      state: sources and exhibitions dictionaries
+      action: add_source(source), sync(source_id, current_date, fetched_at?), or city_views(city, current_date)
+      fetch_text: Optional callable(url) returning raw text; default uses HTTP
+    output:
+      type: dict
+      meaning: New state with result or error.code; input objects are unchanged
+      state_contract:
+        normal_sync_result:
+          required:
+          - updated
+          optional:
+            manual_entry_required: false
+        manual_sync_result:
+          updated: 0
+          manual_entry_required: true
+        last_fetch_on_success: fetched_at when supplied; current_date otherwise
+        exhibition_record: source_id plus documented display fields; duplicate exhibition_id is optional
+        url_normalization: strip surrounding whitespace before urljoin; preserve path case, query, fragment
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Wire formats and the adapter are explicit benchmark reconstruction choices. Fixture names and
+    pages are synthetic. Views mean structured projections, not live Notion UI creation.
+- ru_id: RU-004
+  name: Feed fallback
+  content: Parse actual RSS, ICS, JSON and HTML source text. RSS uses rss/channel/item with title, link,
+    start_date, end_date and optional image child text. ICS uses VCALENDAR/VEVENT with SUMMARY, URL, DTSTART;VALUE=DATE
+    and DTEND;VALUE=DATE (exclusive end, convert to inclusive end_date), optional IMAGE; unfold continued
+    lines and decode escaped text. HTML uses article.exhibition containing h2 title text, a.details href,
+    time[data-field=start_date/end_date] datetime and optional img src. JSON uses the public array schema.
+    Unsupported/manual feed types return manual_entry_required=true and updated=0 without fetching or
+    inventing records.
+  requirement_category: refinement
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for feed fallback.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_exhibition_action
+      signature: process_exhibition_action(state, action, fetch_text=None) -> dict
+    inputs:
+      state: sources and exhibitions dictionaries
+      action: add_source(source), sync(source_id, current_date, fetched_at?), or city_views(city, current_date)
+      fetch_text: Optional callable(url) returning raw text; default uses HTTP
+    output:
+      type: dict
+      meaning: New state with result or error.code; input objects are unchanged
+      state_contract:
+        normal_sync_result:
+          required:
+          - updated
+          optional:
+            manual_entry_required: false
+        manual_sync_result:
+          updated: 0
+          manual_entry_required: true
+        last_fetch_on_success: fetched_at when supplied; current_date otherwise
+        exhibition_record: source_id plus documented display fields; duplicate exhibition_id is optional
+        url_normalization: strip surrounding whitespace before urljoin; preserve path case, query, fragment
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Wire formats and the adapter are explicit benchmark reconstruction choices. Fixture names and
+    pages are synthetic. Views mean structured projections, not live Notion UI creation.
+- ru_id: RU-005
+  name: City and closing views
+  content: 'Project timeline, calendar, gallery, museum, and closing-soon views for a requested city;
+    closing-soon includes ongoing exhibitions ending within seven days of the supplied current date. Match
+    city names case-insensitively. Recompute statuses on each view request: upcoming before start, closed
+    after end, closing_soon from start through end when end is at most seven days after current_date,
+    and ongoing otherwise. Timeline, calendar and gallery are lists of full exhibition records sorted
+    by start_date, title, then URL. museums is the sorted unique museum-name list. closing_soon contains
+    the matching ongoing records, including exhibitions ending today or exactly seven days away. Empty-city
+    views return empty lists.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for city and closing views.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_exhibition_action
+      signature: process_exhibition_action(state, action, fetch_text=None) -> dict
+    inputs:
+      state: sources and exhibitions dictionaries
+      action: add_source(source), sync(source_id, current_date, fetched_at?), or city_views(city, current_date)
+      fetch_text: Optional callable(url) returning raw text; default uses HTTP
+    output:
+      type: dict
+      meaning: New state with result or error.code; input objects are unchanged
+      state_contract:
+        normal_sync_result:
+          required:
+          - updated
+          optional:
+            manual_entry_required: false
+        manual_sync_result:
+          updated: 0
+          manual_entry_required: true
+        last_fetch_on_success: fetched_at when supplied; current_date otherwise
+        exhibition_record: source_id plus documented display fields; duplicate exhibition_id is optional
+        url_normalization: strip surrounding whitespace before urljoin; preserve path case, query, fragment
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Wire formats and the adapter are explicit benchmark reconstruction choices. Fixture names and
+    pages are synthetic. Views mean structured projections, not live Notion UI creation.

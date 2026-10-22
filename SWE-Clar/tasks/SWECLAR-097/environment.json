@@ -1,0 +1,20 @@
+{
+  "profile": "python-web",
+  "platform": "linux/amd64",
+  "workdir": "/workspace",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "workspace_mb": 256,
+    "evaluation_wall_seconds": 180
+  },
+  "dependencies": "Prepared Python Playwright/Chromium; bundled Leaflet 1.9.4 BSD license, stdlib SQLite/HTTP.",
+  "public_test": [
+    "python",
+    "/public_tests/smoke.py"
+  ],
+  "start": "DATE_CONFIG=config.json DATE_DATABASE=dates.sqlite PORT=8188 python server.py",
+  "health": "GET http://127.0.0.1:8188/",
+  "reset": "Fresh SQLite path with synthetic configuration."
+}

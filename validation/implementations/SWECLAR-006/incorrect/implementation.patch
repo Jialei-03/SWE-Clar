@@ -1,0 +1,895 @@
+diff --git a/lib/booking_app.dart b/lib/booking_app.dart
+index 16ade1c78298f4ea412ef95fb942ebade3244334..7bee7205080b9211dc38d8550f350e6dd4fc2354 100644
+--- a/lib/booking_app.dart
++++ b/lib/booking_app.dart
+@@ -1,24 +1,379 @@
+ import 'package:flutter/material.dart';
++
+ import 'controller.dart';
++
+ class BookingApp extends StatefulWidget {
+- final BookingController controller;const BookingApp({super.key,required this.controller});
+- @override State<BookingApp> createState()=>_BookingAppState();
++  final BookingController controller;
++
++  const BookingApp({super.key, required this.controller});
++
++  @override
++  State<BookingApp> createState() => _BookingAppState();
+ }
+-class _BookingAppState extends State<BookingApp>{
+- final id=TextEditingController(text:'sample-booking'),peer=TextEditingController(text:'guest'),minutes=TextEditingController(text:'5'),message=TextEditingController();int sequence=0;
+- @override void dispose(){id.dispose();peer.dispose();minutes.dispose();message.dispose();super.dispose();}
+- @override Widget build(BuildContext context)=>MaterialApp(debugShowCheckedModeBanner:false,theme:ThemeData(useMaterial3:true,colorSchemeSeed:const Color(0xff23685a)),home:AnimatedBuilder(animation:widget.controller,builder:(context,_){final c=widget.controller,s=c.snapshot;final route=s['route'];return Scaffold(appBar:AppBar(title:const Text('Booking workspace'),leading:IconButton(key:const Key('back'),tooltip:'Back',icon:const Icon(Icons.arrow_back),onPressed:()=>c.act({'type':'back'}))),body:SafeArea(child:Center(child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:700),child:ListView(padding:const EdgeInsets.all(20),children:[
+- Text('Signed in: ${c.actorId}'),Wrap(spacing:8,children:[for(final screen in c.screens())TextButton(key:Key('nav-${screen['screen_id']}'),onPressed:()=>c.act({'type':'navigate','screen_id':screen['screen_id']}),child:Text(screen['title'] as String))]),
+- if(c.error!=null)Text(c.error!,key:const Key('error'),style:const TextStyle(color:Colors.red)),
+- if(route=='home')...[const Text('Plan a booking',style:TextStyle(fontSize:28,fontWeight:FontWeight.bold)),const SizedBox(height:12),const Text('Choose Bookings to create or confirm a local booking. Messages are stored in this workspace.')],
+- if(route=='bookings')...[
+- const Text('Bookings',style:TextStyle(fontSize:26,fontWeight:FontWeight.bold)),TextField(key:const Key('booking-id'),controller:id,decoration:const InputDecoration(labelText:'Booking ID')),TextField(key:const Key('peer'),controller:peer,decoration:const InputDecoration(labelText:'Other participant')),FilledButton(key:const Key('create'),onPressed:c.busy?null:()=>c.act({'type':'create_booking','booking_id':id.text,'peer_id':peer.text}),child:const Text('Create booking')),
+- TextField(key:const Key('minutes'),controller:minutes,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Extension minutes')),
+- for(final entry in (s['bookings'] as Map).entries)if((entry.value['participants'] as List).contains(c.actorId)||s['users'][c.actorId]['role']=='admin')Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(entry.key,key:Key('booking-${entry.key}')),Text('${entry.value['status']} · extension ${entry.value['extension_minutes']} min',key:Key('status-${entry.key}')),Wrap(spacing:8,children:[OutlinedButton(key:Key('extend-${entry.key}'),onPressed:()=>c.act({'type':'extend','booking_id':entry.key,'minutes':int.tryParse(minutes.text)}),child:const Text('Extend')),OutlinedButton(key:Key('confirm-${entry.key}'),onPressed:()=>c.act({'type':'confirm','booking_id':entry.key}),child:const Text('Confirm')),if(s['users'][c.actorId]['role']=='admin')OutlinedButton(key:Key('complete-${entry.key}'),onPressed:()=>c.act({'type':'admin_status','booking_id':entry.key,'event_id':'admin-${DateTime.now().microsecondsSinceEpoch}-${sequence++}','status':'completed'}),child:const Text('Mark completed'))])]))),
+- ],
+- if(route=='messages')...[
+- const Text('Messages',style:TextStyle(fontSize:26,fontWeight:FontWeight.bold)),TextField(key:const Key('chat-booking'),controller:id,decoration:const InputDecoration(labelText:'Booking ID')),TextField(key:const Key('recipient'),controller:peer,decoration:const InputDecoration(labelText:'Recipient')),TextField(key:const Key('message'),controller:message,decoration:const InputDecoration(labelText:'Message')),FilledButton(key:const Key('send'),onPressed:()=>c.act({'type':'message','booking_id':id.text,'recipient_id':peer.text,'message_id':'message-${DateTime.now().microsecondsSinceEpoch}-${sequence++}','text':message.text}),child:const Text('Save message')),
+- for(final entry in (s['messages'] as Map).entries)if(entry.value['sender_id']==c.actorId||entry.value['recipient_id']==c.actorId)ListTile(key:Key('message-${entry.key}'),title:Text(entry.value['text']),subtitle:Text('${entry.value['sender_id']} to ${entry.value['recipient_id']}')),
+- ],if(c.busy)const LinearProgressIndicator(),
+- ]))))); }));
++
++class _BookingAppState extends State<BookingApp> {
++  final bookingId = TextEditingController(text: 'sample-booking');
++  final peer = TextEditingController(text: 'guest');
++  final minutes = TextEditingController(text: '5');
++  final message = TextEditingController();
++  int _operationSequence = 0;
++
++  BookingController get controller => widget.controller;
++
++  @override
++  void dispose() {
++    bookingId.dispose();
++    peer.dispose();
++    minutes.dispose();
++    message.dispose();
++    super.dispose();
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    return MaterialApp(
++      debugShowCheckedModeBanner: false,
++      theme: ThemeData(
++        useMaterial3: true,
++        colorSchemeSeed: const Color(0xff23685a),
++      ),
++      home: AnimatedBuilder(
++        animation: controller,
++        builder: (context, _) {
++          final state = controller.snapshot;
++          return _buildWorkspace(context, state);
++        },
++      ),
++    );
++  }
++
++  Widget _buildWorkspace(
++    BuildContext context,
++    Map<String, dynamic> state,
++  ) {
++    final route = state['route'];
++    return Scaffold(
++      appBar: AppBar(
++        title: const Text('Booking workspace'),
++        leading: IconButton(
++          key: const Key('back'),
++          tooltip: 'Back',
++          icon: const Icon(Icons.arrow_back),
++          onPressed: controller.busy
++              ? null
++              : () => controller.act(<String, dynamic>{'type': 'back'}),
++        ),
++      ),
++      body: SafeArea(
++        child: Center(
++          child: ConstrainedBox(
++            constraints: const BoxConstraints(maxWidth: 700),
++            child: ListView(
++              padding: const EdgeInsets.all(20),
++              children: <Widget>[
++                Text(
++                  'Signed in: ${controller.actorId}',
++                  style: Theme.of(context).textTheme.labelLarge,
++                ),
++                const SizedBox(height: 8),
++                _navigation(context),
++                if (controller.error != null) ...<Widget>[
++                  const SizedBox(height: 8),
++                  Text(
++                    controller.error!,
++                    key: const Key('error'),
++                    style: const TextStyle(color: Colors.red),
++                  ),
++                ],
++                const SizedBox(height: 16),
++                if (route == 'bookings')
++                  _bookingsPage(state)
++                else if (route == 'messages')
++                  _messagesPage(state)
++                else
++                  _homePage(),
++                if (controller.busy) ...<Widget>[
++                  const SizedBox(height: 16),
++                  const LinearProgressIndicator(),
++                ],
++              ],
++            ),
++          ),
++        ),
++      ),
++    );
++  }
++
++  Widget _navigation(BuildContext context) {
++    final available = controller.screens();
++    return Wrap(
++      spacing: 8,
++      runSpacing: 4,
++      children: <Widget>[
++        for (final screen in available)
++          TextButton(
++            key: Key('nav-${screen['screen_id']}'),
++            onPressed: controller.busy
++                ? null
++                : () => controller.act(<String, dynamic>{
++                      'type': 'navigate',
++                      'screen_id': screen['screen_id'],
++                    }),
++            child: Text('${screen['title']}'),
++          ),
++      ],
++    );
++  }
++
++  Widget _homePage() {
++    return const Column(
++      crossAxisAlignment: CrossAxisAlignment.start,
++      children: <Widget>[
++        Text(
++          'Plan a booking',
++          style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
++        ),
++        SizedBox(height: 12),
++        Text(
++          'Choose Bookings to create or confirm a local booking. '
++          'Messages are stored in this workspace.',
++        ),
++      ],
++    );
++  }
++
++  Widget _bookingsPage(Map<String, dynamic> state) {
++    final bookings = _map(state['bookings']);
++    final users = _map(state['users']);
++    final actorRecord = users[controller.actorId];
++    final isAdmin = actorRecord is Map && actorRecord['role'] == 'admin';
++
++    return Column(
++      crossAxisAlignment: CrossAxisAlignment.start,
++      children: <Widget>[
++        const Text(
++          'Bookings',
++          style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
++        ),
++        const SizedBox(height: 8),
++        TextField(
++          key: const Key('booking-id'),
++          controller: bookingId,
++          decoration: const InputDecoration(labelText: 'Booking ID'),
++          textInputAction: TextInputAction.next,
++        ),
++        TextField(
++          key: const Key('peer'),
++          controller: peer,
++          decoration: const InputDecoration(labelText: 'Other participant'),
++          textInputAction: TextInputAction.done,
++        ),
++        const SizedBox(height: 8),
++        FilledButton(
++          key: const Key('create'),
++          onPressed: controller.busy
++              ? null
++              : () => controller.act(<String, dynamic>{
++                    'type': 'create_booking',
++                    'booking_id': bookingId.text,
++                    'peer_id': peer.text,
++                  }),
++          child: const Text('Create booking'),
++        ),
++        const SizedBox(height: 16),
++        TextField(
++          key: const Key('minutes'),
++          controller: minutes,
++          keyboardType: TextInputType.number,
++          decoration: const InputDecoration(labelText: 'Extension minutes'),
++        ),
++        const SizedBox(height: 8),
++        for (final entry in bookings.entries)
++          if (_visibleBooking(entry.value, isAdmin))
++            _bookingCard(entry.key, entry.value, isAdmin),
++        if (bookings.isEmpty)
++          const Padding(
++            padding: EdgeInsets.only(top: 12),
++            child: Text('No bookings are saved yet.'),
++          ),
++      ],
++    );
++  }
++
++  bool _visibleBooking(dynamic rawBooking, bool isAdmin) {
++    if (rawBooking is! Map) return false;
++    if (isAdmin) return true;
++    return _isParticipant(_map(rawBooking), controller.actorId);
++  }
++
++  Widget _bookingCard(
++    dynamic id,
++    dynamic rawBooking,
++    bool isAdmin,
++  ) {
++    final booking = _map(rawBooking);
++    final participant = _isParticipant(booking, controller.actorId);
++    final bookingKey = '$id';
++    final status = '${booking['status']}';
++    final extension = '${booking['extension_minutes']}';
++
++    return Card(
++      key: Key('card-$bookingKey'),
++      child: Padding(
++        padding: const EdgeInsets.all(16),
++        child: Column(
++          crossAxisAlignment: CrossAxisAlignment.start,
++          children: <Widget>[
++            Text(
++              'Booking $bookingKey',
++              key: Key('booking-$bookingKey'),
++            ),
++            Text(
++              'Status: $status · extension $extension min',
++              key: Key('status-$bookingKey'),
++            ),
++            const SizedBox(height: 8),
++            Wrap(
++              spacing: 8,
++              runSpacing: 4,
++              children: <Widget>[
++                if (participant)
++                  OutlinedButton(
++                    key: Key('extend-$bookingKey'),
++                    onPressed: controller.busy
++                        ? null
++                        : () => controller.act(<String, dynamic>{
++                              'type': 'extend',
++                              'booking_id': id,
++                              'minutes': int.tryParse(minutes.text),
++                            }),
++                    child: const Text('Extend'),
++                  ),
++                if (participant)
++                  OutlinedButton(
++                    key: Key('confirm-$bookingKey'),
++                    onPressed: controller.busy
++                        ? null
++                        : () => controller.act(<String, dynamic>{
++                              'type': 'confirm',
++                              'booking_id': id,
++                            }),
++                    child: const Text('Confirm'),
++                  ),
++                if (isAdmin)
++                  OutlinedButton(
++                    key: Key('complete-$bookingKey'),
++                    onPressed: controller.busy
++                        ? null
++                        : () => controller.act(<String, dynamic>{
++                              'type': 'admin_status',
++                              'booking_id': id,
++                              'event_id': _freshOperationId(
++                                'admin',
++                                _map(controller.snapshot['audit']),
++                              ),
++                              'status': 'completed',
++                            }),
++                    child: const Text('Mark completed'),
++                  ),
++              ],
++            ),
++          ],
++        ),
++      ),
++    );
++  }
++
++  Widget _messagesPage(Map<String, dynamic> state) {
++    final messages = _map(state['messages']);
++
++    return Column(
++      crossAxisAlignment: CrossAxisAlignment.start,
++      children: <Widget>[
++        const Text(
++          'Messages',
++          style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
++        ),
++        const SizedBox(height: 8),
++        TextField(
++          key: const Key('chat-booking'),
++          controller: bookingId,
++          decoration: const InputDecoration(labelText: 'Booking ID'),
++          textInputAction: TextInputAction.next,
++        ),
++        TextField(
++          key: const Key('recipient'),
++          controller: peer,
++          decoration: const InputDecoration(labelText: 'Recipient'),
++          textInputAction: TextInputAction.next,
++        ),
++        TextField(
++          key: const Key('message'),
++          controller: message,
++          minLines: 1,
++          maxLines: 4,
++          decoration: const InputDecoration(labelText: 'Message'),
++        ),
++        const SizedBox(height: 8),
++        FilledButton(
++          key: const Key('send'),
++          onPressed: controller.busy
++              ? null
++              : () => controller.act(<String, dynamic>{
++                    'type': 'message',
++                    'booking_id': bookingId.text,
++                    'recipient_id': peer.text,
++                    'message_id': _freshOperationId('message', messages),
++                    'text': message.text,
++                  }),
++          child: const Text('Save message'),
++        ),
++        const SizedBox(height: 16),
++        for (final entry in messages.entries)
++          if (_visibleMessage(entry.value)) _messageRow(entry.key, entry.value),
++        if (messages.isEmpty)
++          const Padding(
++            padding: EdgeInsets.only(top: 12),
++            child: Text('No messages are visible to this user.'),
++          ),
++      ],
++    );
++  }
++
++  bool _visibleMessage(dynamic rawMessage) {
++    if (rawMessage is! Map) return false;
++    return rawMessage['sender_id'] == controller.actorId ||
++        rawMessage['recipient_id'] == controller.actorId;
++  }
++
++  Widget _messageRow(dynamic id, dynamic rawMessage) {
++    final value = _map(rawMessage);
++    return ListTile(
++      key: Key('message-$id'),
++      contentPadding: EdgeInsets.zero,
++      title: Text('${value['text']}'),
++      subtitle: Text('${value['sender_id']} to ${value['recipient_id']}'),
++    );
++  }
++
++  String _freshOperationId(String prefix, Map<String, dynamic> records) {
++    var candidate = '$prefix-${DateTime.now().microsecondsSinceEpoch}-'
++        '${_operationSequence++}';
++    while (records.containsKey(candidate)) {
++      candidate = '$prefix-${DateTime.now().microsecondsSinceEpoch}-'
++          '${_operationSequence++}';
++    }
++    return candidate;
++  }
++
++  static Map<String, dynamic> _map(dynamic value) {
++    if (value is Map<String, dynamic>) return value;
++    if (value is Map) return Map<String, dynamic>.from(value);
++    return <String, dynamic>{};
++  }
++
++  static bool _isParticipant(Map<String, dynamic> booking, String id) {
++    final participants = booking['participants'];
++    return participants is List && participants.contains(id);
++  }
+ }
+diff --git a/lib/controller.dart b/lib/controller.dart
+index 7851959d54e18b739bf1abc1a7e294cacc7fa1b8..492db06c81512d3fd433d4cd1d436fdd3fb664a3 100644
+--- a/lib/controller.dart
++++ b/lib/controller.dart
+@@ -1,33 +1,461 @@
+ import 'dart:convert';
+ import 'dart:io';
++
+ import 'package:flutter/foundation.dart';
+-Map<String,dynamic> clone(Map<String,dynamic> value)=>jsonDecode(jsonEncode(value)) as Map<String,dynamic>;
+-abstract class BookingStorage {Future<void> save(Map<String,dynamic> state);Future<Map<String,dynamic>?> load();}
++
++/// Makes a JSON-shaped map independent of the map supplied by its caller.
++///
++/// The state used by this component is deliberately JSON data rather than a
++/// collection of model classes.  Going through JSON here also makes nested
++/// lists and maps independent, not just the top-level map.
++Map<String, dynamic> clone(Map<String, dynamic> value) {
++  return jsonDecode(jsonEncode(value)) as Map<String, dynamic>;
++}
++
++abstract class BookingStorage {
++  Future<void> save(Map<String, dynamic> state);
++
++  Future<Map<String, dynamic>?> load();
++}
++
++/// A small, local JSON store.
++///
++/// The temporary file lives beside the destination, so a rename is an atomic
++/// replacement on the supported filesystem.  A unique name prevents a stale
++/// temporary file from being mistaken for a successful save.
+ class FileBookingStorage implements BookingStorage {
+- final File file;FileBookingStorage(this.file);
+- @override Future<Map<String,dynamic>?> load()async=>await file.exists()?jsonDecode(await file.readAsString()) as Map<String,dynamic>:null;
+- @override Future<void> save(Map<String,dynamic> state)async{await file.parent.create(recursive:true);final pending=File('${file.path}.pending');try{await pending.writeAsString(jsonEncode(state),flush:true);await pending.rename(file.path);}finally{if(await pending.exists())await pending.delete();}}
++  final File file;
++
++  FileBookingStorage(this.file);
++
++  @override
++  Future<Map<String, dynamic>?> load() async {
++    if (!await file.exists()) {
++      return null;
++    }
++    final decoded = jsonDecode(await file.readAsString());
++    return Map<String, dynamic>.from(decoded as Map);
++  }
++
++  @override
++  Future<void> save(Map<String, dynamic> state) async {
++    await file.parent.create(recursive: true);
++
++    // Include both a process identifier and a timestamp.  The operation is
++    // local and single-process by contract, but this also avoids colliding
++    // with a leftover file from an interrupted earlier operation.
++    final token =
++        '${pid}-${DateTime.now().microsecondsSinceEpoch}-${identityHashCode(state)}';
++    final pending = File('${file.path}.tmp-$token');
++    var renamed = false;
++    try {
++      await pending.writeAsString(jsonEncode(state), flush: true);
++      await pending.rename(file.path);
++      renamed = true;
++    } finally {
++      // rename removes the temporary path.  The check is useful for write or
++      // rename failures and ensures a successful call never leaves a sibling.
++      if (!renamed && await pending.exists()) {
++        await pending.delete();
++      }
++    }
++  }
++}
++
++class _RejectedAction implements Exception {
++  final String code;
++
++  const _RejectedAction(this.code);
+ }
++
++Never _reject(String code) => throw _RejectedAction(code);
++
++/// Controller for the synthetic booking workspace.
+ class BookingController extends ChangeNotifier {
+- final BookingStorage storage;final String actorId;final String platform;Map<String,dynamic> _state;String? error;bool busy=false;
+- BookingController(Map<String,dynamic> initial,this.storage,{required this.actorId,this.platform='android'}):_state=clone(initial);
+- Map<String,dynamic> get snapshot=>clone(_state);
+- Future<void> restore()async{final saved=await storage.load();if(saved!=null)_state=clone(saved);notifyListeners();}
+- List<Map<String,dynamic>> screens(){final values=(_state['screens'] as Map).entries.where((e)=>(e.value['platforms'] as List).contains(platform)).map((e)=>{'screen_id':e.key,...clone(Map<String,dynamic>.from(e.value))}).toList();values.sort((a,b)=>(a['screen_id'] as String).compareTo(b['screen_id'] as String));return values;}
+- Future<bool> act(Map<String,dynamic> action)async{
+-  if(busy)return false;busy=true;error=null;notifyListeners();
+-  try{final next=apply(_state,clone(action));await storage.save(clone(next));_state=clone(next);return true;}catch(e){error=e is StateError?e.message.toString():'storage_failed';return false;}finally{busy=false;notifyListeners();}
+- }
+- Map<String,dynamic> apply(Map<String,dynamic> source,Map<String,dynamic> a){
+-  final s=clone(source);final kind=a['type'];final users=s['users'] as Map;if(!users.containsKey(actorId))throw StateError('unknown_actor');
+-  final bookings=s['bookings'] as Map;final messages=s['messages'] as Map;
+-  switch(kind){
+-   case 'navigate':final target=a['screen_id'];final screen=(s['screens'] as Map)[target];if(screen==null||!(screen['platforms'] as List).contains(platform))throw StateError('unknown_screen');s['route']=target;break;
+-   case 'back':throw StateError('not_implemented');
+-   case 'create_booking':final id=a['booking_id'];final peer=a['peer_id'];if(id is! String||id.trim().isEmpty||bookings.containsKey(id)||!users.containsKey(peer)||peer==actorId)throw StateError('invalid_booking');bookings[id]={'participants':[actorId,peer],'extension_minutes':0,'extended':false,'confirmed':false,'status':'draft'};break;
+-   case 'extend':case 'confirm':case 'message':case 'admin_status':throw StateError('not_implemented');
+-   default:throw StateError('unknown_action');
+-  }
+-  return s;
+- }
++  final BookingStorage storage;
++  final String actorId;
++  final String platform;
++
++  Map<String, dynamic> _state;
++  String? error;
++  bool busy = false;
++
++  BookingController(
++    Map<String, dynamic> initial,
++    this.storage, {
++    required this.actorId,
++    this.platform = 'android',
++  }) : _state = clone(initial);
++
++  /// A detached snapshot.  Mutating the returned value cannot mutate us.
++  Map<String, dynamic> get snapshot => clone(_state);
++
++  /// Restore a complete valid state from the store.
++  ///
++  /// A missing file is intentionally a no-op.  The supplied storage contract
++  /// provides valid JSON when a file exists, so validation/corruption repair is
++  /// not part of this component.
++  Future<void> restore() async {
++    final saved = await storage.load();
++    if (saved != null) {
++      _state = clone(saved);
++    }
++    notifyListeners();
++  }
++
++  /// Return exactly the registered screens supported by this platform.
++  /// Results, including nested platform lists, are detached from the state.
++  List<Map<String, dynamic>> screens() {
++    final registry = _mapAt(_state, 'screens');
++    final result = <Map<String, dynamic>>[];
++    for (final entry in registry.entries) {
++      final screenId = entry.key;
++      final record = entry.value;
++      if (record is! Map) continue;
++      final platforms = record['platforms'];
++      if (platforms is! List || !platforms.contains(platform)) continue;
++      final row = Map<String, dynamic>.from(
++        clone(Map<String, dynamic>.from(record)),
++      );
++      // The registry key is authoritative even if harmless metadata happens
++      // to contain a field with this name.
++      row['screen_id'] = screenId;
++      result.add(row);
++    }
++    result.sort((left, right) {
++      return (left['screen_id'] as String)
++          .compareTo(right['screen_id'] as String);
++    });
++    return result;
++  }
++
++  /// Apply an action using save-before-publish semantics.
++  Future<bool> act(Map<String, dynamic> action) async {
++    // This check happens before any notification or write.  In particular, a
++    // second action cannot clear the first action's error or enqueue a second
++    // save while the first save is held open.
++    if (busy) return false;
++
++    final input = clone(action);
++    busy = true;
++    error = null;
++    notifyListeners();
++
++    Map<String, dynamic> proposed;
++    try {
++      proposed = apply(_state, input);
++    } on _RejectedAction catch (rejection) {
++      error = rejection.code;
++      busy = false;
++      notifyListeners();
++      return false;
++    } catch (_) {
++      // The public input and state are JSON-shaped and valid.  Treat an
++      // unexpected preparation failure as a rejected action rather than
++      // publishing a partial state.
++      error = 'storage_failed';
++      busy = false;
++      notifyListeners();
++      return false;
++    }
++
++    try {
++      // Give storage its own object.  It is legal for a storage implementation
++      // to retain or mutate its argument after save returns.
++      final savedArgument = clone(proposed);
++      await storage.save(savedArgument);
++      // Publish another detached copy, never the object retained by storage.
++      _state = clone(proposed);
++      return true;
++    } catch (_) {
++      error = 'storage_failed';
++      return false;
++    } finally {
++      busy = false;
++      notifyListeners();
++    }
++  }
++
++  /// Public for compatibility with the starter implementation.  Actions use
++  /// this same pure state transformation before saving.
++  Map<String, dynamic> apply(
++    Map<String, dynamic> source,
++    Map<String, dynamic> action,
++  ) {
++    final kind = action['type'];
++    final state = clone(source);
++    final users = _mapAt(state, 'users');
++    if (!users.containsKey(actorId)) {
++      _reject('unknown_actor');
++    }
++
++    const knownActions = <String>{
++      'navigate',
++      'back',
++      'create_booking',
++      'extend',
++      'confirm',
++      'message',
++      'admin_status',
++    };
++    if (kind is! String || !knownActions.contains(kind)) {
++      _reject('unknown_action');
++    }
++
++    switch (kind) {
++      case 'navigate':
++        _applyNavigate(state, action);
++        break;
++      case 'back':
++        _applyBack(state);
++        break;
++      case 'create_booking':
++        _applyCreateBooking(state, action);
++        break;
++      case 'extend':
++        _applyExtend(state, action);
++        break;
++      case 'confirm':
++        _applyConfirm(state, action);
++        break;
++      case 'message':
++        _applyMessage(state, action);
++        break;
++      case 'admin_status':
++        _applyAdminStatus(state, action);
++        break;
++    }
++    return state;
++  }
++
++  void _applyNavigate(Map<String, dynamic> state, Map<String, dynamic> action) {
++    final target = action['screen_id'];
++    if (target is! String || target.trim().isEmpty ||
++        !_isSupportedScreen(state, target)) {
++      _reject('unknown_screen');
++    }
++
++    final current = state['route'];
++    if (current != target) {
++      final history = _listAt(state, 'history');
++      history.add(current);
++      state['route'] = target;
++    }
++    // A navigation to the current route is an accepted no-op.  It is still
++    // passed through the common save-before-publish path by act().
++  }
++
++  void _applyBack(Map<String, dynamic> state) {
++    final history = _listAt(state, 'history');
++    while (history.isNotEmpty) {
++      // Use the oldest entry first.  This intentionally makes Back walk the
++      // history in the wrong direction while leaving route validation and
++      // persistence behavior unchanged.
++      final candidate = history.removeAt(0);
++      if (candidate is String && _isSupportedScreen(state, candidate)) {
++        state['route'] = candidate;
++        return;
++      }
++    }
++    // If every candidate was stale or incompatible, the current route is
++    // deliberately retained and the history is empty.
++  }
++
++  void _applyCreateBooking(
++    Map<String, dynamic> state,
++    Map<String, dynamic> action,
++  ) {
++    final bookingId = action['booking_id'];
++    final peerId = action['peer_id'];
++    final users = _mapAt(state, 'users');
++    final bookings = _mapAt(state, 'bookings');
++    if (bookingId is! String || bookingId.trim().isEmpty ||
++        peerId is! String || peerId.trim().isEmpty ||
++        !users.containsKey(peerId) || peerId == actorId ||
++        bookings.containsKey(bookingId)) {
++      _reject('invalid_booking');
++    }
++
++    bookings[bookingId] = <String, dynamic>{
++      'participants': <String>[actorId, peerId],
++      'extension_minutes': 0,
++      'extended': false,
++      'confirmed': false,
++      'status': 'draft',
++    };
++  }
++
++  void _applyExtend(
++    Map<String, dynamic> state,
++    Map<String, dynamic> action,
++  ) {
++    final bookingId = action['booking_id'];
++    final minutes = action['minutes'];
++    final bookings = _mapAt(state, 'bookings');
++    final booking = bookingId is String ? bookings[bookingId] : null;
++    if (bookingId is! String || bookingId.trim().isEmpty ||
++        booking is! Map ||
++        !_isParticipant(booking, actorId) ||
++        booking['status'] != 'draft' ||
++        booking['confirmed'] != false ||
++        booking['extended'] != false ||
++        minutes is! int ||
++        minutes < 1 ||
++        minutes > 30) {
++      _reject('extension_denied');
++    }
++
++    booking['extension_minutes'] = minutes;
++    booking['extended'] = true;
++  }
++
++  void _applyConfirm(
++    Map<String, dynamic> state,
++    Map<String, dynamic> action,
++  ) {
++    final bookingId = action['booking_id'];
++    final bookings = _mapAt(state, 'bookings');
++    final booking = bookingId is String ? bookings[bookingId] : null;
++    if (bookingId is! String || bookingId.trim().isEmpty ||
++        booking is! Map ||
++        !_isParticipant(booking, actorId) ||
++        booking['status'] != 'draft' ||
++        booking['confirmed'] != false) {
++      _reject('confirmation_denied');
++    }
++
++    booking['confirmed'] = true;
++    booking['status'] = 'confirmed';
++  }
++
++  void _applyMessage(
++    Map<String, dynamic> state,
++    Map<String, dynamic> action,
++  ) {
++    final bookingId = action['booking_id'];
++    final messageId = action['message_id'];
++    final recipientId = action['recipient_id'];
++    final text = action['text'];
++    final bookings = _mapAt(state, 'bookings');
++    final messages = _mapAt(state, 'messages');
++    final booking = bookingId is String ? bookings[bookingId] : null;
++
++    if (bookingId is! String || bookingId.trim().isEmpty ||
++        messageId is! String || messageId.trim().isEmpty ||
++        recipientId is! String || recipientId.trim().isEmpty ||
++        text is! String || text.trim().isEmpty ||
++        booking is! Map ||
++        !_isParticipant(booking, actorId) ||
++        recipientId == actorId ||
++        !_isParticipant(booking, recipientId)) {
++      _reject('message_denied');
++    }
++
++    final proposed = <String, dynamic>{
++      'booking_id': bookingId,
++      'sender_id': actorId,
++      'recipient_id': recipientId,
++      'text': text,
++    };
++    final existing = messages[messageId];
++    if (existing != null) {
++      if (existing is Map &&
++          existing['booking_id'] == proposed['booking_id'] &&
++          existing['sender_id'] == proposed['sender_id'] &&
++          existing['recipient_id'] == proposed['recipient_id'] &&
++          existing['text'] == proposed['text']) {
++        // Idempotent replay.  Do not replace metadata or reorder the record.
++        return;
++      }
++      _reject('message_conflict');
++    }
++
++    messages[messageId] = proposed;
++  }
++
++  void _applyAdminStatus(
++    Map<String, dynamic> state,
++    Map<String, dynamic> action,
++  ) {
++    final users = _mapAt(state, 'users');
++    final actor = users[actorId];
++    if (actor is! Map || actor['role'] != 'admin') {
++      _reject('admin_required');
++    }
++
++    final bookingId = action['booking_id'];
++    final eventId = action['event_id'];
++    final status = action['status'];
++    final bookings = _mapAt(state, 'bookings');
++    final audit = _mapAt(state, 'audit');
++    final booking = bookingId is String ? bookings[bookingId] : null;
++    const allowed = <String>{'draft', 'confirmed', 'cancelled', 'completed'};
++    if (bookingId is! String || bookingId.trim().isEmpty ||
++        eventId is! String || eventId.trim().isEmpty ||
++        status is! String || !allowed.contains(status) ||
++        booking is! Map) {
++      _reject('invalid_status');
++    }
++
++    final existing = audit[eventId];
++    if (existing != null) {
++      if (existing is Map &&
++          existing['booking_id'] == bookingId &&
++          existing['actor_id'] == actorId &&
++          existing['status'] == status) {
++        // A replay is accepted but must not reapply a stale status after a
++        // later, different event.
++        return;
++      }
++      _reject('event_conflict');
++    }
++
++    audit[eventId] = <String, dynamic>{
++      'booking_id': bookingId,
++      'actor_id': actorId,
++      'status': status,
++    };
++    booking['status'] = status;
++    booking['confirmed'] = status == 'confirmed' || status == 'completed';
++  }
++
++  static bool _isParticipant(Map booking, String id) {
++    final participants = booking['participants'];
++    return participants is List && participants.contains(id);
++  }
++
++  static Map<String, dynamic> _mapAt(
++    Map<String, dynamic> state,
++    String field,
++  ) {
++    final value = state[field];
++    if (value is Map<String, dynamic>) return value;
++    if (value is Map) {
++      final converted = Map<String, dynamic>.from(value);
++      state[field] = converted;
++      return converted;
++    }
++    final replacement = <String, dynamic>{};
++    state[field] = replacement;
++    return replacement;
++  }
++
++  static List<dynamic> _listAt(Map<String, dynamic> state, String field) {
++    final value = state[field];
++    if (value is List) return value;
++    final replacement = <dynamic>[];
++    state[field] = replacement;
++    return replacement;
++  }
++
++  bool _isSupportedScreen(
++    Map<String, dynamic> state,
++    String screenId,
++  ) {
++    final screens = _mapAt(state, 'screens');
++    final screen = screens[screenId];
++    if (screen is! Map) return false;
++    final platforms = screen['platforms'];
++    return platforms is List && platforms.contains(platform);
++  }
+ }

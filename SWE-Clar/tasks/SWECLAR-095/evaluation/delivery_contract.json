@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-095",
+  "public": {
+    "readme": "# Listening library repair\n\nAn independently authored React web application, Python HTTP service and SQLite store. The source commission explicitly prioritizes the website; this task selects its account/payment/catalog/playback component. No client code, content or payment account is supplied. React 18.3.1, esbuild 0.25.0, Node 22, Python 3.11+. The prepared environment already supplies these dependencies through UI_NODE_MODULES. Run `node build.mjs`, then `python demo.py`; no package download is needed. The demo creates fresh local payment fixtures and synthesized audio in temporary storage. All purchasing here is local, without a real charge.\n\nService configuration: STREAM_CONFIG, STREAM_DATABASE, STREAM_ASSETS. Config contains provider, api_key, receipt_key and catalog:[{id,title,artist,cost,filename}]. Provider API: authenticated GET /accounts?email=..., POST /accounts {email}, GET /receipts/{id}. A receipt is {payload:{transaction_id,payment_id,status,tokens},signature}; signature uses HMAC-SHA256 over sorted compact JSON. Client API: POST /register and /login {email,password}; GET /me,/catalog?q=...,/licenses,/media/{id}; POST /credit {transaction_id},/license {track},/logout {}. Use Authorization: Bearer with the returned local session token. Protocol details, token prices and demo identities are synthetic benchmark conventions.\n\nRepair the existing app rather than substituting JSON playback states. The actual media adapter uses browser audio. ClearKey/CENC DRM, native React Native players, production AWS/payment webhooks and complete OWASP/accessibility certification remain outside the verified component and require separate review. Local authorization is not a DRM implementation. The catalog search ordering is a benchmark convention; no verified source locator specifies that exact order. Native platform scope and later playback changes are not inferred from this web component.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "server.py",
+          "function": "Store.act",
+          "signature": "Store.act(authenticated_user,path,action) -> persisted record"
+        },
+        "inputs": {
+          "authenticated_user": "server-owned session identity",
+          "path": "documented HTTP endpoint",
+          "action": "synthetic request body"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "Actual persisted result observed through HTTP, storage and rendered native/web interfaces"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "server.py",
+        "function": "Store.act",
+        "signature": "Store.act(authenticated_user,path,action) -> persisted record"
+      },
+      "inputs": {
+        "authenticated_user": "server-owned session identity",
+        "path": "documented HTTP endpoint",
+        "action": "synthetic request body"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Actual persisted result observed through HTTP, storage and rendered native/web interfaces"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "server.py",
+        "function": "Store.act",
+        "signature": "Store.act(authenticated_user,path,action) -> persisted record"
+      },
+      "inputs": {
+        "authenticated_user": "server-owned session identity",
+        "path": "documented HTTP endpoint",
+        "action": "synthetic request body"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Actual persisted result observed through HTTP, storage and rendered native/web interfaces"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "server.py",
+        "function": "Store.act",
+        "signature": "Store.act(authenticated_user,path,action) -> persisted record"
+      },
+      "inputs": {
+        "authenticated_user": "server-owned session identity",
+        "path": "documented HTTP endpoint",
+        "action": "synthetic request body"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Actual persisted result observed through HTTP, storage and rendered native/web interfaces"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "server.py",
+        "function": "Store.act",
+        "signature": "Store.act(authenticated_user,path,action) -> persisted record"
+      },
+      "inputs": {
+        "authenticated_user": "server-owned session identity",
+        "path": "documented HTTP endpoint",
+        "action": "synthetic request body"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Actual persisted result observed through HTTP, storage and rendered native/web interfaces"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "server.py",
+        "function": "Store.act",
+        "signature": "Store.act(authenticated_user,path,action) -> persisted record"
+      },
+      "inputs": {
+        "authenticated_user": "server-owned session identity",
+        "path": "documented HTTP endpoint",
+        "action": "synthetic request body"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Actual persisted result observed through HTTP, storage and rendered native/web interfaces"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "baea78ea80ce6966b9d8efc0344d8708ca9ab3c49581ca7cd9db0d24ef399e96",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "2ebc097ba21a9eb2bdeb885cb5b47e01a50dbf701a57e229ff680e2a8e7fb49b",
+    "evaluation/tests/browser_probe.py": "d5a515fa6717e79ea4b27753f14fa03cda5d7c637136da1c9ff9a0cd0246fc78",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "9e86ea8048548b10c21778a30fb5f31a93d48f329e6489e6ee37474ac97c2595",
+    "evaluation/tests/payment_fixture.py": "75185c29487d1d435eb640e2bdcd66c4d46a35c5eca94842f0705e4f505dc3ee",
+    "evaluation/tests/source_test.sh": "65f164d24678d4cc8521c360ae47ba117e0ec4e163b12fd7bbe5956203944cf3",
+    "evaluation/tests/streaming_contract.py": "0473605d689535f73d4861d18f0b1e95e53f1ae3a806a06ce85cb9993b00d38b",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "8343e0bb14589d8aa3e41cd8219434f106997c2f50ad841530bd265b6685d30d"
+  },
+  "public_environment_sha256": "3dadfaf2aed558d1312cf33c56f3fa9ebaa402dcb7ac122b81b61482c514f5de",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

@@ -1,0 +1,180 @@
+schema_version: 1
+task_id: SWECLAR-076
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Playable local3D portal/asteroid/combat/wave browser adaptation
+requirement_units:
+- ru_id: RU-001
+  name: Portal game event entry point
+  content: Preserve a playable native WebGL perspective3D scene and real controls/animation for portal
+    transition, moving asteroids and combat. process_portal_event(state,event) returns a new state without
+    mutating either input. Every accepted event has finite numeric timestamp (not boolean) >= state.timestamp
+    (default0), and stores that timestamp; smaller timestamps reject. Invalid/unknown events return nonempty
+    error.code and preserve gameplay state and timestamp. Extra metadata/error wording is allowed. This
+    independent browser adaptation is not original Unity/Quest/AR tracking execution.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for portal game event entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_portal_event
+      signature: process_portal_event(state,event) -> dict
+    inputs:
+      state: Synthetic scenario
+      event: Public schema in README
+    output:
+      type: dict
+      meaning: New state and actual3D browser effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+- ru_id: RU-002
+  name: AR/VR portal transition
+  content: transition requires an existing active=true portal and target_mode equal to the other mode
+    among room/cockpit. Store top-level mode and return result.mode/result.lives, preserving remaining
+    lives. Unknown/inactive portal, invalid mode or same-mode transition reject atomically. Actual browser
+    portal control switches the rendered3D environment between room and cockpit and back without resetting
+    lives or other gameplay.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for ar/vr portal transition.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_portal_event
+      signature: process_portal_event(state,event) -> dict
+    inputs:
+      state: Synthetic scenario
+      event: Public schema in README
+    output:
+      type: dict
+      meaning: New state and actual3D browser effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+- ru_id: RU-003
+  name: Asteroid portal and wall behavior
+  content: move_asteroid requires a known asteroid with finite position/velocity x,y,z and finite positive
+    bounds for all axes. For each axis add velocity once; only if the new coordinate exceeds +bound/-bound
+    clamp there and negate that velocity component. Equality does not bounce. Other asteroids remain unchanged.
+    If through_portal=true, require finite angle and append one portal_ripple event with asteroid_id and
+    angle; false/omitted does not add a ripple. Return result.position/result.velocity. Actual step and
+    running simulation controls move the3D asteroid, visibly reflect at boundaries, and show a geometric
+    portal ripple.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for asteroid portal and wall behavior.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_portal_event
+      signature: process_portal_event(state,event) -> dict
+    inputs:
+      state: Synthetic scenario
+      event: Public schema in README
+    output:
+      type: dict
+      meaning: New state and actual3D browser effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+- ru_id: RU-004
+  name: Weapons, shield, and enemy combat
+  content: Equip only supplied weapon IDs, at most two distinct IDs; unavailable, duplicate or third weapon
+    rejects. activate_shield accepts finite nonnegative energy. hit accepts finite nonnegative damage,
+    consumes shield energy first and reports absorbed,shield_energy,lives; any positive remainder consumes
+    exactly one life, clamped at zero before restart policy. fire requires an equipped weapon with positive
+    finite power and a known living enemy; subtract power from enemy hp clamped0 and append one shot event
+    with weapon_id/enemy_id. Invalid hits/fire/equipment reject atomically. Browser controls and actual3D
+    shield/enemy/shot visuals must follow these effects.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for weapons, shield, and enemy combat.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_portal_event
+      signature: process_portal_event(state,event) -> dict
+    inputs:
+      state: Synthetic scenario
+      event: Public schema in README
+    output:
+      type: dict
+      meaning: New state and actual3D browser effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+- ru_id: RU-005
+  name: Increasing enemy waves and restart
+  content: 'spawn_wave accepts a positive integer wave strictly greater than current wave(default0). It
+    replaces enemies with wave+1 synthetic enemies each having wave+1 hp, sets wave and returns count/health;
+    deterministic positions may be chosen by implementation. These increasing count/health parameters
+    are reconstruction conventions. A hit exhausting lives restarts the current level: restore initial_lives,
+    shield0, asteroids from level_asteroids, and current-wave enemies to full health, while preserving
+    mode/equipped/current wave. Increment restart_count and append level_restart event; result.lives is
+    restored count. Browser HUD and scene must show the current wave, enemy changes, lives and restart.
+    No headset, original assets or full commercial game is required.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for increasing enemy waves and restart.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_portal_event
+      signature: process_portal_event(state,event) -> dict
+    inputs:
+      state: Synthetic scenario
+      event: Public schema in README
+    output:
+      type: dict
+      meaning: New state and actual3D browser effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py

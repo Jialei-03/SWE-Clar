@@ -1,0 +1,203 @@
+diff --git a/itinerary_generator.py b/itinerary_generator.py
+index 706be7bda07e5c505f2c8f7e176e8f215b2f403a..ffc37ac791f8f035b0bf646ab809ae796e3174e5 100644
+--- a/itinerary_generator.py
++++ b/itinerary_generator.py
+@@ -1,12 +1,98 @@
+ """Incremental itinerary processing."""
+ 
++import json
++
++from place_service import resolve_activity
++
++
++_JSON_WHITESPACE = " \t\r\n"
++
++
++def _reject_json_constant(value):
++    """Reject JavaScript numeric extensions accepted by ``json.loads``."""
++    raise ValueError(f"invalid JSON constant: {value}")
++
+ 
+ def iter_json_objects(chunks):
+-    """Yield each complete JSON object found in text chunks."""
+-    raise NotImplementedError
++    """Yield complete JSON object records from an iterable of text chunks.
++
++    The parser keeps only the object currently being assembled.  It tracks JSON
++    delimiters itself so that a completed object can be decoded and yielded as
++    soon as its closing brace is received, without waiting for another chunk.
++    """
++    record = []
++    delimiters = []
++    in_string = False
++    escaped = False
++
++    for chunk in chunks:
++        if not isinstance(chunk, str):
++            raise ValueError("JSON chunks must be strings")
++
++        for character in chunk:
++            if not record:
++                # Between records, only JSON whitespace is permitted.  The
++                # upstream contract supplies objects, so a non-object prefix
++                # is an error rather than a value to skip.
++                if character in _JSON_WHITESPACE:
++                    continue
++                if character != "{":
++                    raise ValueError("expected a JSON object")
++                record.append(character)
++                delimiters.append("}")
++                continue
++
++            record.append(character)
++
++            if in_string:
++                if escaped:
++                    escaped = False
++                elif character == "\\":
++                    escaped = True
++                elif character == '"':
++                    in_string = False
++                continue
++
++            if character == '"':
++                in_string = True
++            elif character == "{":
++                delimiters.append("}")
++            elif character == "[":
++                delimiters.append("]")
++            elif character in "}]":
++                if not delimiters or character != delimiters[-1]:
++                    raise ValueError("malformed JSON object")
++                delimiters.pop()
++
++                if not delimiters:
++                    text = "".join(record)
++                    try:
++                        value = json.loads(
++                            text, parse_constant=_reject_json_constant
++                        )
++                    except (TypeError, ValueError) as exc:
++                        raise ValueError("malformed JSON object") from exc
++                    if not isinstance(value, dict):
++                        raise ValueError("expected a JSON object")
++
++                    # Reset the scanner before yielding.  This allows the
++                    # caller to resume and consume another adjacent object in
++                    # the same already-received chunk without reading upstream.
++                    record = []
++                    delimiters = []
++                    in_string = False
++                    escaped = False
++                    yield value
++
++    # An unterminated trailing object is intentionally ignored.  There is no
++    # need to diagnose it: it has not reached a complete top-level boundary.
+ 
+ 
+ def stream_itinerary(chunks, location, find_place, find_replacement):
+     """Yield one SSE data record per acceptable resolved activity."""
+-    raise NotImplementedError
+-
++    for activity in iter_json_objects(chunks):
++        resolved = resolve_activity(
++            activity, location, find_place, find_replacement
++        )
++        if resolved is not None:
++            yield f"data: {json.dumps(resolved)}\n\n"
+diff --git a/place_service.py b/place_service.py
+index 758d52eaef6e657ea3d4187a460bd3e3ff27b06a..f4d42dd10cc26de9e9fd8f35ead3e99793f469ce 100644
+--- a/place_service.py
++++ b/place_service.py
+@@ -1,7 +1,89 @@
+ """Place lookup orchestration for the itinerary backend."""
+ 
++import math
++import numbers
++from collections.abc import Mapping
++
++
++_EXEMPT_TYPES = frozenset(
++    {
++        "neighborhood",
++        "natural_feature",
++        "route",
++        "tourist_attraction",
++        "point_of_interest",
++        "park",
++    }
++)
++
++
++def _valid_rating(value):
++    """Return whether value is a finite, non-boolean number at least three."""
++    if isinstance(value, bool) or not isinstance(value, numbers.Number):
++        return False
++    try:
++        # Integral values do not need conversion through float, so arbitrarily
++        # large (but still finite) Python integers remain valid numbers.
++        if isinstance(value, numbers.Integral):
++            return value >= 3
++        return bool(math.isfinite(value) and value >= 3)
++    except (TypeError, ValueError, OverflowError):
++        return False
++
++
++def _valid_user_rating_count(value):
++    """Return whether value is a non-negative integer count of at least 50."""
++    return (
++        not isinstance(value, bool)
++        and isinstance(value, numbers.Integral)
++        and value >= 0
++        and value >= 50
++    )
++
++
++def is_valid_place(place):
++    """Return whether a normalized place satisfies the acceptance policy."""
++    if not isinstance(place, Mapping):
++        return False
++
++    # Closed status is checked before the type exemptions, as required by the
++    # policy.  Other statuses (including a missing status) are not restrictions.
++    status = place.get("businessStatus")
++    if status == "CLOSED_TEMPORARILY" or status == "CLOSED_PERMANENTLY":
++        return False
++
++    types = place.get("types")
++    if not isinstance(types, list) or not all(
++        isinstance(place_type, str) for place_type in types
++    ):
++        return False
++
++    if any(place_type in _EXEMPT_TYPES for place_type in types):
++        return True
++
++    return _valid_rating(place.get("rating")) and _valid_user_rating_count(
++        place.get("userRatingCount")
++    )
++
++
++def _merge_activity_and_place(activity, place):
++    """Copy activity metadata and let all place metadata override collisions."""
++    enriched = dict(activity)
++    enriched.update(place)
++    return enriched
++
+ 
+ def resolve_activity(activity, location, find_place, find_replacement):
+-    """Return enriched acceptable activity data, or None."""
+-    raise NotImplementedError
++    """Return enriched acceptable activity data, or ``None``."""
++    business_name = activity["business_name"]
++    description = activity["description"]
++
++    primary = find_place(business_name, location)
++    if is_valid_place(primary):
++        return _merge_activity_and_place(activity, primary)
++
++    replacement = find_replacement(description, location)
++    if is_valid_place(replacement):
++        return _merge_activity_and_place(activity, replacement)
+ 
++    return None

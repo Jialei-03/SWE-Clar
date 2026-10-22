@@ -1,0 +1,16 @@
+# Workbook inventory synchronization
+
+This independently reconstructed project updates real `.xlsx` files, not JSON documents renamed as workbooks. Python 3.11+ and openpyxl 3.1.5 are required. Complete `run_inventory_sync(workspace, cin7_client, post_processor=None)` in `inventory_sync.py`; preserve the workspace configuration loader. `cin7_client.lookup(sku)` returns numeric `soh` and `ots`. `post_processor(workbook_path, action_name)` is a supplied callable adapter; no executable commands are read from configuration.
+
+The workspace has `sync.json` containing `customer_folders` (relative folder paths) and `workbooks` (optional per-workbook settings keyed by relative `.xlsx` path). Workbook settings may contain a `post_process` action name and an `outputs` list of relative generated filenames. Eligible workbooks contain an `Inventory` sheet with a first-row `sku` header; `soh` and `ots` columns may be present or added. Other sheets, formulas, cell formatting and blank-SKU rows are existing data to preserve. Runtime-generated files belong under `run_output`, which is excluded from discovery.
+
+The test suite constructs synthetic Excel workbooks and supplies fake inventory responses and real local post-processing callbacks. It does not access customer Google Sheets, accounts, macros, credentials or live inventory services. The XLSX file interface is an explicit local reconstruction of the spreadsheet automation component.
+
+All headers and configuration keys above are exact case-sensitive names. Generated output paths are relative to the workbook directory; report workbook/output paths are relative to the workspace. Error report entries have the exact fields workbook, stage and error; error is a nonempty human-readable description. The stage is parse for workbook opening/validation, lookup for inventory lookup, save for workbook persistence, or post_process for callback failures. Report entries expose workbook/action for successful callbacks, and workbook/missing_output for warnings; additional metadata is permitted. No exact collision suffix or temporary-file strategy is prescribed. Lookup errors preserve that row’s prior stock values and permit healthy rows to be saved.
+
+The prepared environment must install openpyxl before the agent budget. `/public_tests/example.py` creates a synthetic example workspace and runs the supplied local adapters. No external account access is required. Discovery, error-continuation and output-naming policies are benchmark reconstruction conventions.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

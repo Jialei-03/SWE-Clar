@@ -1,0 +1,199 @@
+schema_version: 1
+task_id: SWECLAR-088
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: License-binding, trial-expiry and abuse-policy module
+requirement_units:
+- ru_id: RU-001
+  name: License workflow entry point
+  content: process_license_action(state,action) returns complete next internal state with result or nonempty
+    error.code without input mutation. Preserve business state on invalid actions except explicitly required
+    secondary-shop audit. Missing collections may initialize. SQLite CLI init/show/act persists actual
+    state across processes; init once, show trusted operator only, act result/error only. Persist audited
+    verification denials too; transient result/error are excluded from stored state. List/admin/verification
+    results must not expose raw keys or hashes. The local deliveries outbox is private operator data and
+    intentionally contains the synthetic key intended for its recipient. No live email/Shopify action
+    is claimed. CLI show reads admin_id from stdin JSON, checks persisted state.admins, and returns complete
+    persisted state only to a listed operator; other identities receive a nonempty error.code without
+    storage changes. This synthetic local identity is not network authentication.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for license workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_license_action
+      signature: process_license_action(state,action) -> dict
+    inputs:
+      state: Private synthetic records
+      action: Supported action schema
+    output:
+      type: dict
+      meaning: Next private state; public CLI result/error redacts keys
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.
+- ru_id: RU-002
+  name: Idempotent purchase and delivery
+  content: purchase requires paid exactly true, nonempty event_id,license_id,email,shop and license_key
+    string of at least8 characters. Normalize email/shop by trim+casefold; email must have one @, nonempty
+    whitespace-free parts. New license ID/key must be unique. Store licenses[id] email,shop,status=active,key_hash=SHA256(key),key_suffix=last4.
+    Record one event mapping and one deliveries outbox entry with event_id,license_id,email,body including
+    intended key,status=queued. Return license_id and no raw key. Replay event with same normalized email/shop/key
+    succeeds returning original license_id, no new license/outbox, even if requested license_id differs.
+    Changed event email/shop/key or unpaid replay rejects atomically. Purchase is trusted local confirmed-event
+    ingestion, not payment processing.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for idempotent purchase and delivery.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_license_action
+      signature: process_license_action(state,action) -> dict
+    inputs:
+      state: Private synthetic records
+      action: Supported action schema
+    output:
+      type: dict
+      meaning: Next private state; public CLI result/error redacts keys
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.
+- ru_id: RU-003
+  name: Store and IP verification
+  content: verify requires known key hash, nonblank normalized shop/IP and finite nonnegative numeric
+    timestamp excluding bool (default0). Active/trial license only; any expires_at bound requires finite
+    nonnegative now excluding bool and now<expires_at. Store successful ping license_id,shop(trim+casefold),ip(trim),timestamp;
+    return valid=true,license_id,key_suffix, never key/hash. Unknown/frozen/revoked/expired rejects without
+    ping. Shop mismatch follows secondary-use audit rule. Binding never changes during verification.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for store and ip verification.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_license_action
+      signature: process_license_action(state,action) -> dict
+    inputs:
+      state: Private synthetic records
+      action: Supported action schema
+    output:
+      type: dict
+      meaning: Next private state; public CLI result/error redacts keys
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.
+- ru_id: RU-004
+  name: Abuse warning and freeze
+  content: For an otherwise active/unexpired known license verified from a different normalized shop,
+    deny verification, add one warnings row per license_id+secondary-shop exposing license_id,shop,status=frozen,
+    and persist that audit even though response has error. Repeated attempts/case variants do not add
+    warnings; a different secondary shop may add its own. Do not freeze the license or legitimate shop,
+    change binding, or append success ping. The warning is a local abuse record, not external enforcement.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for abuse warning and freeze.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_license_action
+      signature: process_license_action(state,action) -> dict
+    inputs:
+      state: Private synthetic records
+      action: Supported action schema
+    output:
+      type: dict
+      meaning: Next private state; public CLI result/error redacts keys
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.
+- ru_id: RU-005
+  name: Trial and administration
+  content: trial needs unique license_id/key (key string at least8 characters), normalized valid email/shop
+    and finite numeric now(default0),expires_at with expires_at>now>=0, excluding bool. Store status=trial
+    and expiry; no paid event or email outbox required. Verification rejects exactly at/after expiry even
+    if administrator later sets active. set_status requires admin_id in state.admins, known license and
+    status active/frozen/revoked, changes status only. search requires administrator; query defaults empty,
+    string case-insensitive trimmed substring across license_id,email,shop. Return result.licenses sorted
+    by license_id, with those fields,status,key_suffix and expiry when present; never raw key/hash. Unauthorized
+    search/status change rejects without business effects. Identity is trusted upstream local context,
+    not public login.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for trial and administration.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_license_action
+      signature: process_license_action(state,action) -> dict
+    inputs:
+      state: Private synthetic records
+      action: Supported action schema
+    output:
+      type: dict
+      meaning: Next private state; public CLI result/error redacts keys
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.

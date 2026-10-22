@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-076",
+  "readme": "# Portal training arena \u2014 browser adaptation\n\nComplete process_portal_event(state,event) in solution.py while preserving actual native WebGL3D rendering and interaction. The supplied independent scene provides room/cockpit portal controls, continuous or single-step asteroid motion, weapon/shield controls, visible enemies and shots, wave spawning and restart feedback. This is a small browser adaptation of a Unity/Quest gameplay scenario; it does not execute the original game, headset tracking, AR room scans or proprietary assets.\n\nUse prepared python-web (Python3.12.3, Chromium/Playwright), no downloads/accounts/dependencies. In /workspace start `python server.py --port 8080` and open /game. /health and /state expose startup/current state; POST /action processes one event; POST /reset restores the synthetic scenario. Accepted calls return200; rejected calls400 with nonempty error.code. Public test: `python /public_tests/test_public.py`. Limits:2 CPU,2048 MiB,256 processes,256 MiB workspace; loopback only.\n\nKeep both inputs unchanged. A successful event stores its finite numeric timestamp, which cannot be less than state.timestamp(default0); equal timestamps are allowed. Booleans are not numbers. Failed events preserve all gameplay state and timestamp. Extra metadata and alternative error wording are allowed.\n\nVisible transition rule: only an existing active portal can switch room to cockpit or cockpit to room. Preserve lives and other progress; return result.mode and result.lives. Unknown/inactive portal, unsupported target or same-mode target rejects. The browser must show a different3D environment for each mode, with lives preserved.\n\nState has mode,lives,initial_lives,portals,asteroids,weapons,equipped,shield_energy,enemies,wave,events,level_asteroids,restart_count. Asteroids have position/velocity with x,y,z; level_asteroids holds restart positions/velocities. Weapons have positive numeric power. Enemies have hp and position{x,y,z}; generated IDs/positions are free. Events may record portal_ripple,shot,level_restart for visible effects.\n\nEvery event includes type and timestamp:\n\n- transition: portal_id,target_mode.\n- move_asteroid: asteroid_id,bounds{x,y,z},optional through_portal,angle.\n- equip: weapon_id.\n- activate_shield: energy.\n- hit: damage.\n- fire: weapon_id,enemy_id.\n- spawn_wave: wave.\n\nMovement returns position/velocity; hit returns absorbed,lives,shield_energy; wave returns count/health. All visible HUD, asteroid/enemy positions, shield and shot graphics must use resulting state. The UI assigns increasing event timestamps and serializes requests. Run asteroid advances physics on a timer; Step advances once; Portal ripple performs a traversal step. Fire targets the selected living enemy.\n\nAsk the client about reflection/bounds, ripple rules, equipment limit, shielding, wave growth and exact restart behavior. Those numerical/state conventions are synthetic reconstruction choices. No original code, models, shaders or customer identifiers are included.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_portal_event",
+        "signature": "process_portal_event(state,event) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic scenario",
+        "event": "Public schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state and actual3D browser effects"
+      },
+      "operations": []
+    }
+  ]
+}

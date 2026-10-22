@@ -1,0 +1,312 @@
+"""Deterministic local backend command processor.
+
+The command processor deliberately keeps the durable business state and the
+short-lived command views in one Python object.  ``storage.CommandStore``
+removes the latter before writing a successful result to SQLite.  Keeping the
+implementation here side-effect free is important: the same function is used
+by the CLI while a SQLite write lock is held, and it is also the public
+function-level interface.
+"""
+
+from __future__ import annotations
+
+import copy
+import math
+from typing import Any
+
+
+# These fields describe the result of the current command, rather than
+# durable business data.  A fresh command view must not inherit a stale view
+# from a previous direct call to this function.
+_TRANSIENT_FIELDS = {
+    "error",
+    "refund_result",
+    "comment_result",
+    "login_result",
+}
+
+
+def _copy_base_state(state: Any) -> dict[str, Any]:
+    """Return an independent state copy with command views cleared.
+
+    The public contract supplies a dictionary, but returning a dictionary
+    with an error is more useful than raising if a malformed caller passes a
+    different value.  For a normal JSON state, ``deepcopy`` also guarantees
+    that no nested list or object is shared with the caller.
+    """
+
+    if not isinstance(state, dict):
+        return {}
+
+    result = __import__('json').loads(__import__('json').dumps(state))
+    for field in _TRANSIENT_FIELDS:
+        result.pop(field, None)
+    return result
+
+
+def _error(result: dict[str, Any], code: str) -> dict[str, Any]:
+    """Attach the standard non-empty rejection shape and return the state."""
+
+    result["error"] = {"code": code}
+    return result
+
+
+def _nonempty_text(value: Any) -> bool:
+    """Whether *value* is a meaningful non-empty text identifier.
+
+    Whitespace-only identifiers cannot identify a business object.  The
+    original text is retained when it is accepted; this helper is validation
+    only and does not normalize keys or order IDs.
+    """
+
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _finite_json_number(value: Any) -> bool:
+    """Return whether *value* is a JSON-style finite number, not a bool."""
+
+    # bool is a subclass of int, but is explicitly not a valid amount or
+    # timestamp.  Restricting this to int/float also keeps values written by
+    # the function JSON serializable without coercing caller supplied values.
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    if isinstance(value, float):
+        return math.isfinite(value)
+    # Python integers have no infinity/NaN representation.
+    return True
+
+
+def _valid_refund_command(
+    command: dict[str, Any],
+) -> tuple[bool, Any, Any, Any, Any]:
+    """Validate and return refund fields without changing their values."""
+
+    key = command.get("idempotency_key")
+    order_id = command.get("order_id")
+    amount = command.get("amount")
+    currency = command.get("currency")
+
+    if not _nonempty_text(key) or not _nonempty_text(order_id):
+        return False, key, order_id, amount, currency
+    if not _nonempty_text(currency):
+        return False, key, order_id, amount, currency
+    if not _finite_json_number(amount) or amount <= 0:
+        return False, key, order_id, amount, currency
+    return True, key, order_id, amount, currency
+
+
+def _process_refund(result: dict[str, Any], command: dict[str, Any]) -> dict[str, Any]:
+    valid, key, order_id, amount, currency = _valid_refund_command(command)
+    if not valid:
+        return _error(result, "invalid_refund")
+
+    refunds = result.get("refunds")
+    if refunds is None:
+        # A state created from an empty seed may omit optional business arrays.
+        # Treat that as an empty durable collection for a valid command.
+        refunds = []
+        result["refunds"] = refunds
+    elif not isinstance(refunds, list):
+        return _error(result, "invalid_refund")
+
+    # Idempotency is checked against the complete collection, not just the
+    # last record.  The existing object is returned verbatim (as a deep copy),
+    # with no duplicate marker or replacement record.
+    for existing in refunds:
+        if isinstance(existing, dict) and existing.get("idempotency_key") == key:
+            result["refund_result"] = copy.deepcopy(existing)
+            return result
+
+    refund = {
+        "idempotency_key": key,
+        "order_id": order_id,
+        "amount": amount,
+        "currency": currency.upper(),
+        "status": "pending",
+    }
+    refunds.append(refund)
+    result["refund_result"] = copy.deepcopy(refund)
+    return result
+
+
+def _comment_parent_id(comment: Any) -> Any:
+    """Read a parent ID from a seed comment, treating omission and null alike."""
+
+    if not isinstance(comment, dict):
+        return None
+    return comment.get("parent_id")
+
+
+def _would_complete_comment_cycle(
+    comments_by_id: dict[str, dict[str, Any]],
+    parent_id: str,
+    new_id: str,
+) -> bool:
+    """Check whether ``new_id -> parent_id`` closes a parent-pointer cycle.
+
+    Seed data is allowed to contain dangling parent pointers.  Consequently,
+    following the parent chain must stop at a missing node, while a pointer to
+    the proposed new ID is exactly the cycle case.  The visited set also keeps
+    malformed pre-existing cycles from making validation loop forever.
+    """
+
+    cursor: Any = parent_id
+    visited: set[str] = set()
+    while isinstance(cursor, str) and cursor:
+        if cursor == new_id:
+            return True
+        if cursor in visited:
+            return False
+        visited.add(cursor)
+
+        node = comments_by_id.get(cursor)
+        if node is None:
+            return False
+        next_parent = _comment_parent_id(node)
+        if next_parent is None:
+            return False
+        if not isinstance(next_parent, str) or not next_parent:
+            # A malformed imported node cannot establish a useful path to the
+            # proposed node.  The new command itself is validated separately.
+            return False
+        cursor = next_parent
+    return False
+
+
+def _process_comment(result: dict[str, Any], command: dict[str, Any]) -> dict[str, Any]:
+    comments_was_present = "comments" in result
+    comments = result.get("comments")
+    if comments is None:
+        comments = []
+    elif not isinstance(comments, list):
+        return _error(result, "invalid_comment")
+
+    comment_id = command.get("id")
+    if not _nonempty_text(comment_id):
+        return _error(result, "invalid_comment")
+
+    # Comment IDs are unique.  Keep the original insertion order for every
+    # other operation; this map is only an index for validation.
+    comments_by_id: dict[str, dict[str, Any]] = {}
+    for existing in comments:
+        if not isinstance(existing, dict):
+            return _error(result, "invalid_comment")
+        existing_id = existing.get("id")
+        if isinstance(existing_id, str) and existing_id not in comments_by_id:
+            comments_by_id[existing_id] = existing
+
+    if comment_id in comments_by_id:
+        return _error(result, "duplicate_comment")
+
+    has_parent = "parent_id" in command and command.get("parent_id") is not None
+    parent_id = command.get("parent_id") if has_parent else None
+    if has_parent and not isinstance(parent_id, str):
+        return _error(result, "invalid_comment")
+    if has_parent and not parent_id.strip():
+        return _error(result, "missing_parent")
+    if has_parent and parent_id == comment_id:
+        return _error(result, "comment_cycle")
+    if has_parent and parent_id not in comments_by_id:
+        return _error(result, "missing_parent")
+    if has_parent and _would_complete_comment_cycle(
+        comments_by_id, parent_id, comment_id
+    ):
+        return _error(result, "comment_cycle")
+
+    # created_at is optional, but when supplied it is a trusted finite
+    # timestamp just like the other timestamps in this component.  body is
+    # intentionally not coerced: the command's supplied JSON value is kept.
+    if "created_at" in command and not _finite_json_number(command["created_at"]):
+        return _error(result, "invalid_comment")
+
+    # The command discriminator is protocol metadata, not part of the stored
+    # comment.  Preserve supported fields only, including optional fields
+    # when the caller supplied them (an explicit null parent is retained).
+    comment: dict[str, Any] = {}
+    for field in ("id", "parent_id", "body", "created_at"):
+        if field in command:
+            comment[field] = copy.deepcopy(command[field])
+
+    comments.append(comment)
+    if not comments_was_present or result.get("comments") is None:
+        result["comments"] = comments
+    result["comment_result"] = copy.deepcopy(comment)
+    return result
+
+
+def _process_passwordless(
+    result: dict[str, Any], command: dict[str, Any]
+) -> dict[str, Any]:
+    email = command.get("email")
+    now = command.get("now")
+    if not isinstance(email, str):
+        return _error(result, "invalid_passwordless")
+    normalized_email = email.strip().lower()
+    if not normalized_email or not _finite_json_number(now):
+        return _error(result, "invalid_passwordless")
+
+    attempts_by_email = result.get("login_attempts")
+    if attempts_by_email is None:
+        attempts_by_email = {}
+        result["login_attempts"] = attempts_by_email
+    elif not isinstance(attempts_by_email, dict):
+        return _error(result, "invalid_passwordless")
+
+    raw_attempts = attempts_by_email.get(normalized_email, [])
+    if not isinstance(raw_attempts, list):
+        return _error(result, "invalid_passwordless")
+    if any(not _finite_json_number(timestamp) for timestamp in raw_attempts):
+        return _error(result, "invalid_passwordless")
+
+    # An attempt at the exact 900-second boundary has expired.  This makes
+    # the window (now - 900, now], as required by "until ... expires".
+    cutoff = now - 900
+    in_window = [timestamp for timestamp in raw_attempts if timestamp > cutoff]
+
+    if len(in_window) >= 3:
+        oldest = min(in_window)
+        retry_after = oldest + 900 - now
+        # The strict comparison above makes this positive; the guard protects
+        # against unusual floating-point rounding at the boundary.
+        if retry_after < 0:
+            retry_after = 0
+        attempts_by_email[normalized_email] = in_window
+        result["login_result"] = {
+            "accepted": False,
+            "retry_after_seconds": retry_after,
+        }
+        return result
+
+    in_window.append(now)
+    attempts_by_email[normalized_email] = in_window
+    result["login_result"] = {"accepted": True}
+    return result
+
+
+def process_backend_command(state: dict, command: dict) -> dict:
+    """Process one supported command without mutating either input object.
+
+    Successful results contain a deep copy of the durable state plus the
+    transient view for the command.  Rejections contain the unchanged durable
+    state plus ``error.code``.  SQLite persistence is handled by the supplied
+    adapter; this function itself performs no I/O.
+    """
+
+    result = _copy_base_state(state)
+
+    if not isinstance(state, dict):
+        return _error(result, "invalid_state")
+    if not isinstance(command, dict):
+        return _error(result, "invalid_command")
+
+    command_type = command.get("type")
+    if command_type == "refund":
+        return _process_refund(result, command)
+    if command_type == "comment":
+        return _process_comment(result, command)
+    if command_type == "passwordless":
+        return _process_passwordless(result, command)
+    return _error(result, "unsupported_command")
+
+
+__all__ = ["process_backend_command"]

@@ -1,0 +1,1463 @@
+diff --git a/src/fcb_graph.c b/src/fcb_graph.c
+index 6a1788380cee9266822720d9455ddaaf7d0f2b18..f9b583d2c028f524b24b847e363dcf614a99b334 100644
+--- a/src/fcb_graph.c
++++ b/src/fcb_graph.c
+@@ -1,94 +1,357 @@
+ #include "graph_internal.h"
++
+ #include <stdlib.h>
+ #include <string.h>
+ 
+-char *graph_copy_string(const char *value) {
+-    if (!value) return NULL;
+-    size_t length=0;
+-    while (length<=4096 && value[length]) ++length;
+-    if (length>4096) return NULL;
+-    char *copy=malloc(length+1);
+-    if (copy) memcpy(copy,value,length+1);
++bool graph_string_length(const char *value, size_t *length)
++{
++    size_t current = 0;
++
++    if (!value || !length) {
++        return false;
++    }
++
++    while (current <= GRAPH_MAX_STRING_LENGTH) {
++        if (value[current] == '\0') {
++            *length = current;
++            return true;
++        }
++        ++current;
++    }
++
++    return false;
++}
++
++char *graph_copy_string(const char *value)
++{
++    size_t length;
++    char *copy;
++
++    if (!graph_string_length(value, &length)) {
++        return NULL;
++    }
++
++    copy = malloc(length + 1);
++    if (!copy) {
++        return NULL;
++    }
++
++    if (length != 0) {
++        memcpy(copy, value, length);
++    }
++    copy[length] = '\0';
+     return copy;
+ }
+-graph_node *graph_find_node(const fcb_graph *g,uint64_t id) {
+-    if (!g || !id) return NULL;
+-    for (graph_node *node=g->head;node;node=node->next)
+-        if (node->id==id) return node;
++
++graph_node *graph_find_node(const fcb_graph *graph, uint64_t id)
++{
++    graph_node *node;
++
++    if (!graph || id == 0) {
++        return NULL;
++    }
++
++    for (node = graph->head; node; node = node->next) {
++        if (node->id == id) {
++            return node;
++        }
++    }
++
++    return NULL;
++}
++
++graph_edge *graph_find_edge(const fcb_graph *graph, uint64_t from, uint64_t to)
++{
++    graph_edge *edge;
++
++    if (!graph || from == 0 || to == 0) {
++        return NULL;
++    }
++
++    for (edge = graph->links; edge; edge = edge->next) {
++        if ((edge->from == from && edge->to == to) ||
++            (!graph->directed && edge->from == to && edge->to == from)) {
++            return edge;
++        }
++    }
++
+     return NULL;
+ }
+-static graph_edge **edge_slot(fcb_graph *g,uint64_t from,uint64_t to) {
+-    graph_edge **slot=&g->links;
++
++static graph_edge **edge_slot(fcb_graph *graph, uint64_t from, uint64_t to)
++{
++    graph_edge **slot;
++
++    if (!graph || from == 0 || to == 0) {
++        return NULL;
++    }
++
++    slot = &graph->links;
+     while (*slot) {
+-        graph_edge *edge=*slot;
+-        if ((edge->from==from && edge->to==to) ||
+-            (!g->directed && edge->from==to && edge->to==from)) break;
+-        slot=&edge->next;
++        graph_edge *edge = *slot;
++        if ((edge->from == from && edge->to == to) ||
++            (!graph->directed && edge->from == to && edge->to == from)) {
++            break;
++        }
++        slot = &edge->next;
+     }
++
+     return slot;
+ }
+-fcb_graph *fcb_graph_create(bool directed) {
+-    fcb_graph *g=calloc(1,sizeof(*g));
+-    if (g) { g->directed=directed;g->next_id=1; }
+-    return g;
+-}
+-void fcb_graph_destroy(fcb_graph *g) {
+-    if (!g) return;
+-    while (g->links) { graph_edge *edge=g->links;g->links=edge->next;free(edge->label);free(edge); }
+-    while (g->head) { graph_node *node=g->head;g->head=node->next;free(node->value);free(node); }
+-    free(g);
+-}
+-size_t fcb_graph_node_count(const fcb_graph *g) { return g?g->nodes:0; }
+-size_t fcb_graph_edge_count(const fcb_graph *g) { return g?g->edges:0; }
+-uint64_t fcb_graph_add_node(fcb_graph *g,const char *value) {
+-    if (!g || !g->next_id) return 0;
+-    char *copy=graph_copy_string(value);if (!copy) return 0;
+-    graph_node *node=malloc(sizeof(*node));
+-    if (!node) { free(copy);return 0; }
+-    node->id=g->next_id++;node->value=copy;node->next=g->head;g->head=node;++g->nodes;
+-    return node->id;
+-}
+-const char *fcb_graph_get_node(const fcb_graph *g,uint64_t id) {
+-    graph_node *node=graph_find_node(g,id);return node?node->value:NULL;
+-}
+-bool fcb_graph_update_node(fcb_graph *g,uint64_t id,const char *value) {
+-    graph_node *node=graph_find_node(g,id);if (!node) return false;
+-    char *copy=graph_copy_string(value);if (!copy) return false;
+-    free(node->value);node->value=copy;return true;
+-}
+-bool fcb_graph_remove_node(fcb_graph *g,uint64_t id) {
+-    if (!g || !id) return false;
+-    graph_node **slot=&g->head;
+-    while (*slot && (*slot)->id!=id) slot=&(*slot)->next;
+-    if (!*slot) return false;
+-    graph_edge **link=&g->links;
+-    while (*link) {
+-        graph_edge *edge=*link;
+-        if (edge->from==id || edge->to==id) { *link=edge->next;free(edge->label);free(edge);--g->edges; }
+-        else link=&edge->next;
+-    }
+-    graph_node *node=*slot;*slot=node->next;free(node->value);free(node);--g->nodes;return true;
+-}
+-bool fcb_graph_add_edge(fcb_graph *g,uint64_t from,uint64_t to,const char *label) {
+-    if (!graph_find_node(g,from) || !graph_find_node(g,to) || *edge_slot(g,from,to)) return false;
+-    char *copy=graph_copy_string(label);if (!copy) return false;
+-    graph_edge *edge=malloc(sizeof(*edge));if (!edge) { free(copy);return false; }
+-    edge->from=from;edge->to=to;edge->label=copy;edge->next=g->links;g->links=edge;++g->edges;return true;
+-}
+-const char *fcb_graph_get_edge(const fcb_graph *g,uint64_t from,uint64_t to) {
+-    if (!g || !from || !to) return NULL;
+-    for (graph_edge *edge=g->links;edge;edge=edge->next)
+-        if ((edge->from==from && edge->to==to) || (!g->directed && edge->from==to && edge->to==from)) return edge->label;
+-    return NULL;
++
++static uint64_t allocate_node_id(fcb_graph *graph)
++{
++    uint64_t candidate;
++    uint64_t first;
++
++    if (!graph) {
++        return 0;
++    }
++
++    candidate = graph->next_id != 0 ? graph->next_id : UINT64_C(1);
++    first = candidate;
++
++    for (;;) {
++        if (!graph_find_node(graph, candidate)) {
++            graph->next_id = candidate == UINT64_MAX ? 0 : candidate + 1;
++            return candidate;
++        }
++
++        candidate = candidate == UINT64_MAX ? UINT64_C(1) : candidate + 1;
++        if (candidate == first) {
++            return 0;
++        }
++    }
++}
++
++fcb_graph *fcb_graph_create(bool directed)
++{
++    fcb_graph *graph = calloc(1, sizeof(*graph));
++
++    if (graph) {
++        graph->directed = directed;
++        graph->next_id = UINT64_C(1);
++    }
++
++    return graph;
++}
++
++void fcb_graph_destroy(fcb_graph *graph)
++{
++    if (!graph) {
++        return;
++    }
++
++    while (graph->links) {
++        graph_edge *edge = graph->links;
++        graph->links = edge->next;
++        free(edge->label);
++        free(edge);
++    }
++
++    while (graph->head) {
++        graph_node *node = graph->head;
++        graph->head = node->next;
++        free(node->value);
++        free(node);
++    }
++
++    free(graph);
+ }
+-bool fcb_graph_update_edge(fcb_graph *g,uint64_t from,uint64_t to,const char *label) {
+-    if (!g) return false;
+-    graph_edge *edge=*edge_slot(g,from,to);if (!edge) return false;
+-    char *copy=graph_copy_string(label);if (!copy) return false;
+-    free(edge->label);edge->label=copy;return true;
++
++size_t fcb_graph_node_count(const fcb_graph *graph)
++{
++    return graph ? graph->nodes : 0;
+ }
+-bool fcb_graph_remove_edge(fcb_graph *g,uint64_t from,uint64_t to) {
+-    if (!g) return false;
+-    graph_edge **slot=edge_slot(g,from,to);if (!*slot) return false;
+-    graph_edge *edge=*slot;*slot=edge->next;free(edge->label);free(edge);--g->edges;return true;
++
++size_t fcb_graph_edge_count(const fcb_graph *graph)
++{
++    return graph ? graph->edges : 0;
++}
++
++uint64_t fcb_graph_add_node(fcb_graph *graph, const char *value)
++{
++    graph_node *node;
++    char *copy;
++    uint64_t id;
++
++    if (!graph) {
++        return 0;
++    }
++
++    copy = graph_copy_string(value);
++    if (!copy) {
++        return 0;
++    }
++
++    node = malloc(sizeof(*node));
++    if (!node) {
++        free(copy);
++        return 0;
++    }
++
++    id = allocate_node_id(graph);
++    if (id == 0) {
++        free(node);
++        free(copy);
++        return 0;
++    }
++
++    node->id = id;
++    node->value = copy;
++    node->next = graph->head;
++    graph->head = node;
++    ++graph->nodes;
++    return id;
++}
++
++const char *fcb_graph_get_node(const fcb_graph *graph, uint64_t id)
++{
++    graph_node *node = graph_find_node(graph, id);
++    return node ? node->value : NULL;
++}
++
++bool fcb_graph_update_node(fcb_graph *graph, uint64_t id, const char *value)
++{
++    graph_node *node;
++    char *copy;
++
++    node = graph_find_node(graph, id);
++    if (!node) {
++        return false;
++    }
++
++    copy = graph_copy_string(value);
++    if (!copy) {
++        return false;
++    }
++
++    free(node->value);
++    node->value = copy;
++    return true;
++}
++
++bool fcb_graph_remove_node(fcb_graph *graph, uint64_t id)
++{
++    graph_node **node_slot;
++    graph_edge **edge_slot_cursor;
++    graph_node *node;
++
++    if (!graph || id == 0) {
++        return false;
++    }
++
++    node_slot = &graph->head;
++    while (*node_slot && (*node_slot)->id != id) {
++        node_slot = &(*node_slot)->next;
++    }
++    if (!*node_slot) {
++        return false;
++    }
++
++    edge_slot_cursor = &graph->links;
++    while (*edge_slot_cursor) {
++        graph_edge *edge = *edge_slot_cursor;
++        if (edge->from == id || edge->to == id) {
++            *edge_slot_cursor = edge->next;
++            free(edge->label);
++            free(edge);
++            --graph->edges;
++        } else {
++            edge_slot_cursor = &edge->next;
++        }
++    }
++
++    node = *node_slot;
++    *node_slot = node->next;
++    free(node->value);
++    free(node);
++    --graph->nodes;
++    return true;
++}
++
++bool fcb_graph_add_edge(fcb_graph *graph, uint64_t from, uint64_t to,
++                        const char *label)
++{
++    graph_node *from_node;
++    graph_node *to_node;
++    graph_edge *edge;
++    char *copy;
++
++    if (!graph) {
++        return false;
++    }
++
++    from_node = graph_find_node(graph, from);
++    to_node = graph_find_node(graph, to);
++    if (!from_node || !to_node || graph_find_edge(graph, from, to)) {
++        return false;
++    }
++
++    copy = graph_copy_string(label);
++    if (!copy) {
++        return false;
++    }
++
++    edge = malloc(sizeof(*edge));
++    if (!edge) {
++        free(copy);
++        return false;
++    }
++
++    edge->from = from;
++    edge->to = to;
++    edge->label = copy;
++    edge->from_node = from_node;
++    edge->to_node = to_node;
++    edge->next = graph->links;
++    graph->links = edge;
++    ++graph->edges;
++    return true;
++}
++
++const char *fcb_graph_get_edge(const fcb_graph *graph, uint64_t from,
++                               uint64_t to)
++{
++    graph_edge *edge = graph_find_edge(graph, from, to);
++    return edge ? edge->label : NULL;
++}
++
++bool fcb_graph_update_edge(fcb_graph *graph, uint64_t from, uint64_t to,
++                           const char *label)
++{
++    graph_edge *edge;
++    char *copy;
++
++    edge = graph_find_edge(graph, from, to);
++    if (!edge) {
++        return false;
++    }
++
++    copy = graph_copy_string(label);
++    if (!copy) {
++        return false;
++    }
++
++    free(edge->label);
++    edge->label = copy;
++    return true;
++}
++
++bool fcb_graph_remove_edge(fcb_graph *graph, uint64_t from, uint64_t to)
++{
++    graph_edge **slot;
++    graph_edge *edge;
++
++    slot = edge_slot(graph, from, to);
++    if (!slot || !*slot) {
++        return false;
++    }
++
++    edge = *slot;
++    *slot = edge->next;
++    free(edge->label);
++    free(edge);
++    --graph->edges;
++    return true;
+ }
+diff --git a/src/graph_internal.h b/src/graph_internal.h
+index 31b120f93805fbac9f4e9d7e95a9d9e6b9602b92..e7c44c8613abf4588fa04694d828092efcdfd234 100644
+--- a/src/graph_internal.h
++++ b/src/graph_internal.h
+@@ -1,9 +1,40 @@
+ #ifndef GRAPH_INTERNAL_H
+ #define GRAPH_INTERNAL_H
++
+ #include "fcb_graph.h"
+-typedef struct graph_node { uint64_t id; char *value; struct graph_node *next; } graph_node;
+-typedef struct graph_edge { uint64_t from,to; char *label; struct graph_edge *next; } graph_edge;
+-struct fcb_graph { bool directed; uint64_t next_id; size_t nodes,edges; graph_node *head; graph_edge *links; };
+-graph_node *graph_find_node(const fcb_graph *g,uint64_t id);
++
++#define GRAPH_MAX_STRING_LENGTH ((size_t)4096)
++
++typedef struct graph_node graph_node;
++typedef struct graph_edge graph_edge;
++
++struct graph_node {
++    uint64_t id;
++    char *value;
++    graph_node *next;
++};
++
++struct graph_edge {
++    uint64_t from;
++    uint64_t to;
++    char *label;
++    graph_node *from_node;
++    graph_node *to_node;
++    graph_edge *next;
++};
++
++struct fcb_graph {
++    bool directed;
++    uint64_t next_id;
++    size_t nodes;
++    size_t edges;
++    graph_node *head;
++    graph_edge *links;
++};
++
++graph_node *graph_find_node(const fcb_graph *graph, uint64_t id);
++graph_edge *graph_find_edge(const fcb_graph *graph, uint64_t from, uint64_t to);
++bool graph_string_length(const char *value, size_t *length);
+ char *graph_copy_string(const char *value);
++
+ #endif
+diff --git a/src/persistence.c b/src/persistence.c
+index 5f5eacd358458fbc974b551b13569922e8afa8aa..8160d0eb461d0a60f9ebd3f6c659fb2df8951834 100644
+--- a/src/persistence.c
++++ b/src/persistence.c
+@@ -1,4 +1,322 @@
++#define _POSIX_C_SOURCE 200809L
++
+ #include "graph_internal.h"
+-/* Clarify the durable snapshot contract before implementing persistence. */
+-bool fcb_graph_save(const fcb_graph *g,const char *path) { (void)g;(void)path;return false; }
+-fcb_graph *fcb_graph_load(const char *path) { (void)path;return NULL; }
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++#define GRAPH_FILE_VERSION UINT32_C(1)
++#define GRAPH_FILE_HEADER_SIZE UINT64_C(32)
++#define GRAPH_FILE_LIMIT (UINT64_C(64) * UINT64_C(1024) * UINT64_C(1024))
++
++static const unsigned char graph_file_magic[8] = {
++    'F', 'C', 'B', 'G', 'R', 'A', 'P', 'H'
++};
++
++static bool write_bytes(FILE *file, const void *data, size_t size)
++{
++    return fwrite(data, 1, size, file) == size;
++}
++
++static bool read_bytes(FILE *file, void *data, size_t size)
++{
++    return fread(data, 1, size, file) == size;
++}
++
++static bool write_u32(FILE *file, uint32_t value)
++{
++    unsigned char bytes[4];
++
++    bytes[0] = (unsigned char)(value & UINT32_C(0xff));
++    bytes[1] = (unsigned char)((value >> 8) & UINT32_C(0xff));
++    bytes[2] = (unsigned char)((value >> 16) & UINT32_C(0xff));
++    bytes[3] = (unsigned char)((value >> 24) & UINT32_C(0xff));
++    return write_bytes(file, bytes, sizeof(bytes));
++}
++
++static bool read_u32(FILE *file, uint32_t *value)
++{
++    unsigned char bytes[4];
++
++    if (!value || !read_bytes(file, bytes, sizeof(bytes))) {
++        return false;
++    }
++
++    *value = ((uint32_t)bytes[0]) |
++             ((uint32_t)bytes[1] << 8) |
++             ((uint32_t)bytes[2] << 16) |
++             ((uint32_t)bytes[3] << 24);
++    return true;
++}
++
++static bool write_u64(FILE *file, uint64_t value)
++{
++    unsigned char bytes[8];
++    size_t index;
++
++    for (index = 0; index < sizeof(bytes); ++index) {
++        bytes[index] = (unsigned char)((value >> (index * 8)) & UINT64_C(0xff));
++    }
++    return write_bytes(file, bytes, sizeof(bytes));
++}
++
++static bool read_u64(FILE *file, uint64_t *value)
++{
++    unsigned char bytes[8];
++    uint64_t result = 0;
++    size_t index;
++
++    if (!value || !read_bytes(file, bytes, sizeof(bytes))) {
++        return false;
++    }
++
++    for (index = 0; index < sizeof(bytes); ++index) {
++        result |= (uint64_t)bytes[index] << (index * 8);
++    }
++    *value = result;
++    return true;
++}
++
++static bool write_string(FILE *file, const char *value)
++{
++    size_t length;
++
++    if (!graph_string_length(value, &length) || length > GRAPH_MAX_STRING_LENGTH) {
++        return false;
++    }
++    if (!write_u32(file, (uint32_t)length)) {
++        return false;
++    }
++    return length == 0 || write_bytes(file, value, length);
++}
++
++static bool read_string(FILE *file, char **result)
++{
++    uint32_t length;
++    char *value;
++
++    if (!result || !read_u32(file, &length) ||
++        length > (uint32_t)GRAPH_MAX_STRING_LENGTH) {
++        return false;
++    }
++
++    value = malloc((size_t)length + 1);
++    if (!value) {
++        return false;
++    }
++
++    if (length != 0 && !read_bytes(file, value, length)) {
++        free(value);
++        return false;
++    }
++    value[length] = '\0';
++
++    /* A graph string is a C string, so an embedded NUL is not a valid record. */
++    if (memchr(value, '\0', length) != NULL) {
++        free(value);
++        return false;
++    }
++
++    *result = value;
++    return true;
++}
++
++bool fcb_graph_save(const fcb_graph *graph, const char *path)
++{
++    FILE *file;
++    unsigned char flags[4] = {0, 0, 0, 0};
++    graph_node *node;
++    graph_edge *edge;
++    bool ok = true;
++
++    if (!graph || !path || path[0] == '\0') {
++        return false;
++    }
++
++    file = fopen(path, "wb");
++    if (!file) {
++        return false;
++    }
++
++    flags[0] = graph->directed ? 1U : 0U;
++    if (!write_bytes(file, graph_file_magic, sizeof(graph_file_magic)) ||
++        !write_u32(file, GRAPH_FILE_VERSION) ||
++        !write_bytes(file, flags, sizeof(flags)) ||
++        !write_u64(file, (uint64_t)graph->nodes) ||
++        !write_u64(file, (uint64_t)graph->edges)) {
++        ok = false;
++    }
++
++    for (node = graph->head; ok && node; node = node->next) {
++        if (!write_u64(file, node->id) || !write_string(file, node->value)) {
++            ok = false;
++        }
++    }
++
++    for (edge = graph->links; ok && edge; edge = edge->next) {
++        if (!write_u64(file, edge->from) ||
++            !write_u64(file, edge->to) ||
++            !write_string(file, edge->label)) {
++            ok = false;
++        }
++    }
++
++    if (fclose(file) != 0) {
++        ok = false;
++    }
++    return ok;
++}
++
++fcb_graph *fcb_graph_load(const char *path)
++{
++    FILE *file = NULL;
++    struct stat information;
++    uint64_t file_size;
++    unsigned char magic[sizeof(graph_file_magic)];
++    unsigned char flags[4];
++    uint32_t version;
++    uint64_t node_count;
++    uint64_t edge_count;
++    uint64_t remaining;
++    uint64_t maximum_id = 0;
++    fcb_graph *graph = NULL;
++    uint64_t index;
++
++    if (!path || path[0] == '\0') {
++        return NULL;
++    }
++
++    file = fopen(path, "rb");
++    if (!file) {
++        return NULL;
++    }
++
++    if (fstat(fileno(file), &information) != 0 || information.st_size < 0 ||
++        !S_ISREG(information.st_mode)) {
++        goto failure;
++    }
++    file_size = (uint64_t)information.st_size;
++    if (file_size > GRAPH_FILE_LIMIT || file_size < GRAPH_FILE_HEADER_SIZE) {
++        goto failure;
++    }
++
++    if (!read_bytes(file, magic, sizeof(magic)) ||
++        memcmp(magic, graph_file_magic, sizeof(magic)) != 0 ||
++        !read_u32(file, &version) || version != GRAPH_FILE_VERSION ||
++        !read_bytes(file, flags, sizeof(flags)) ||
++        (flags[0] != 0 && flags[0] != 1) || flags[1] != 0 ||
++        flags[2] != 0 || flags[3] != 0 ||
++        !read_u64(file, &node_count) || !read_u64(file, &edge_count)) {
++        goto failure;
++    }
++
++    remaining = file_size - GRAPH_FILE_HEADER_SIZE;
++    /* Every node and edge has at least its fixed-size record fields. */
++    if (node_count > remaining / UINT64_C(12)) {
++        goto failure;
++    }
++    remaining -= node_count * UINT64_C(12);
++    if (edge_count > remaining / UINT64_C(20)) {
++        goto failure;
++    }
++    if (node_count > (uint64_t)SIZE_MAX || edge_count > (uint64_t)SIZE_MAX) {
++        goto failure;
++    }
++
++    graph = fcb_graph_create(flags[0] != 0);
++    if (!graph) {
++        goto failure;
++    }
++
++    for (index = 0; index < node_count; ++index) {
++        uint64_t id;
++        char *value = NULL;
++        graph_node *node;
++
++        if (!read_u64(file, &id) || id == 0 ||
++            graph_find_node(graph, id) || !read_string(file, &value)) {
++            free(value);
++            goto failure;
++        }
++
++        node = malloc(sizeof(*node));
++        if (!node) {
++            free(value);
++            goto failure;
++        }
++        node->id = id;
++        node->value = value;
++        node->next = graph->head;
++        graph->head = node;
++        ++graph->nodes;
++        if (id > maximum_id) {
++            maximum_id = id;
++        }
++    }
++
++    for (index = 0; index < edge_count; ++index) {
++        uint64_t from;
++        uint64_t to;
++        char *label = NULL;
++        graph_node *from_node;
++        graph_node *to_node;
++        graph_edge *edge;
++
++        if (!read_u64(file, &from) || !read_u64(file, &to) ||
++            from == 0 || to == 0 || graph_find_edge(graph, from, to) ||
++            !read_string(file, &label)) {
++            free(label);
++            goto failure;
++        }
++
++        from_node = graph_find_node(graph, from);
++        to_node = graph_find_node(graph, to);
++        if (!from_node || !to_node) {
++            free(label);
++            goto failure;
++        }
++
++        edge = malloc(sizeof(*edge));
++        if (!edge) {
++            free(label);
++            goto failure;
++        }
++        edge->from = from;
++        edge->to = to;
++        edge->label = label;
++        edge->from_node = from_node;
++        edge->to_node = to_node;
++        edge->next = graph->links;
++        graph->links = edge;
++        ++graph->edges;
++    }
++
++    if (fgetc(file) != EOF || ferror(file)) {
++        goto failure;
++    }
++
++    if (maximum_id == 0) {
++        graph->next_id = UINT64_C(1);
++    } else if (maximum_id == UINT64_MAX) {
++        graph->next_id = 0;
++    } else {
++        graph->next_id = maximum_id + 1;
++    }
++
++    if (fclose(file) != 0) {
++        file = NULL;
++        goto failure;
++    }
++    file = NULL;
++    return graph;
++
++failure:
++    if (file) {
++        fclose(file);
++    }
++    fcb_graph_destroy(graph);
++    return NULL;
++}
+diff --git a/src/traversal.c b/src/traversal.c
+index 00bedceb57967e1e7158ed9efaa41604dc40334d..dc8de271e4c8e11e14ebd1aca295da5183308d42 100644
+--- a/src/traversal.c
++++ b/src/traversal.c
+@@ -1,8 +1,170 @@
+ #include "graph_internal.h"
+-/* Clarify traversal semantics before implementing BFS and DFS. */
+-size_t fcb_graph_bfs(const fcb_graph *g,uint64_t start,uint64_t *out,size_t capacity) {
+-    (void)g;(void)start;(void)out;(void)capacity;return 0;
++
++#include <stdlib.h>
++
++static bool pointer_seen(graph_node *const *seen, size_t count,
++                         const graph_node *candidate)
++{
++    size_t index;
++
++    for (index = 0; index < count; ++index) {
++        if (seen[index] == candidate) {
++            return true;
++        }
++    }
++    return false;
+ }
+-size_t fcb_graph_dfs(const fcb_graph *g,uint64_t start,uint64_t *out,size_t capacity) {
+-    (void)g;(void)start;(void)out;(void)capacity;return 0;
++
++static graph_node *edge_neighbor(const fcb_graph *graph,
++                                 const graph_node *current,
++                                 const graph_edge *edge)
++{
++    if (graph->directed) {
++        return edge->from_node == current ? edge->to_node : NULL;
++    }
++
++    if (edge->from_node == current) {
++        return edge->to_node;
++    }
++    if (edge->to_node == current) {
++        return edge->from_node;
++    }
++    return NULL;
++}
++
++size_t fcb_graph_bfs(const fcb_graph *graph, uint64_t start,
++                     uint64_t *out, size_t capacity)
++{
++    graph_node *start_node;
++    graph_node **queue;
++    size_t head = 0;
++    size_t tail = 0;
++    size_t written = 0;
++
++    if (!graph || !out || capacity == 0) {
++        return 0;
++    }
++
++    start_node = graph_find_node(graph, start);
++    if (!start_node) {
++        return 0;
++    }
++
++    if (graph->nodes > SIZE_MAX / sizeof(*queue)) {
++        return 0;
++    }
++    queue = malloc(graph->nodes * sizeof(*queue));
++    if (!queue) {
++        return 0;
++    }
++
++    queue[tail++] = start_node;
++    while (head < tail) {
++        graph_node *current = queue[head++];
++        graph_edge *edge;
++
++        out[written++] = current->id;
++        if (written == capacity) {
++            free(queue);
++            return written;
++        }
++
++        for (edge = graph->links; edge; edge = edge->next) {
++            graph_node *neighbor = edge_neighbor(graph, current, edge);
++            if (neighbor && !pointer_seen(queue, tail, neighbor)) {
++                queue[tail++] = neighbor;
++            }
++        }
++    }
++
++    free(queue);
++    return written;
++}
++
++typedef struct dfs_frame {
++    graph_node *node;
++    graph_edge *next_edge;
++} dfs_frame;
++
++size_t fcb_graph_dfs(const fcb_graph *graph, uint64_t start,
++                     uint64_t *out, size_t capacity)
++{
++    graph_node *start_node;
++    graph_node **seen;
++    dfs_frame *stack;
++    size_t seen_count = 0;
++    size_t top = 0;
++    size_t written = 0;
++
++    if (!graph || !out || capacity == 0) {
++        return 0;
++    }
++
++    start_node = graph_find_node(graph, start);
++    if (!start_node) {
++        return 0;
++    }
++
++    if (graph->nodes > SIZE_MAX / sizeof(*seen) ||
++        graph->nodes > SIZE_MAX / sizeof(*stack)) {
++        return 0;
++    }
++
++    seen = malloc(graph->nodes * sizeof(*seen));
++    if (!seen) {
++        return 0;
++    }
++    stack = malloc(graph->nodes * sizeof(*stack));
++    if (!stack) {
++        free(seen);
++        return 0;
++    }
++
++    seen[seen_count++] = start_node;
++    out[written++] = start_node->id;
++    if (written == capacity) {
++        free(stack);
++        free(seen);
++        return written;
++    }
++
++    stack[top].node = start_node;
++    stack[top].next_edge = graph->links;
++    ++top;
++
++    while (top != 0) {
++        dfs_frame *frame = &stack[top - 1];
++        graph_node *neighbor = NULL;
++
++        while (frame->next_edge) {
++            graph_edge *edge = frame->next_edge;
++            frame->next_edge = edge->next;
++            neighbor = edge_neighbor(graph, frame->node, edge);
++            if (neighbor && !pointer_seen(seen, seen_count, neighbor)) {
++                break;
++            }
++            neighbor = NULL;
++        }
++
++        if (!neighbor) {
++            --top;
++            continue;
++        }
++
++        seen[seen_count++] = neighbor;
++        out[written++] = neighbor->id;
++        if (written == capacity) {
++            free(stack);
++            free(seen);
++            return written;
++        }
++
++        stack[top].node = neighbor;
++        stack[top].next_edge = graph->links;
++        ++top;
++    }
++
++    free(stack);
++    free(seen);
++    return written;
+ }
+diff --git a/tools/graph_bench.c b/tools/graph_bench.c
+index 152ee09f3b252bfbcd75e6ac64bcfbb72a13f622..b3638051a57f9b9fde75721cac72b502c48edafa 100644
+--- a/tools/graph_bench.c
++++ b/tools/graph_bench.c
+@@ -1,2 +1,457 @@
++#define _POSIX_C_SOURCE 200809L
++
++#include "fcb_graph.h"
++
++#include <errno.h>
++#include <math.h>
++#include <stdbool.h>
++#include <stddef.h>
+ #include <stdio.h>
+-int main(void) { fputs("Measurement policy is not implemented.\n",stderr);return 1; }
++#include <stdlib.h>
++#include <string.h>
++#include <sys/resource.h>
++#include <time.h>
++
++#define BENCHMARK_MAX_RUNS ((size_t)10000)
++
++typedef struct phase_result {
++    double average_us;
++    double minimum_us;
++    double maximum_us;
++    double cpu_seconds;
++    long peak_rss_kib;
++} phase_result;
++
++static bool parse_runs(const char *text, size_t *runs)
++{
++    size_t value = 0;
++    const unsigned char *cursor;
++
++    if (!text || !*text || !runs) {
++        return false;
++    }
++
++    for (cursor = (const unsigned char *)text; *cursor; ++cursor) {
++        size_t digit;
++        if (*cursor < (unsigned char)'0' || *cursor > (unsigned char)'9') {
++            return false;
++        }
++        digit = (size_t)(*cursor - (unsigned char)'0');
++        if (value > (BENCHMARK_MAX_RUNS - digit) / 10) {
++            return false;
++        }
++        value = value * 10 + digit;
++    }
++
++    if (value == 0 || value > BENCHMARK_MAX_RUNS) {
++        return false;
++    }
++    *runs = value;
++    return true;
++}
++
++static bool parse_arguments(int argc, char **argv, size_t *runs,
++                            const char **output_path)
++{
++    bool have_runs = false;
++    bool have_output = false;
++    int index;
++
++    if (argc != 5 || !runs || !output_path) {
++        return false;
++    }
++
++    for (index = 1; index < argc; index += 2) {
++        if (strcmp(argv[index], "--runs") == 0) {
++            if (have_runs || !parse_runs(argv[index + 1], runs)) {
++                return false;
++            }
++            have_runs = true;
++        } else if (strcmp(argv[index], "--output") == 0) {
++            if (have_output || !argv[index + 1] || argv[index + 1][0] == '\0') {
++                return false;
++            }
++            *output_path = argv[index + 1];
++            have_output = true;
++        } else {
++            return false;
++        }
++    }
++
++    return have_runs && have_output;
++}
++
++static bool duration_microseconds(const struct timespec *before,
++                                  const struct timespec *after,
++                                  double *result)
++{
++    long double seconds;
++
++    if (!before || !after || !result || after->tv_sec < before->tv_sec ||
++        (after->tv_sec == before->tv_sec && after->tv_nsec < before->tv_nsec)) {
++        return false;
++    }
++
++    seconds = (long double)after->tv_sec - (long double)before->tv_sec;
++    seconds += ((long double)after->tv_nsec - (long double)before->tv_nsec) /
++               1000000000.0L;
++    seconds *= 1000000.0L;
++    *result = (double)seconds;
++    return isfinite(*result) && *result >= 0.0;
++}
++
++static bool elapsed_cpu_seconds(const struct timespec *before,
++                                const struct timespec *after,
++                                double *result)
++{
++    long double seconds;
++
++    if (!before || !after || !result || after->tv_sec < before->tv_sec ||
++        (after->tv_sec == before->tv_sec && after->tv_nsec < before->tv_nsec)) {
++        return false;
++    }
++
++    seconds = (long double)after->tv_sec - (long double)before->tv_sec;
++    seconds += ((long double)after->tv_nsec - (long double)before->tv_nsec) /
++               1000000000.0L;
++    *result = (double)seconds;
++    return isfinite(*result) && *result >= 0.0;
++}
++
++static char **make_values(const char *prefix, size_t runs)
++{
++    char **values;
++    size_t index;
++
++    values = calloc(runs, sizeof(*values));
++    if (!values) {
++        return NULL;
++    }
++
++    for (index = 0; index < runs; ++index) {
++        int needed = snprintf(NULL, 0, "%s%zu", prefix, index);
++        if (needed < 0) {
++            goto failure;
++        }
++        values[index] = malloc((size_t)needed + 1);
++        if (!values[index]) {
++            goto failure;
++        }
++        if (snprintf(values[index], (size_t)needed + 1, "%s%zu", prefix,
++                     index) != needed) {
++            goto failure;
++        }
++    }
++
++    return values;
++
++failure:
++    for (index = 0; index < runs; ++index) {
++        free(values[index]);
++    }
++    free(values);
++    return NULL;
++}
++
++static void free_values(char **values, size_t runs)
++{
++    size_t index;
++
++    if (!values) {
++        return;
++    }
++    for (index = 0; index < runs; ++index) {
++        free(values[index]);
++    }
++    free(values);
++}
++
++static bool read_peak_rss(long *peak_rss_kib)
++{
++    struct rusage usage;
++
++    if (!peak_rss_kib || getrusage(RUSAGE_SELF, &usage) != 0 ||
++        usage.ru_maxrss < 0) {
++        return false;
++    }
++    *peak_rss_kib = usage.ru_maxrss;
++    return true;
++}
++
++static bool summarize_phase(const double *samples, size_t runs,
++                            const struct timespec *cpu_before,
++                            const struct timespec *cpu_after,
++                            long peak_rss_kib, phase_result *result)
++{
++    size_t index;
++    long double sum = 0.0L;
++    double average;
++    double minimum;
++    double maximum;
++
++    if (!samples || runs == 0 || !cpu_before || !cpu_after ||
++        peak_rss_kib < 0 || !result) {
++        return false;
++    }
++
++    minimum = samples[0];
++    maximum = samples[0];
++    for (index = 0; index < runs; ++index) {
++        if (!isfinite(samples[index]) || samples[index] < 0.0) {
++            return false;
++        }
++        if (samples[index] < minimum) {
++            minimum = samples[index];
++        }
++        if (samples[index] > maximum) {
++            maximum = samples[index];
++        }
++        sum += (long double)samples[index];
++    }
++
++    average = (double)(sum / (long double)runs);
++    if (!isfinite(average) || average < 0.0 || minimum > average ||
++        average > maximum || !elapsed_cpu_seconds(cpu_before, cpu_after,
++                                                   &result->cpu_seconds)) {
++        return false;
++    }
++
++    result->average_us = average;
++    result->minimum_us = minimum;
++    result->maximum_us = maximum;
++    result->peak_rss_kib = peak_rss_kib;
++    return true;
++}
++
++static bool write_csv(const char *path, size_t runs,
++                      const phase_result results[4])
++{
++    static const char *const names[4] = {"create", "read", "update", "delete"};
++    FILE *file;
++    size_t index;
++    bool ok = true;
++
++    file = fopen(path, "wb");
++    if (!file) {
++        return false;
++    }
++
++    if (fprintf(file, "operation,runs,avg_us,min_us,max_us,cpu_seconds,peak_rss_kib\n") < 0) {
++        ok = false;
++    }
++    for (index = 0; ok && index < 4; ++index) {
++        const phase_result *result = &results[index];
++        if (fprintf(file, "%s,%zu,%.17g,%.17g,%.17g,%.17g,%ld\n",
++                    names[index], runs, result->average_us,
++                    result->minimum_us, result->maximum_us,
++                    result->cpu_seconds, result->peak_rss_kib) < 0) {
++            ok = false;
++        }
++    }
++
++    if (fclose(file) != 0) {
++        ok = false;
++    }
++    return ok;
++}
++
++int main(int argc, char **argv)
++{
++    size_t runs = 0;
++    const char *output_path = NULL;
++    char **initial_values = NULL;
++    char **updated_values = NULL;
++    uint64_t *ids = NULL;
++    double *samples[4] = {NULL, NULL, NULL, NULL};
++    phase_result results[4];
++    fcb_graph *graph = NULL;
++    size_t index;
++    bool success = false;
++
++    if (!parse_arguments(argc, argv, &runs, &output_path)) {
++        return 1;
++    }
++
++    initial_values = make_values("record-", runs);
++    updated_values = make_values("updated-", runs);
++    ids = malloc(runs * sizeof(*ids));
++    for (index = 0; index < 4; ++index) {
++        samples[index] = malloc(runs * sizeof(*samples[index]));
++    }
++    if (!initial_values || !updated_values || !ids || !samples[0] ||
++        !samples[1] || !samples[2] || !samples[3]) {
++        goto cleanup;
++    }
++
++    graph = fcb_graph_create(true);
++    if (!graph) {
++        goto cleanup;
++    }
++
++    {
++        struct timespec cpu_before;
++        struct timespec cpu_after;
++        long peak_rss;
++
++        if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu_before) != 0) {
++            goto cleanup;
++        }
++        for (index = 0; index < runs; ++index) {
++            struct timespec before;
++            struct timespec after;
++            uint64_t id;
++
++            if (clock_gettime(CLOCK_MONOTONIC, &before) != 0) {
++                goto cleanup;
++            }
++            id = fcb_graph_add_node(graph, initial_values[index]);
++            if (clock_gettime(CLOCK_MONOTONIC, &after) != 0 ||
++                !duration_microseconds(&before, &after, &samples[0][index])) {
++                goto cleanup;
++            }
++            if (id == 0) {
++                goto cleanup;
++            }
++            ids[index] = id;
++        }
++        if (fcb_graph_node_count(graph) != runs ||
++            fcb_graph_edge_count(graph) != 0 ||
++            clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu_after) != 0 ||
++            !read_peak_rss(&peak_rss) ||
++            !summarize_phase(samples[0], runs, &cpu_before, &cpu_after,
++                             peak_rss, &results[0])) {
++            goto cleanup;
++        }
++    }
++
++    {
++        struct timespec cpu_before;
++        struct timespec cpu_after;
++        long peak_rss;
++
++        if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu_before) != 0) {
++            goto cleanup;
++        }
++        for (index = 0; index < runs; ++index) {
++            struct timespec before;
++            struct timespec after;
++            const char *value;
++
++            if (clock_gettime(CLOCK_MONOTONIC, &before) != 0) {
++                goto cleanup;
++            }
++            value = fcb_graph_get_node(graph, ids[index]);
++            if (clock_gettime(CLOCK_MONOTONIC, &after) != 0 ||
++                !duration_microseconds(&before, &after, &samples[1][index])) {
++                goto cleanup;
++            }
++            if (!value || strcmp(value, initial_values[index]) != 0) {
++                goto cleanup;
++            }
++        }
++        if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu_after) != 0 ||
++            !read_peak_rss(&peak_rss) ||
++            !summarize_phase(samples[1], runs, &cpu_before, &cpu_after,
++                             peak_rss, &results[1])) {
++            goto cleanup;
++        }
++    }
++
++    {
++        struct timespec cpu_before;
++        struct timespec cpu_after;
++        long peak_rss;
++
++        if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu_before) != 0) {
++            goto cleanup;
++        }
++        for (index = 0; index < runs; ++index) {
++            struct timespec before;
++            struct timespec after;
++            const char *value;
++            bool updated;
++
++            if (clock_gettime(CLOCK_MONOTONIC, &before) != 0) {
++                goto cleanup;
++            }
++            updated = fcb_graph_update_node(graph, ids[index], updated_values[index]);
++            if (clock_gettime(CLOCK_MONOTONIC, &after) != 0 ||
++                !duration_microseconds(&before, &after, &samples[2][index])) {
++                goto cleanup;
++            }
++            if (!updated) {
++                goto cleanup;
++            }
++
++            /* Validation is deliberately outside the timed update interval. */
++            value = fcb_graph_get_node(graph, ids[index]);
++            if (!value || strcmp(value, updated_values[index]) != 0) {
++                goto cleanup;
++            }
++        }
++        if (fcb_graph_node_count(graph) != runs ||
++            clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu_after) != 0 ||
++            !read_peak_rss(&peak_rss) ||
++            !summarize_phase(samples[2], runs, &cpu_before, &cpu_after,
++                             peak_rss, &results[2])) {
++            goto cleanup;
++        }
++    }
++
++    {
++        struct timespec cpu_before;
++        struct timespec cpu_after;
++        long peak_rss;
++
++        if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu_before) != 0) {
++            goto cleanup;
++        }
++        for (index = 0; index < runs; ++index) {
++            struct timespec before;
++            struct timespec after;
++            bool removed;
++
++            if (clock_gettime(CLOCK_MONOTONIC, &before) != 0) {
++                goto cleanup;
++            }
++            removed = fcb_graph_remove_node(graph, ids[index]);
++            if (clock_gettime(CLOCK_MONOTONIC, &after) != 0 ||
++                !duration_microseconds(&before, &after, &samples[3][index])) {
++                goto cleanup;
++            }
++            if (!removed) {
++                goto cleanup;
++            }
++        }
++        if (fcb_graph_node_count(graph) != 0 ||
++            fcb_graph_edge_count(graph) != 0 ||
++            clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu_after) != 0 ||
++            !read_peak_rss(&peak_rss) ||
++            !summarize_phase(samples[3], runs, &cpu_before, &cpu_after,
++                             peak_rss, &results[3])) {
++            goto cleanup;
++        }
++    }
++
++    if (!write_csv(output_path, runs, results)) {
++        goto cleanup;
++    }
++    success = true;
++
++cleanup:
++    fcb_graph_destroy(graph);
++    free_values(initial_values, runs);
++    free_values(updated_values, runs);
++    free(ids);
++    for (index = 0; index < 4; ++index) {
++        free(samples[index]);
++    }
++
++    if (!success) {
++        return 1;
++    }
++    if (printf("{\"ok\":true,\"runs\":%zu,\"rows\":4}\n", runs) < 0) {
++        return 1;
++    }
++    return 0;
++}

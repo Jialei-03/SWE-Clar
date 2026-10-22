@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Local arena</title><link rel="stylesheet" href="/style.css"></head>
+<body><main><header><p>INDEPENDENT GAME WORKSHOP</p><h1>Local arena</h1><p>Move, collide and respawn in a synthetic multiplayer room.</p></header>
+<form id="join-form"><label>Arena<select id="room-select"></select></label><label>Player label<input id="player-label" value="Synthetic player" maxlength="40" required></label><button id="join">Join arena</button></form>
+<p id="error" role="alert" hidden></p>
+<section id="game" hidden><div class="toolbar"><strong id="room-title"></strong><button id="leave">Leave</button></div>
+<div class="status"><span id="shield-indicator" hidden>Protection active</span><span>Seconds remaining: <output id="shield-remaining">0</output></span></div>
+<canvas id="arena" width="480" height="288" aria-label="Live arena map"></canvas>
+<div class="controls"><button data-direction="up" aria-label="Move up">↑</button><button data-direction="left" aria-label="Move left">←</button><button data-direction="down" aria-label="Move down">↓</button><button data-direction="right" aria-label="Move right">→</button><button id="respawn">Respawn</button></div>
+<p>Use the arrow keys or buttons. Walls block movement. Contact can cost health.</p><div id="roster" aria-live="polite"></div></section>
+</main><script type="module" src="/app.js"></script></body></html>

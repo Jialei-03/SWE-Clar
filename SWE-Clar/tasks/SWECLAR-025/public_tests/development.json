@@ -1,0 +1,32 @@
+{
+  "communities": {
+    "Example North": [
+      "Oak Lane",
+      "Park Way"
+    ],
+    "Example South": [
+      "Cedar Road"
+    ]
+  },
+  "access_codes": {
+    "demo-admin": "admin",
+    "demo-inspector": "inspector",
+    "demo-office": "office"
+  },
+  "inspections": [
+    {
+      "id": "example-open",
+      "community": "Example North",
+      "street": "Oak Lane",
+      "residence": "Unit 1",
+      "status": "open"
+    },
+    {
+      "id": "example-closed",
+      "community": "Example South",
+      "street": "Cedar Road",
+      "residence": "Unit 2",
+      "status": "closed"
+    }
+  ]
+}

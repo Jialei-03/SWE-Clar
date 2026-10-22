@@ -1,0 +1,439 @@
+diff --git a/auth.cjs b/auth.cjs
+index b45beef9ac87305abf92cd7fa3574e46fe2ef938..affd626c74c9f909abe93201d889a765a6177c82 100644
+--- a/auth.cjs
++++ b/auth.cjs
+@@ -1,5 +1,72 @@
+-function verifyToken(token) {
+-  const claims=JSON.parse(Buffer.from(token.split('.')[1] || '', 'base64url').toString());
++const {createHmac,timingSafeEqual}=require('node:crypto');
++
++function decodeBase64UrlSegment(segment) {
++  if(typeof segment!=='string' || segment.length===0) throw new Error('Malformed JWT');
++  // Node's base64 decoder is deliberately permissive, so validate the JWT
++  // alphabet before decoding it.
++  if(!/^[A-Za-z0-9_-]+={0,2}$/.test(segment) || /=[^=]/.test(segment)) {
++    throw new Error('Malformed JWT');
++  }
++  const unpadded=segment.replace(/=+$/,'');
++  if(unpadded.length%4===1) throw new Error('Malformed JWT');
++  const decoded=Buffer.from(segment,'base64url');
++  if(decoded.length===0 || decoded.toString('base64url')!==unpadded) {
++    throw new Error('Malformed JWT');
++  }
++  return decoded;
++}
++
++function parseJsonSegment(segment) {
++  try { return JSON.parse(decodeBase64UrlSegment(segment).toString('utf8')); }
++  catch { throw new Error('Malformed JWT'); }
++}
++
++/**
++ * Verify a compact JWT signed with the one algorithm supported by the
++ * service.  The validation is intentionally kept here rather than delegated
++ * to a permissive JWT parser: accepting a different algorithm or an unsigned
++ * token would make the WebSocket upgrade unauthenticated.
++ */
++function verifyToken(token,secret,now) {
++  if(typeof token!=='string' || typeof secret!=='string' && !Buffer.isBuffer(secret)) {
++    throw new Error('Invalid credentials');
++  }
++
++  const parts=token.split('.');
++  if(parts.length!==3 || parts.some(part=>part.length===0)) throw new Error('Invalid credentials');
++
++  const header=parseJsonSegment(parts[0]);
++  const claims=parseJsonSegment(parts[1]);
++  if(!header || typeof header!=='object' || Array.isArray(header) || header.alg!=='HS256') {
++    throw new Error('Invalid credentials');
++  }
++  if(!claims || typeof claims!=='object' || Array.isArray(claims)) {
++    throw new Error('Invalid credentials');
++  }
++
++  let supplied;
++  try { supplied=decodeBase64UrlSegment(parts[2]); }
++  catch { throw new Error('Invalid credentials'); }
++  const expected=createHmac('sha256',secret).update(`${parts[0]}.${parts[1]}`).digest();
++  if(supplied.length!==expected.length || !timingSafeEqual(supplied,expected)) {
++    throw new Error('Invalid credentials');
++  }
++
++  if(typeof claims.sub!=='string' || claims.sub.length===0 ||
++     typeof claims.device_id!=='string' || claims.device_id.length===0 ||
++     typeof claims.exp!=='number' || !Number.isFinite(claims.exp) ||
++     typeof now!=='number' || !Number.isFinite(now) || claims.exp<=now) {
++    throw new Error('Invalid credentials');
++  }
++
+   return claims;
+ }
+-module.exports={verifyToken};
++
++function bearerToken(value) {
++  if(typeof value!=='string') throw new Error('Invalid credentials');
++  const match=/^Bearer\s+(\S+)$/i.exec(value);
++  if(!match) throw new Error('Invalid credentials');
++  return match[1];
++}
++
++module.exports={verifyToken,bearerToken};
+diff --git a/broker.cjs b/broker.cjs
+index 48f42576fa5529e2e409c41e10a0457a708b69cb..c0363f73b6adf2019ef15f4749f9afeda220aa5d 100644
+--- a/broker.cjs
++++ b/broker.cjs
+@@ -1,14 +1,212 @@
++const {WebSocket}=require('ws');
++
++const hasOwn=(value,key)=>Object.prototype.hasOwnProperty.call(value,key);
++
+ class Broker {
+-  constructor(clock) {this.clock=clock;this.records=new Map();}
+-  hasActive(device) {return [...this.records.values()].some(row=>row.device===device && row.active);}
+-  attach(socket,claims,id) {
+-    const row={socket,device:claims.device_id,active:true};this.records.set(id,row);
+-    socket.send(JSON.stringify({type:'ready',connection_id:id,device_id:row.device}));
+-    socket.on('close',()=>{row.active=false;});
+-    socket.on('message',buffer=>socket.send(JSON.stringify({type:'echo',text:buffer.toString()})));
+-  }
+-  sweep(timeout) {return [];}
+-  status() {const active=[...this.records.values()].filter(row=>row.active).length;
+-    return {active,disconnected:this.records.size-active,routed_messages:0,reconnects:0};}
++  constructor(clock) {
++    this.clock=clock;
++    this.records=new Map();
++    this.activeByDevice=new Map();
++    this.routedMessages=0;
++    this.reconnects=0;
++  }
++
++  findActive(device) {
++    const row=Array.from(this.records.values()).find(item=>item.device===device && item.active);
++    return row && row.active ? row : undefined;
++  }
++
++  hasActive(device) {
++    return Boolean(this.findActive(device));
++  }
++
++  /**
++   * Add an authenticated socket to the broker.  A replaced row is never
++   * removed from records: it is part of the historical disconnected count.
++   */
++  attach(socket,claims,id,{reconnect=false,connectedAt}={}) {
++    const device=claims.device_id;
++    const previous=this.findActive(device);
++    let replaced=false;
++    if(previous) {
++      if(!reconnect) return false;
++      this.deactivate(previous,4001,'replaced');
++      replaced=true;
++    }
++
++    let timestamp=connectedAt;
++    if(typeof timestamp!=='number' || !Number.isFinite(timestamp)) timestamp=this.clock();
++    const row={
++      id,
++      socket,
++      sub:claims.sub,
++      device,
++      active:true,
++      lastHeartbeat:timestamp
++    };
++    this.records.set(id,row);
++    this.activeByDevice.set(device,row);
++
++    socket.on('error',()=>{});
++    socket.on('close',()=>this.onClose(row));
++    socket.on('message',data=>this.onMessage(row,data));
++
++    if(!this.send(row,{type:'ready',connection_id:id,device_id:device})) {
++      this.deactivate(row,4002,'connection unavailable');
++      return false;
++    }
++    if(replaced) this.reconnects+=1;
++    return true;
++  }
++
++  onClose(row) {
++    row.active=false;
++    if(this.activeByDevice.get(row.device)===row) this.activeByDevice.delete(row.device);
++  }
++
++  /**
++   * Mark a row inactive before asking ws to close it.  Marking first prevents
++   * a final frame from a replaced or expired socket from being routed.
++   */
++  deactivate(row,code=4000,reason='closed',terminate=false) {
++    if(!row || !row.active) return false;
++    row.active=false;
++    if(this.activeByDevice.get(row.device)===row) this.activeByDevice.delete(row.device);
++
++    const socket=row.socket;
++    try {
++      if(terminate) {
++        if(socket.readyState!==WebSocket.CLOSED) socket.terminate();
++      } else if(socket.readyState===WebSocket.OPEN) {
++        socket.close(code,reason);
++      } else if(socket.readyState!==WebSocket.CLOSED) {
++        socket.terminate();
++      }
++    } catch {
++      try { socket.terminate(); } catch {}
++    }
++    return true;
++  }
++
++  isLive(row) {
++    return row.active &&
++      this.records.get(row.id)===row &&
++      this.activeByDevice.get(row.device)===row &&
++      row.socket.readyState===WebSocket.OPEN;
++  }
++
++  send(row,message) {
++    if(!row || !row.active || row.socket.readyState!==WebSocket.OPEN) return false;
++    try {
++      row.socket.send(JSON.stringify(message));
++      return true;
++    } catch {
++      return false;
++    }
++  }
++
++  sendError(row,code) {
++    this.send(row,{type:'error',error:{code}});
++  }
++
++  onMessage(row,data) {
++    // ws can deliver a message immediately before the close event.  Treat a
++    // socket that is no longer OPEN as closed for protocol purposes.
++    if(!this.isLive(row)) return;
++
++    let message;
++    try {
++      const text=Buffer.isBuffer(data) ? data.toString('utf8') : String(data);
++      message=JSON.parse(text);
++    } catch {
++      this.sendError(row,'invalid_message');
++      return;
++    }
++    if(!message || typeof message!=='object' || Array.isArray(message)) {
++      this.sendError(row,'invalid_message');
++      return;
++    }
++
++    switch(message.type) {
++      case 'heartbeat':
++        row.lastHeartbeat=this.clock();
++        this.send(row,{type:'heartbeat'});
++        break;
++      case 'publish':
++        this.publish(row,message);
++        break;
++      case 'status':
++        this.send(row,{type:'status',...this.status()});
++        break;
++      default:
++        this.sendError(row,'invalid_message');
++        break;
++    }
++  }
++
++  publish(source,message) {
++    if(!hasOwn(message,'target_device') || !hasOwn(message,'payload') ||
++       typeof message.target_device!=='string') {
++      this.sendError(source,'invalid_message');
++      return;
++    }
++
++    const target=this.findActive(message.target_device);
++    if(!target || !this.isLive(target)) {
++      if(target && target.active) this.deactivate(target,4000,'closed');
++      this.sendError(source,'target_unavailable');
++      return;
++    }
++
++    const sequence=this.routedMessages+1;
++    const routed=this.send(target,{
++      type:'message',
++      sequence,
++      source_device:source.device,
++      target_device:message.target_device,
++      payload:message.payload
++    });
++    if(!routed) {
++      this.deactivate(target,4000,'closed');
++      this.sendError(source,'target_unavailable');
++      return;
++    }
++
++    this.routedMessages=sequence;
++    this.send(source,{type:'published',sequence});
++  }
++
++  sweep(timeout) {
++    if(typeof timeout!=='number' || !Number.isFinite(timeout) || timeout<=0) {
++      throw new Error('timeout must be a positive finite number');
++    }
++
++    const now=this.clock();
++    const expired=[];
++    for(const row of this.records.values()) {
++      if(row.active && now-row.lastHeartbeat>timeout) expired.push(row);
++    }
++    expired.sort((left,right)=>left.id<right.id ? -1 : left.id>right.id ? 1 : 0);
++    for(const row of expired) this.deactivate(row,4000,'heartbeat timeout');
++    return expired.map(row=>row.id);
++  }
++
++  status() {
++    let active=0;
++    for(const row of this.records.values()) if(row.active) active+=1;
++    return {
++      active,
++      disconnected:this.records.size-active,
++      routed_messages:this.routedMessages,
++      reconnects:this.reconnects
++    };
++  }
++
++  closeAll() {
++    for(const row of this.records.values()) {
++      if(row.active) this.deactivate(row,1001,'server shutdown',true);
++    }
++  }
+ }
++
+ module.exports={Broker};
+diff --git a/server.cjs b/server.cjs
+index 0d06aa44b1acc22510bad6fdee500258442f4b8b..d339db7a57a3348ec0c56822457df5e2ebc535ed 100644
+--- a/server.cjs
++++ b/server.cjs
+@@ -1,30 +1,113 @@
+ const http=require('node:http');
+ const {WebSocketServer}=require('ws');
+ const {randomUUID}=require('node:crypto');
+-const {verifyToken}=require('./auth.cjs');
++const {verifyToken,bearerToken}=require('./auth.cjs');
+ const {Broker}=require('./broker.cjs');
+ 
+-async function startServer({secret,clock=()=>Date.now()/1000,port=0,host='127.0.0.1'}) {
++function rejectUpgrade(socket,status,reason) {
++  if(!socket || socket.destroyed) return;
++  const body='';
++  const response=`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`;
++  try { socket.end(response); } catch { try { socket.destroy(); } catch {} }
++}
++
++async function startServer({secret,clock=()=>Date.now()/1000,port=0,host='127.0.0.1'}={}) {
+   if(!secret) throw new Error('JWT secret must be configured');
++  if(typeof clock!=='function') throw new Error('clock must be a function');
++
+   const broker=new Broker(clock);
+   const server=http.createServer((request,response)=>{
+-    if(request.url==='/health') {response.writeHead(200,{'Content-Type':'application/json'});response.end('{"ok":true}');}
+-    else {response.writeHead(404);response.end();}
++    const pathname=(request.url || '').split('?')[0];
++    if(pathname==='/health') {
++      response.writeHead(200,{'Content-Type':'application/json'});
++      response.end('{"ok":true}');
++    } else {
++      response.writeHead(404);
++      response.end();
++    }
+   });
+   const websocket=new WebSocketServer({noServer:true});
++  let closePromise;
++
+   server.on('upgrade',(request,socket,head)=>{
+-    const url=new URL(request.url,'http://localhost');
+     let claims;
+-    try {claims=verifyToken((request.headers.authorization || '').replace(/^Bearer /,''),secret,clock());}
+-    catch {socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');return;}
++    let authenticatedAt;
++    try {
++      const token=bearerToken(request.headers.authorization);
++      authenticatedAt=clock();
++      claims=verifyToken(token,secret,authenticatedAt);
++    } catch {
++      rejectUpgrade(socket,401,'Unauthorized');
++      return;
++    }
++
++    let url;
++    try { url=new URL(request.url || '/',`http://${request.headers.host || 'localhost'}`); }
++    catch {
++      rejectUpgrade(socket,400,'Bad Request');
++      return;
++    }
+     const reconnect=url.searchParams.get('mode')==='reconnect';
+-    if(broker.hasActive(claims.device_id) && !reconnect) {socket.end('HTTP/1.1 409 Conflict\r\nConnection: close\r\n\r\n');return;}
+-    websocket.handleUpgrade(request,socket,head,ws=>broker.attach(ws,claims,randomUUID(),reconnect));
++    if(broker.hasActive(claims.device_id) && !reconnect) {
++      rejectUpgrade(socket,409,'Conflict');
++      return;
++    }
++
++    try {
++      websocket.handleUpgrade(request,socket,head,ws=>{
++        const attached=broker.attach(ws,claims,randomUUID(),{reconnect,connectedAt:authenticatedAt});
++        // The admission check above is synchronous with handleUpgrade.  This
++        // fallback only protects against a socket becoming unusable during
++        // the handshake; an ordinary duplicate has already received 409.
++        if(!attached) {
++          try { ws.terminate(); } catch {}
++        }
++      });
++    } catch {
++      try { socket.destroy(); } catch {}
++    }
+   });
+-  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,host,resolve);});
+-  return {port:server.address().port, sweep:timeout=>broker.sweep(timeout), snapshot:()=>broker.status(),
+-    close:async()=>{for(const client of websocket.clients)client.terminate();await new Promise(resolve=>server.close(resolve));websocket.close();}};
++
++  await new Promise((resolve,reject)=>{
++    const onError=error=>{server.removeListener('listening',resolve);reject(error);};
++    server.once('error',onError);
++    server.once('listening',resolve);
++    server.listen(port,host);
++  });
++
++  const address=server.address();
++  const actualPort=address && typeof address==='object' ? address.port : port;
++  return {
++    port:actualPort,
++    sweep:timeout=>broker.sweep(timeout),
++    snapshot:()=>broker.status(),
++    close:()=>{
++      if(closePromise) return closePromise;
++      closePromise=new Promise(resolve=>{
++        broker.closeAll();
++        for(const client of websocket.clients) {
++          try { client.terminate(); } catch {}
++        }
++
++        let serverDone=false;
++        let websocketDone=false;
++        const finish=()=>{
++          if(serverDone && websocketDone) resolve();
++        };
++        try {
++          server.close(()=>{serverDone=true;finish();});
++        } catch { serverDone=true; }
++        try {
++          websocket.close(()=>{websocketDone=true;finish();});
++        } catch { websocketDone=true; }
++        finish();
++      });
++      return closePromise;
++    }
++  };
+ }
++
+ module.exports={startServer};
+ if(require.main===module) startServer({secret:process.env.JWT_SECRET,port:Number(process.env.PORT || 8080)})
+-  .then(server=>console.log(JSON.stringify({port:server.port}))).catch(error=>{console.error(error.message);process.exitCode=1;});
++  .then(server=>console.log(JSON.stringify({port:server.port})))
++  .catch(error=>{console.error(error.message);process.exitCode=1;});

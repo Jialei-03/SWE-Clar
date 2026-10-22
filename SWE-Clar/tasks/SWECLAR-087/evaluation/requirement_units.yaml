@@ -1,0 +1,259 @@
+schema_version: 1
+task_id: SWECLAR-087
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Real XLSX inventory updates, callable post-processing and generated-file collection with
+  local service adapters
+requirement_units:
+- ru_id: RU-001
+  name: Inventory sync entry point
+  content: Implement run_inventory_sync(workspace, cin7_client, post_processor=None) using the supplied
+    workspace configuration loader. Inspect actual local XLSX workbooks, query the inventory adapter,
+    update eligible workbooks on disk and return a structured report containing processed, skipped, errors,
+    actions, warnings and outputs lists.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What observable contract must the inventory synchronization entry point satisfy?
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: inventory_sync.py
+      function: run_inventory_sync
+      signature: run_inventory_sync(workspace, cin7_client, post_processor=None) -> dict
+    inputs:
+      workspace: Folder containing sync.json and actual XLSX customer workbooks
+      cin7_client: lookup(sku) adapter returning soh and ots
+      post_processor: Optional callable(workbook_path, action_name)
+    output:
+      type: dict
+      meaning: Run report plus observable saved XLSX cells and copied generated files
+      error_record:
+        required_fields:
+          workbook: workspace-relative workbook path
+          stage: parse (open/validate workbook), lookup (inventory adapter), save (persist workbook),
+            or post_process (callback)
+          error: nonempty human-readable error description
+        additional_properties: true
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_inventory_sync.py
+  pass_rule: all_tests_pass
+  notes: The local XLSX format and callback/configuration interfaces are explicit benchmark reconstruction
+    choices. No original workbook, customer data or live service is included.
+- ru_id: RU-002
+  name: Workbook discovery
+  content: Read configured customer_folders from workspace/sync.json and recursively discover .xlsx workbooks
+    in stable relative-path order. Ignore unrelated files and workspace/run_output with all descendants.
+    An eligible workbook contains an Inventory worksheet and the documented sku header; record unreadable
+    or malformed files as parse errors and skip workbooks without Inventory.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What workbook-discovery behavior is required for this workflow?
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: inventory_sync.py
+      function: run_inventory_sync
+      signature: run_inventory_sync(workspace, cin7_client, post_processor=None) -> dict
+    inputs:
+      workspace: Folder containing sync.json and actual XLSX customer workbooks
+      cin7_client: lookup(sku) adapter returning soh and ots
+      post_processor: Optional callable(workbook_path, action_name)
+    output:
+      type: dict
+      meaning: Run report plus observable saved XLSX cells and copied generated files
+      error_record:
+        required_fields:
+          workbook: workspace-relative workbook path
+          stage: parse (open/validate workbook), lookup (inventory adapter), save (persist workbook),
+            or post_process (callback)
+          error: nonempty human-readable error description
+        additional_properties: true
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_inventory_sync.py
+  pass_rule: all_tests_pass
+  notes: The local XLSX format and callback/configuration interfaces are explicit benchmark reconstruction
+    choices. No original workbook, customer data or live service is included.
+- ru_id: RU-003
+  name: Cin7 stock update
+  content: For every non-empty SKU cell in Inventory, call cin7_client.lookup once per row and write the
+    returned values to the soh and ots columns, adding missing headers as needed. Preserve unrelated cells,
+    formulas, formatting and sheets, and leave empty-SKU rows unchanged. Save the actual workbook so the
+    updated values can be read by a separate reader.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What stock-update behavior is required for each inventory row?
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: inventory_sync.py
+      function: run_inventory_sync
+      signature: run_inventory_sync(workspace, cin7_client, post_processor=None) -> dict
+    inputs:
+      workspace: Folder containing sync.json and actual XLSX customer workbooks
+      cin7_client: lookup(sku) adapter returning soh and ots
+      post_processor: Optional callable(workbook_path, action_name)
+    output:
+      type: dict
+      meaning: Run report plus observable saved XLSX cells and copied generated files
+      error_record:
+        required_fields:
+          workbook: workspace-relative workbook path
+          stage: parse (open/validate workbook), lookup (inventory adapter), save (persist workbook),
+            or post_process (callback)
+          error: nonempty human-readable error description
+        additional_properties: true
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_inventory_sync.py
+  pass_rule: all_tests_pass
+  notes: The local XLSX format and callback/configuration interfaces are explicit benchmark reconstruction
+    choices. No original workbook, customer data or live service is included.
+- ru_id: RU-004
+  name: Post-processing action
+  content: After an eligible workbook is saved without row lookup errors, call post_processor(workbook_path,
+    action_name) exactly once if configured in sync.json. The callback must see the updated workbook.
+    Do not call it for malformed, ineligible or partially updated workbooks. Record callback failures
+    and continue with later files.
+  requirement_category: refinement
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What contract governs post-processing for an inventory workbook?
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: inventory_sync.py
+      function: run_inventory_sync
+      signature: run_inventory_sync(workspace, cin7_client, post_processor=None) -> dict
+    inputs:
+      workspace: Folder containing sync.json and actual XLSX customer workbooks
+      cin7_client: lookup(sku) adapter returning soh and ots
+      post_processor: Optional callable(workbook_path, action_name)
+    output:
+      type: dict
+      meaning: Run report plus observable saved XLSX cells and copied generated files
+      error_record:
+        required_fields:
+          workbook: workspace-relative workbook path
+          stage: parse (open/validate workbook), lookup (inventory adapter), save (persist workbook),
+            or post_process (callback)
+          error: nonempty human-readable error description
+        additional_properties: true
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_inventory_sync.py
+  pass_rule: all_tests_pass
+  notes: The local XLSX format and callback/configuration interfaces are explicit benchmark reconstruction
+    choices. No original workbook, customer data or live service is included.
+- ru_id: RU-005
+  name: To Order output collection
+  content: After processing and any successful callback, copy each associated generated output listed
+    in sync.json into run_output without overwriting an existing collected file. Read the actual generated
+    file after the callback, use collision-safe names, warn on missing outputs, and collect no output
+    from workbooks with lookup or post-processing errors.
+  requirement_category: refinement
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What behavior is required when collecting To Order outputs?
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: inventory_sync.py
+      function: run_inventory_sync
+      signature: run_inventory_sync(workspace, cin7_client, post_processor=None) -> dict
+    inputs:
+      workspace: Folder containing sync.json and actual XLSX customer workbooks
+      cin7_client: lookup(sku) adapter returning soh and ots
+      post_processor: Optional callable(workbook_path, action_name)
+    output:
+      type: dict
+      meaning: Run report plus observable saved XLSX cells and copied generated files
+      error_record:
+        required_fields:
+          workbook: workspace-relative workbook path
+          stage: parse (open/validate workbook), lookup (inventory adapter), save (persist workbook),
+            or post_process (callback)
+          error: nonempty human-readable error description
+        additional_properties: true
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_inventory_sync.py
+  pass_rule: all_tests_pass
+  notes: The local XLSX format and callback/configuration interfaces are explicit benchmark reconstruction
+    choices. No original workbook, customer data or live service is included.
+- ru_id: RU-006
+  name: Unattended resilient execution
+  content: Run unattended without interactive prompts. Isolate lookup, workbook, save and callback failures
+    so healthy rows and later eligible workbooks continue to be processed; return descriptive per-workbook
+    error records.
+  requirement_category: refinement
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: How must a row or workbook failure affect the rest of an unattended run?
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: inventory_sync.py
+      function: run_inventory_sync
+      signature: run_inventory_sync(workspace, cin7_client, post_processor=None) -> dict
+    inputs:
+      workspace: Folder containing sync.json and actual XLSX customer workbooks
+      cin7_client: lookup(sku) adapter returning soh and ots
+      post_processor: Optional callable(workbook_path, action_name)
+    output:
+      type: dict
+      meaning: Run report plus observable saved XLSX cells and copied generated files
+      error_record:
+        required_fields:
+          workbook: workspace-relative workbook path
+          stage: parse (open/validate workbook), lookup (inventory adapter), save (persist workbook),
+            or post_process (callback)
+          error: nonempty human-readable error description
+        additional_properties: true
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-006-T01
+    file: evaluation/tests/test_inventory_sync.py
+  pass_rule: all_tests_pass
+  notes: The local XLSX format and callback/configuration interfaces are explicit benchmark reconstruction
+    choices. No original workbook, customer data or live service is included.

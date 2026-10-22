@@ -1,0 +1,156 @@
+schema_version: 1
+task_id: SWECLAR-034
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Retrieve and parse synthetic listing HTML over local HTTP, then normalize listing records
+requirement_units:
+- ru_id: RU-001
+  name: Normalized listing-record array
+  content: Implement transform(rows) in solution.py as a deterministic local adapter. It accepts a list
+    of controlled listing dictionaries and returns one normalized object per input record, preserving
+    input order and emitting the agreed listing fields. The result is a top-level array and does not contact
+    a live website. Preserve the value and type of every supplied field other than url and contact_phone.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the deterministic local function contract, including its input collection,
+    output collection, record fields, and ordering behavior.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: transform
+    inputs:
+      rows: list[dict] of controlled listing records
+    output:
+      type: list[dict]
+      meaning: one normalized listing record per input record, in input order
+      fields:
+      - title
+      - property_type
+      - address
+      - max_persons
+      - contact_name
+      - contact_phone
+      - url
+      - lat
+      - lng
+      - pool
+      asserted_field_paths:
+      - <index>
+      - <index>.address
+      - <index>.property_type
+      field_schemas:
+        <index>.address:
+          type: string
+        <index>.property_type:
+          type: string
+        <index>.title:
+          type: string
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_transform.py
+  pass_rule: all_tests_pass
+  notes: The normalizer is one stage of the reconstructed scraper; RU-003 verifies HTML retrieval and
+    extraction.
+- ru_id: RU-002
+  name: URL fallback and phone normalization
+  content: 'Normalize the final output conventions for each record: prefer a non-empty explicit url value
+    and fall back to uri when url is absent or empty; normalize comma-separated phone values by removing
+    non-digit characters from each number and joining non-empty numbers with comma-space. Missing values
+    are represented by the empty string, and the transformation remains deterministic. This missing-value
+    rule applies to all ten output fields, including contact_name, max_persons, lat, lng, and pool; present
+    non-URL/non-phone values retain their supplied types.'
+  requirement_category: refinement
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain how the adapter chooses a URL and converts one or more phone values into the
+    final deterministic output representation.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: transform
+    inputs:
+      rows: list[dict] with url or uri and optional comma-separated contact_phone
+    output:
+      type: list[dict]
+      meaning: normalized url and phone fields within each output record
+      fields:
+      - url
+      - contact_phone
+      asserted_field_paths:
+      - <index>
+      - <index>.contact_phone
+      - <index>.url
+      field_schemas:
+        <index>.contact_phone:
+          type: string
+        <index>.url:
+          type: string
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_transform.py
+  pass_rule: all_tests_pass
+  notes: Normalization is evaluated on intermediate records and end-to-end local HTML retrieval; production
+    websites and anti-bot infrastructure are outside this reconstructed fixture.
+- ru_id: RU-003
+  name: Retrieve and parse listing HTML
+  content: Implement scrape(urls) in solution.py using the supplied HTTP fetcher and a completed listing_parser.py.
+    Fetch and parse one HTML listing per URL and return the normalized records in input order. Support
+    both documented definition-list and table layouts, nested text and HTML entities, optional fields,
+    canonical URLs relative to the source URI, visible telephone links, and numeric occupancy and coordinates.
+    Extract values from the HTML itself; ignore script and style content. The supplied synthetic documents
+    define the HTML interface, not the original customer websites. For HTML scraping, pool retains the normalized textual label value (for example yes or no); do not convert it to a boolean. An absent pool is the empty string. This does not change direct transform; it preserves the supplied value and type for non-URL/non-phone fields.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What source documents does the scraper fetch, and what extraction interface must be
+    supported?
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: scrape
+      signature: 'scrape(urls: list[str]) -> list[dict]'
+    inputs:
+      urls: Ordered listing URLs served by the local HTTP fixture
+    output:
+      type: list[dict]
+      meaning: Normalized property records extracted from the fetched HTML
+      fields:
+      - title
+      - property_type
+      - address
+      - max_persons
+      - contact_name
+      - contact_phone
+      - url
+      - lat
+      - lng
+      - pool
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_scrape.py
+  pass_rule: all_tests_pass
+  notes: The scraping work is source-grounded; HTML selectors and the fixture are explicit benchmark reconstruction
+    choices.

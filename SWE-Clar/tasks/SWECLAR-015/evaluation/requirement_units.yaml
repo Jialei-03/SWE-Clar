@@ -1,0 +1,349 @@
+schema_version: 1
+task_id: SWECLAR-015
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent integer-lattice solver and interactive browser comparison/export application
+requirement_units:
+- ru_id: RU-001
+  name: Existing service, validation and working browser
+  content: 'Keep the documented commands, HTTP routes, public Python/browser interfaces and numeric validation
+    working. Literal form labels and current result values render safely. The initial page is uncomputed;
+    submitting an all/raw problem calls the service and shows actual raw points and family counts. A fresh
+    page has independent state. Errors remain errors rather than synthetic empty success. No remote package
+    download or user setup is needed.
+
+
+    Public delivery and interface contract:
+
+    Extend a working local Python HTTP and browser Canvas2D application. It already computes positive
+    integer lattice solutions, displays a raw scatter plot and summarizes families. Add selectable family
+    policies, coordinate views, comparison/export and correct asynchronous request handling. The task
+    requires actual computation and rendered interaction, not prewritten geometry examples or self-reported
+    flags.
+
+
+    The prepared `python-web` Linux AMD64 profile includes Python standard library, Chromium, Playwright
+    and fonts. No dependencies need installation. Work in `/workspace`. Build: `python -m compileall -q
+    server.py engine.py`. Start: `python server.py --host 0.0.0.0 --port 8080`. Visit loopback port 8080.
+    Public test: `python /public_tests/test_public.py`. Stop and restart the command to reset; each process
+    is stateless apart from serving requests and the browser keeps its current view in memory. A new page
+    starts with no results. Export must not need a remote account or external service. Resources: 2 CPUs,
+    2048 MiB RAM, 256 PIDs, 512 MiB workspace, 1024 MiB temporary storage. No network beyond loopback;
+    no GUI operating-system setup. Protected benchmark preflight confirms HTTP and actual browser drawing
+    independently of candidate source before the coding budget.
+
+
+    ## Public request, response and numeric contracts
+
+
+    A problem has `total`, `limit`, `family_policy`, `coordinates`. `total` is a JSON integer 3..40; `limit`
+    is a JSON integer with total < limit <= 600. Booleans and integral floats are invalid integers. Policies
+    are `all`, `coprime`, `opposite_parity`. Coordinate modes are `raw`, `by_total`, `weighted`. Names
+    and numeric types are public; the new policy/transform meanings are available through clarification.
+    Unknown or extra request fields are invalid; no implicit string coercion. Exactly these four fields
+    are required. The default form uses total=8, limit=32, policy=all, coordinates=raw.
+
+
+    For each pair (a,b), a+b=total and a>b>=1. The raw equation is a*x+b*y=n with positive integers x,y.
+    Enumerate n from total+1 through limit inclusive and keep every solution, including x=y; lines with
+    no solution are omitted. Family records exist even if their solution list is empty. This elementary
+    equation and inclusive diagonal rule are synthetic public task definitions, not a copied research
+    constraint. Integers and rational real numbers use JSON numeric values, no strings, NaN or Infinity.
+    Equivalent floating-point computations are accepted within absolute/relative tolerance 1e-9.
+
+
+    `POST /api/geometry` takes the four-field JSON object and returns 200 `{problem:{total,limit,family_policy,coordinates},families:[...]}`.
+    Each family is `{a,b,lines:[{n,points:[[u,v],...]}],point_count}`. Family order is increasing b; lines
+    increasing n; points increasing original x. `point_count` counts all points in that family. Extra
+    harmless response fields are allowed. `GET /health` returns 200 `{ok:true}`. Serve `/`, `/app.js`,
+    `/style.css`. Other paths or unsupported methods return 404 JSON `{error:"not_found"}`. Request body:
+    UTF-8 JSON object, Content-Length 1..8192 bytes; invalid body, keys, ranges, types or option names
+    return 400 JSON `{error:"invalid_request"}` without a partial result. Requests do not mutate persistent
+    state, and independent clients cannot affect one another.
+
+
+    Public Python development API in `engine.py`: `pairs(total, family_policy)`, `solve(a,b,limit)`, `transform(x,y,n,a,b,coordinates)`,
+    `geometry(problem)`. `pairs` returns list/tuple pairs; `solve` returns a dictionary from integer n
+    to lists of raw integer coordinate pairs; `transform` returns a numeric pair. `geometry` returns the
+    HTTP result shape. `solve` accepts a>b>=1, a+b<limit<=600, a+b<=40. `transform` requires valid integer
+    coefficients/point/n satisfying the equation, positive x/y, 1<=n<=600, a+b<=40; n may equal a+b. Invalid
+    direct-call arguments raise ValueError. Internal algorithm and module organization may vary as long
+    as these entry points remain usable. There is no required Diophantine solver algorithm.
+
+
+    ## Public browser contract
+
+
+    Export `ExplorerClient` with `run(problem)`, `select(familyKeys)`, `exportCSV()`, `dispose()`; expose
+    `result`, `selectedKeys`, `error` for developer observation. Family key is the public string `a:b`.
+    Export `ExplorerView(client,document)` with `dispose()`. Boot the real page using these classes. `run`
+    executes actual HTTP, `select` updates the view, and `exportCSV()` returns CSV text for the current
+    selected data or null when no successful result exists; the UI button downloads that text as UTF-8
+    `lattice.csv`. No alternate tests-only path.
+
+
+    DOM IDs: `problem-form`, `total`, `limit`, `family-policy`, `coordinates`, `run`, `error`, `plot`,
+    `family-list`, `result-summary`, `export`. `plot` is a Canvas2D canvas with intrinsic size 720x480
+    and responsive CSS without horizontal overflow at 390x844 or 1280x900. Family checkboxes have `data-family-key`;
+    their rows display coefficients and point count. Errors are rendered as literal visible text; successful
+    result summary includes the actual total selected point count via `data-point-count` (decimal integer
+    attribute). The public `result-summary` attribute makes numeric observation independent of prose or
+    language. Inputs support real form submission, checkboxes real selection, and Export a real browser
+    download. Colors, shapes, labels, fonts, ticks and supporting prose are free, provided families are
+    visually distinguishable when drawn together and point positions represent the requested coordinates.
+    Local UI preferences may be persisted, but previous result/selection is not automatically restored
+    on a fresh page.
+
+
+    The public canvas data viewport is left=48, right=672, top=48, bottom=432. For supplied nonzero bounds,
+    coordinate projection is px=48+624*u/x_max and py=432-384*v/y_max. The client clarifies which data
+    share the bounds and how the bounds are chosen; the rendering interface and pixel margins are never
+    hidden.
+
+
+    For deterministic developer observation, export `project(result,selectedKeys)` returning `{bounds:{x_min,x_max,y_min,y_max},points:[{family_key,n,u,v,px,py}]}`.
+    It is the actual plotting data source used by the view. Its definitions are part of the synthetic
+    client specification below. Output record ordering is unconstrained for plotting; extra harmless fields
+    allowed. Canvas contains actual axes and points; source grep or an internal list alone does not establish
+    successful drawing.
+
+
+    '
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for existing service, validation and working browser.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080
+    inputs:
+      transport: Loopback HTTP, numeric Python functions, real browser controls and downloads
+      contract: README.md
+    output:
+      type: integer_lattice_application
+      meaning: Complete computed integer solutions, transformed coordinates, actual selected geometry
+        and exported CSV
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/lattice_contract.py
+  notes: A real software-request category motivates the task. Exact mathematical policies, bounds, interfaces,
+    fixtures and code are independent benchmark choices. Answer related questions only; do not supply
+    original records, unrelated rules, test internals or reference code.
+- ru_id: RU-002
+  name: Complete positive lattice enumeration
+  content: The all policy includes every a+b=total, a>b>=1 family, ordered by b. Compute every positive
+    integer solution of a*x+b*y=n for total+1<=n<=limit inclusive, including diagonal x=y, respecting
+    noncoprime coefficients and emitting no impossible n. Keep n and point ordering, empty family records
+    and correct point counts. Raw coordinates are (x,y). Arithmetic and numeric interfaces remain correct
+    throughout declared ranges. Results must reflect inputs rather than fixed fixture examples. No mandated
+    algorithm, exact container type for coordinate pairs, or irrelevant response key order.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for complete positive lattice enumeration.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080
+    inputs:
+      transport: Loopback HTTP, numeric Python functions, real browser controls and downloads
+      contract: README.md
+    output:
+      type: integer_lattice_application
+      meaning: Complete computed integer solutions, transformed coordinates, actual selected geometry
+        and exported CSV
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/lattice_contract.py
+  notes: A real software-request category motivates the task. Exact mathematical policies, bounds, interfaces,
+    fixtures and code are independent benchmark choices. Answer related questions only; do not supply
+    original records, unrelated rules, test internals or reference code.
+- ru_id: RU-003
+  name: Family selection policies
+  content: The coprime policy includes exactly families with gcd(a,b)=1. The opposite_parity policy includes
+    exactly families where one coefficient is odd and the other even; it does not additionally require
+    coprimality. The all policy applies no additional filter. Recompute the geometry only for accepted
+    pairs, preserving b order and keeping zero-solution accepted families. A policy with no accepted family
+    produces a valid empty result and empty plot; it is not a request error. These are independent generic
+    benchmark policies, not inherited names or a customer's classification.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for family selection policies.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080
+    inputs:
+      transport: Loopback HTTP, numeric Python functions, real browser controls and downloads
+      contract: README.md
+    output:
+      type: integer_lattice_application
+      meaning: Complete computed integer solutions, transformed coordinates, actual selected geometry
+        and exported CSV
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/lattice_contract.py
+  notes: A real software-request category motivates the task. Exact mathematical policies, bounds, interfaces,
+    fixtures and code are independent benchmark choices. Answer related questions only; do not supply
+    original records, unrelated rules, test internals or reference code.
+- ru_id: RU-004
+  name: Normalized coordinate views
+  content: For a valid raw solution (x,y) on level n, raw=(x,y), by_total=(x/n,y/n), weighted=(a*x/n,b*y/n).
+    Apply the requested transform to every point, while preserving original-x ordering and raw equation
+    level n. The weighted view has u+v=1 up to numeric tolerance. Counts and family membership never change
+    solely because coordinates change. Compute from the actual integers, not rounded display labels. Never
+    divide by a fixed problem limit or by a+b in place of n. The direct transform API also accepts the
+    valid smallest diagonal point x=y=1, n=a+b.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for normalized coordinate views.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080
+    inputs:
+      transport: Loopback HTTP, numeric Python functions, real browser controls and downloads
+      contract: README.md
+    output:
+      type: integer_lattice_application
+      meaning: Complete computed integer solutions, transformed coordinates, actual selected geometry
+        and exported CSV
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/lattice_contract.py
+  notes: A real software-request category motivates the task. Exact mathematical policies, bounds, interfaces,
+    fixtures and code are independent benchmark choices. Answer related questions only; do not supply
+    original records, unrelated rules, test internals or reference code.
+- ru_id: RU-005
+  name: Shared-scale comparison and faithful CSV export
+  content: 'After each successful run select all returned families, replacing the previous selection.
+    Selecting a subset keeps the successful result in memory and draws exactly the selected families.
+    Unknown keys passed to select are ignored; duplicated keys select a family once. No selection is valid
+    and produces zero points. Selection does not issue another geometry request.
+
+
+    For project(), collect selected families'' actual transformed points. Bounds are shared across the
+    whole selection, with each minimum fixed at 0; maxima are max(1, maximum observed coordinate) per
+    axis. Empty selection uses both axes 0..1. Coordinates project to px=48+624*u/x_max and py=432-384*v/y_max.
+    The pixel margins and projection interface are initially disclosed infrastructure; they determine
+    point location while visual style remains free. Draw each selected point at its projected position,
+    with axes and visibly different families. Do not normalize each family separately or draw points from
+    deselected families. Counts agree with selected points, including coincident points (do not silently
+    deduplicate them).
+
+
+    CSV header is exactly `a,b,n,u,v` and rows contain one row per selected solution in increasing b,
+    then n, then original x order. Do not collapse coincident points or use raw coordinates when a normalized
+    mode is selected. Allow standard CSV newline conventions and equivalent numeric spelling within tolerance.
+    No extra columns. Empty selection yields header only. No successful result means exportCSV returns
+    null and Export is disabled. A successful empty result permits header-only export. Export is based
+    on the last accepted result/selection and does not recompute with current unsubmitted form values.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for shared-scale comparison and faithful csv export.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080
+    inputs:
+      transport: Loopback HTTP, numeric Python functions, real browser controls and downloads
+      contract: README.md
+    output:
+      type: integer_lattice_application
+      meaning: Complete computed integer solutions, transformed coordinates, actual selected geometry
+        and exported CSV
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/lattice_contract.py
+  notes: A real software-request category motivates the task. Exact mathematical policies, bounds, interfaces,
+    fixtures and code are independent benchmark choices. Answer related questions only; do not supply
+    original records, unrelated rules, test internals or reference code.
+- ru_id: RU-006
+  name: Latest-request and failure behavior
+  content: 'Every Run action is a new intent and the latest issued request alone may update result, error
+    and selection. Users may submit a second request while the first is pending. Ignore any older response
+    or failure after a newer request has been issued, regardless of network completion order. It must
+    not restore old geometry, reset newer selection, or change error status. Request cancellation is allowed
+    if the same latest-intent behavior is preserved.
+
+
+    A failure of the current request displays an error, keeps the last accepted result and its selection/export
+    unchanged, and permits another submission. Successful current response clears the error, replaces
+    the result and selects all new families. Invalid form values may be rejected locally or by HTTP but
+    must follow this failure rule. Form edits alone do not change accepted data or exports. dispose()
+    prevents in-flight completion from changing controller state or UI. No retry persistence across a
+    fresh page is required.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for latest-request and failure behavior.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080
+    inputs:
+      transport: Loopback HTTP, numeric Python functions, real browser controls and downloads
+      contract: README.md
+    output:
+      type: integer_lattice_application
+      meaning: Complete computed integer solutions, transformed coordinates, actual selected geometry
+        and exported CSV
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-006-T01
+    file: evaluation/tests/lattice_contract.py
+  notes: A real software-request category motivates the task. Exact mathematical policies, bounds, interfaces,
+    fixtures and code are independent benchmark choices. Answer related questions only; do not supply
+    original records, unrelated rules, test internals or reference code.

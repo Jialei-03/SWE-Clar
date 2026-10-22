@@ -1,0 +1,124 @@
+{
+  "users": [
+    {
+      "id": "admin",
+      "username": "admin",
+      "password": "synthetic-pass",
+      "role": "administrator",
+      "active": true
+    },
+    {
+      "id": "merchant-a",
+      "username": "merchant-a",
+      "password": "synthetic-pass",
+      "role": "merchant",
+      "active": true
+    },
+    {
+      "id": "merchant-b",
+      "username": "merchant-b",
+      "password": "synthetic-pass",
+      "role": "merchant",
+      "active": true
+    },
+    {
+      "id": "merchant-new",
+      "username": "merchant-new",
+      "password": "synthetic-pass",
+      "role": "merchant",
+      "active": true
+    },
+    {
+      "id": "merchant-inactive",
+      "username": "merchant-inactive",
+      "password": "synthetic-pass",
+      "role": "merchant",
+      "active": false
+    },
+    {
+      "id": "consumer-a",
+      "username": "consumer-a",
+      "password": "synthetic-pass",
+      "role": "consumer",
+      "active": true
+    },
+    {
+      "id": "consumer-b",
+      "username": "consumer-b",
+      "password": "synthetic-pass",
+      "role": "consumer",
+      "active": true
+    },
+    {
+      "id": "consumer-inactive",
+      "username": "consumer-inactive",
+      "password": "synthetic-pass",
+      "role": "consumer",
+      "active": false
+    }
+  ],
+  "malls": [
+    {
+      "id": "mall-a",
+      "name": "Synthetic Garden"
+    },
+    {
+      "id": "mall-b",
+      "name": "Synthetic Arcade"
+    }
+  ],
+  "shops": [
+    {
+      "id": "shop-a",
+      "name": "Synthetic Pantry",
+      "owner_id": "merchant-a",
+      "category": "food"
+    },
+    {
+      "id": "shop-b",
+      "name": "Synthetic Studio",
+      "owner_id": "merchant-b",
+      "category": "leisure"
+    }
+  ],
+  "branches": [
+    {
+      "id": "branch-a",
+      "shop_id": "shop-a",
+      "mall_id": "mall-a",
+      "participating": true
+    },
+    {
+      "id": "branch-a2",
+      "shop_id": "shop-a",
+      "mall_id": "mall-b",
+      "participating": true
+    },
+    {
+      "id": "branch-b",
+      "shop_id": "shop-b",
+      "mall_id": "mall-b",
+      "participating": true
+    },
+    {
+      "id": "branch-off",
+      "shop_id": "shop-a",
+      "mall_id": "mall-a",
+      "participating": false
+    }
+  ],
+  "rewards": [
+    {
+      "id": "reward-a",
+      "name": "Synthetic Paper Kit",
+      "cost": 2,
+      "stock": 2
+    },
+    {
+      "id": "reward-b",
+      "name": "Synthetic Badge",
+      "cost": 1,
+      "stock": 1
+    }
+  ]
+}

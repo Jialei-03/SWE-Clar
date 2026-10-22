@@ -1,0 +1,10 @@
+schema_version: 1
+design: controlled_requirement_disclosure
+initial_request_file: request.md
+materials:
+  attachments: all
+  starter_code: all
+layout_version: 2
+workspace_dir: workspace
+public_tests_dir: public_tests
+requirement_units_file: evaluation/requirement_units.yaml

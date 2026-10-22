@@ -1,0 +1,1 @@
+window.ASSISTANT_DATA ??= {conversations:{example:{title:'Example conversation',transcript:['Synthetic conversation entry.'],pending_question:'What would you like to explore next?'}},routes:{chat:'/chat',chat_prefill:'Hello',schedule:'/schedule'},report_endpoint:'/reports'};

@@ -1,0 +1,189 @@
+schema_version: 1
+task_id: SWECLAR-041
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independently reconstructed C++ controller firmware with real virtual-GPIO and asynchronous
+  local telemetry transport.
+requirement_units:
+- ru_id: RU-001
+  name: Executable event-driven controller
+  content: Preserve the buildable C++ application, declared serial grammar/output, real loopback registration
+    service and virtual-board/bus byte formats from README. Process serial input and registration connections
+    while the telemetry handshake is pending; never block the event loop waiting for an acknowledgement
+    or sleep to simulate virtual time. Bus readiness requires the complete actual OK01 acknowledgement;
+    handle fragmented data and remote closure. Keep startup state and deterministic clock bounds, and
+    launch from the prepared environment without setup work.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for executable event-driven controller?
+  matching_keywords:
+  - firmware
+  - build
+  - event loop
+  - interface
+  - protocol
+  test_interface:
+    type: api
+    entry:
+      command: make && build/firmware --board-port <prepared UDP board> --bus-port <prepared TCP bus>
+      protocol: Serial JSON responses and actual peripheral wire formats in README
+    inputs: Virtual link inputs, clock advances, sensor values and prepared loopback peripherals
+    output: Actual registration endpoint behavior, GPIO/beacon datagrams and health frames
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Exact timings, serial commands, native host target and binary protocol are independently designed
+    benchmark conventions. No original identifiers, code, topics or device compatibility claim.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/firmware_contract.py
+- ru_id: RU-002
+  name: Actual registration shutdown
+  content: Initially send the documented registration beacon at time 0 and each 1000ms boundary and serve
+    SETUP newline on the real registration TCP socket. The registered command closes the actual listener
+    and disables all future beacons. Preserve network, bus connection, pending handshake, current GPIO
+    level and its LED phase schedule. Repeated registration completion has no additional side effects.
+    This is a virtual registration service, not a claim of original radio compatibility.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for actual registration shutdown?
+  matching_keywords:
+  - registration
+  - advertising
+  - shutdown
+  - service
+  test_interface:
+    type: api
+    entry:
+      command: make && build/firmware --board-port <prepared UDP board> --bus-port <prepared TCP bus>
+      protocol: Serial JSON responses and actual peripheral wire formats in README
+    inputs: Virtual link inputs, clock advances, sensor values and prepared loopback peripherals
+    output: Actual registration endpoint behavior, GPIO/beacon datagrams and health frames
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Exact timings, serial commands, native host target and binary protocol are independently designed
+    benchmark conventions. No original identifiers, code, topics or device compatibility claim.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/firmware_contract.py
+- ru_id: RU-003
+  name: GPIO connectivity timing
+  content: Emit initial GPIO high at time 0. When network is down, toggle the output every 100ms (200ms
+    full blink period). When network is up but the bus is not acknowledged, toggle every 500ms. When both
+    are ready, hold high. On a change between these three modes, start the new mode high and anchor its
+    next edge to the current virtual time plus its half-period; emit a GPIO record only if the physical
+    level changes. Repeated inputs that leave the mode unchanged must not reset phase or create duplicate
+    edges. Advancing time emits every crossed edge at the exact scheduled time, including an edge exactly
+    at the target time. Preserve chronological order and the public GPIO-before-beacon tie rule.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for gpio connectivity timing?
+  matching_keywords:
+  - LED
+  - GPIO
+  - blink
+  - timing
+  - phase
+  - connection
+  test_interface:
+    type: api
+    entry:
+      command: make && build/firmware --board-port <prepared UDP board> --bus-port <prepared TCP bus>
+      protocol: Serial JSON responses and actual peripheral wire formats in README
+    inputs: Virtual link inputs, clock advances, sensor values and prepared loopback peripherals
+    output: Actual registration endpoint behavior, GPIO/beacon datagrams and health frames
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Exact timings, serial commands, native host target and binary protocol are independently designed
+    benchmark conventions. No original identifiers, code, topics or device compatibility claim.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/firmware_contract.py
+- ru_id: RU-004
+  name: Health frames on the real bus
+  content: For each valid health command, emit exactly one documented HT01 binary frame with the current
+    virtual timestamp and supplied RSSI/channel/bandwidth, only while network is up and the bus handshake
+    is fully acknowledged. Drop samples when network is down, connection is pending, bus is disconnected
+    or acknowledgement was rejected; do not buffer those samples for later. Preserve signed RSSI and all
+    field values. Repeated valid health commands are separate measurements and each eligible call publishes
+    once. The registered command must not stop eligible health publication. On bus closure or cancellation
+    discard unsent old-connection data; reconnection must not replay it.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for health frames on the real bus?
+  matching_keywords:
+  - health
+  - telemetry
+  - publish
+  - sample
+  - bus
+  - buffer
+  test_interface:
+    type: api
+    entry:
+      command: make && build/firmware --board-port <prepared UDP board> --bus-port <prepared TCP bus>
+      protocol: Serial JSON responses and actual peripheral wire formats in README
+    inputs: Virtual link inputs, clock advances, sensor values and prepared loopback peripherals
+    output: Actual registration endpoint behavior, GPIO/beacon datagrams and health frames
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Exact timings, serial commands, native host target and binary protocol are independently designed
+    benchmark conventions. No original identifiers, code, topics or device compatibility claim.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/firmware_contract.py
+- ru_id: RU-005
+  name: Idempotent controls and safe errors
+  content: 'Repeated network/broker status inputs and repeated registered commands are idempotent: preserve
+    the LED phase if mode did not change, do not open duplicate connections/handshakes, and do not duplicate
+    registration side effects. network 0 closes any ready or pending bus connection; network 1 alone does
+    not connect it. broker 1 while network is down returns {ok:false,error:network_down} without changing
+    state or I/O; otherwise it requests asynchronous connection and is a no-op if already ready/pending.
+    Reject every unknown, empty, malformed, oversized or out-of-range command with {ok:false,error:invalid_command},
+    no state change and no peripheral output. Consume a complete oversized line before accepting the next
+    line. Invalid commands cannot move the clock, close registration, alter connectivity or publish. Advancing
+    to the same time is valid and has no extra timed output.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for idempotent controls and safe errors?
+  matching_keywords:
+  - error
+  - malformed
+  - idempotent
+  - repeat
+  - reset
+  - clock
+  test_interface:
+    type: api
+    entry:
+      command: make && build/firmware --board-port <prepared UDP board> --bus-port <prepared TCP bus>
+      protocol: Serial JSON responses and actual peripheral wire formats in README
+    inputs: Virtual link inputs, clock advances, sensor values and prepared loopback peripherals
+    output: Actual registration endpoint behavior, GPIO/beacon datagrams and health frames
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Exact timings, serial commands, native host target and binary protocol are independently designed
+    benchmark conventions. No original identifiers, code, topics or device compatibility claim.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/firmware_contract.py

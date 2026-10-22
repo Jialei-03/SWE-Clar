@@ -1,0 +1,826 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 7c08fee2273db0de63d1cfd310932adbe7ae9a72..4fa36655680df1979433bcdcddcbc55b9d7545df 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,8 +1,10 @@
+ cmake_minimum_required(VERSION 3.16)
+ project(fcb_wx_workspace LANGUAGES CXX)
+ 
+-set(CMAKE_CXX_STANDARD 17)
++# The reference shell intentionally targets the portable C++11 toolchain.
++set(CMAKE_CXX_STANDARD 11)
+ set(CMAKE_CXX_STANDARD_REQUIRED ON)
++set(CMAKE_CXX_EXTENSIONS OFF)
+ 
+ find_package(wxWidgets REQUIRED COMPONENTS core base aui)
+ include(${wxWidgets_USE_FILE})
+@@ -15,3 +17,7 @@ add_executable(workspace_gui
+ )
+ target_include_directories(workspace_gui PRIVATE src)
+ target_link_libraries(workspace_gui PRIVATE ${wxWidgets_LIBRARIES})
++
++if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
++    target_compile_options(workspace_gui PRIVATE -pedantic-errors)
++endif()
+diff --git a/src/App.cpp b/src/App.cpp
+index daf885241ddfb69a2cda43a157f4240e22229d0d..6173899bc20a34e674fd4cea8c99620933d5e771 100644
+--- a/src/App.cpp
++++ b/src/App.cpp
+@@ -13,14 +13,21 @@ class WorkspaceApp final : public wxApp {
+ public:
+     bool OnInit() override {
+         MainWindowM model;
+-        if (argc >= 2 && wxString(argv[1]) == "--dump-layout") {
++        if (argc >= 2 && wxString(argv[1]) == wxString("--dump-layout")) {
+             std::cout << model.layout_json() << '\n';
+             cli_mode_ = true;
+             return true;
+         }
+-        view_ = std::make_unique<MainWindowV>();
+-        controller_ = std::make_unique<MainWindowC>(*view_);
+-        view_->Show();
++
++        view_ = new MainWindowV(model);
++        controller_.reset(new MainWindowC(*view_));
++        SetTopWindow(view_);
++        view_->Show(true);
++
++        if (argc >= 2 && wxString(argv[1]) == wxString("--smoke")) {
++            smoke_mode_ = true;
++            CallAfter(&WorkspaceApp::finish_smoke);
++        }
+         return true;
+     }
+ 
+@@ -29,9 +36,21 @@ public:
+     }
+ 
+ private:
+-    std::unique_ptr<MainWindowV> view_;
++    void finish_smoke() {
++        // Close the real frame through wx's normal close path, then leave the
++        // event loop.  wxWidgets owns top-level windows after they are shown;
++        // the raw pointer is intentionally not deleted here.
++        if (smoke_mode_ && view_ != nullptr) {
++            view_->Close(true);
++            view_ = nullptr;
++        }
++        ExitMainLoop();
++    }
++
++    MainWindowV* view_{nullptr};
+     std::unique_ptr<MainWindowC> controller_;
+     bool cli_mode_{false};
++    bool smoke_mode_{false};
+ };
+ 
+ }  // namespace workspace
+diff --git a/src/MainWindowC.cpp b/src/MainWindowC.cpp
+index 0192f50aa4045bb30b301bfa401e06bac4a30e39..7fe9878ef342d476d8fb8ee69af2804fbd957813 100644
+--- a/src/MainWindowC.cpp
++++ b/src/MainWindowC.cpp
+@@ -1,10 +1,106 @@
+ #include "MainWindowC.h"
+ 
++#include "MainWindowG.h"
++
+ namespace workspace {
+ 
+-MainWindowC::MainWindowC(MainWindowV& view) {
+-    view.Bind(wxEVT_MENU, [&view](wxCommandEvent&) { view.Close(true); }, wxID_EXIT);
++MainWindowC::MainWindowC(MainWindowV& view)
++    : view_(&view) {
++    // Dynamic bindings keep the view declarative and make the controller the
++    // single owner of interaction policy.
++    view.Bind(wxEVT_MENU, &MainWindowC::on_menu, this);
++    // On GTK, wxEVT_TOOL is an alias for wxEVT_MENU.  Restrict the tool
++    // binding to the application-owned tool ID range so it cannot consume
++    // menu commands before on_menu sees them.
++    view.Bind(wxEVT_TOOL,
++              &MainWindowC::on_tool,
++              this,
++              constants::kToolUpdate,
++              constants::kToolAutoVerify);
+ }
+ 
+-}  // namespace workspace
++void MainWindowC::on_menu(wxCommandEvent& event) {
++    if (view_ == nullptr) {
++        return;
++    }
++
++    const int id = event.GetId();
++    if (id == wxID_EXIT) {
++        view_->Close(true);
++        return;
++    }
++
++    if (id == constants::kMenuSavePerspective) {
++        const wxString name = view_->save_perspective();
++        view_->set_status_text(wxString("Saved perspective: ") + name);
++        return;
++    }
++
++    if (id == constants::kMenuDefaultPerspective) {
++        view_->reset_default_perspective();
++        view_->set_status_text(wxString(constants::kStatusReady));
++        return;
++    }
++
++    if (view_->is_custom_perspective_id(id)) {
++        const wxString name = view_->custom_perspective_name(id);
++        if (view_->load_perspective(name)) {
++            view_->set_status_text(wxString("Loaded perspective: ") + name);
++        }
++        return;
++    }
+ 
++    if (id == constants::kMenuResetLayout) {
++        view_->reset_default_perspective();
++        view_->set_status_text(wxString(constants::kStatusReady));
++    } else if (id == constants::kMenuUndo) {
++        view_->set_status_text(wxString("Undo is not active in the shell"));
++    } else if (id == constants::kMenuRefresh) {
++        view_->set_status_text(wxString("Workspace refreshed"));
++    } else if (id == constants::kMenuVerifyNow) {
++        view_->set_status_text(wxString("Verification is ready"));
++    } else if (id == constants::kMenuPreferences) {
++        view_->set_status_text(wxString("Preferences are not required for the shell"));
++    } else if (id == constants::kMenuAbout) {
++        view_->set_status_text(wxString(constants::kApplicationTitle));
++    }
++}
++
++void MainWindowC::on_tool(wxCommandEvent& event) {
++    if (view_ == nullptr) {
++        return;
++    }
++
++    switch (event.GetId()) {
++    case constants::kToolUpdate:
++        view_->set_status_text(wxString("Workspace updated"));
++        break;
++    case constants::kToolSelect:
++        view_->set_status_text(wxString("Selection active"));
++        break;
++    case constants::kToolUnselect:
++        view_->set_status_text(wxString("Selection cleared"));
++        break;
++    case constants::kToolCancel:
++        view_->set_status_text(wxString("Operation cancelled"));
++        break;
++    case constants::kToolLint:
++        view_->set_status_text(wxString("Lint is ready"));
++        break;
++    case constants::kToolAnalyze:
++        view_->set_status_text(wxString("Analysis is ready"));
++        break;
++    case constants::kToolVerify:
++        view_->set_status_text(wxString("Verification is ready"));
++        break;
++    case constants::kToolAutoVerify:
++        view_->set_status_text(event.IsChecked()
++                                   ? wxString("Auto-Verify enabled")
++                                   : wxString("Auto-Verify disabled"));
++        break;
++    default:
++        break;
++    }
++}
++
++}  // namespace workspace
+diff --git a/src/MainWindowC.h b/src/MainWindowC.h
+index da18a71f100e0558320bb9e4cb750ebf72ca5f97..240f98126aceae87cf2b7b100c99c7cbb60f5222 100644
+--- a/src/MainWindowC.h
++++ b/src/MainWindowC.h
+@@ -4,10 +4,17 @@
+ 
+ namespace workspace {
+ 
+-class MainWindowC {
++// The controller is a wx event handler, but all associations are made at
++// runtime in the constructor.  There are no static event-table macros.
++class MainWindowC final : public wxEvtHandler {
+ public:
+     explicit MainWindowC(MainWindowV& view);
++
++private:
++    void on_menu(wxCommandEvent& event);
++    void on_tool(wxCommandEvent& event);
++
++    MainWindowV* view_;
+ };
+ 
+ }  // namespace workspace
+-
+diff --git a/src/MainWindowG.h b/src/MainWindowG.h
+index 7f0fd59e8d7674ce6450f64413e89c39928c48c0..629dd7d83a95e09a0c2c2898b9b2f95cd442c794 100644
+--- a/src/MainWindowG.h
++++ b/src/MainWindowG.h
+@@ -1,7 +1,88 @@
+ #pragma once
+ 
+-namespace workspace::constants {
+-inline constexpr char kApplicationTitle[] = "Engineering Workspace";
+-inline constexpr char kStatusReady[] = "Ready";
+-}  // namespace workspace::constants
++// UI strings and command identifiers live in this header so that the view does
++// not have to duplicate user-facing text.  It deliberately has no wxWidgets
++// dependency; the model can include the same project constants if needed.
++namespace workspace {
++namespace constants {
+ 
++constexpr char kApplicationTitle[] = "Engineering Workspace";
++constexpr char kStatusReady[] = "Ready";
++
++constexpr char kModuleBrowserName[] = "module_browser";
++constexpr char kToolbarName[] = "toolbar";
++constexpr char kCodeWindowName[] = "code_window";
++constexpr char kPropertyWindowName[] = "property_window";
++constexpr char kMessageBoxName[] = "message_box";
++constexpr char kCommandLineName[] = "command_line";
++constexpr char kPropertyManagerName[] = "property_manager";
++constexpr char kPerspectiveNameControl[] = "perspective_name";
++
++constexpr char kModuleBrowserCaption[] = "Module Browser";
++constexpr char kToolbarCaption[] = "Toolbar";
++constexpr char kVerificationToolbarCaption[] = "Verification";
++constexpr char kCodeWindowCaption[] = "Code Window";
++constexpr char kPropertyWindowCaption[] = "Property Window";
++constexpr char kMessageBoxCaption[] = "Message Box";
++constexpr char kCommandLineCaption[] = "Command Line Interface";
++constexpr char kPropertyManagerCaption[] = "Property Manager";
++
++constexpr char kFileMenu[] = "File";
++constexpr char kEditMenu[] = "Edit";
++constexpr char kVerifyMenu[] = "Verify";
++constexpr char kToolsMenu[] = "Tools";
++constexpr char kWindowsMenu[] = "Windows";
++constexpr char kHelpMenu[] = "Help";
++
++constexpr char kSavePerspectiveLabel[] = "Save perspective";
++constexpr char kDefaultPerspectiveLabel[] = "Default perspective";
++constexpr char kResetLayoutLabel[] = "Reset layout";
++constexpr char kExitLabel[] = "Exit";
++constexpr char kUndoLabel[] = "Undo";
++constexpr char kRefreshLabel[] = "Refresh";
++constexpr char kVerifyNowLabel[] = "Verify now";
++constexpr char kPreferencesLabel[] = "Preferences";
++constexpr char kAboutLabel[] = "About";
++
++constexpr char kPerspectiveNameDefault[] = "Custom perspective";
++
++constexpr char kUpdateLabel[] = "Update";
++constexpr char kSelectLabel[] = "Select";
++constexpr char kUnselectLabel[] = "Unselect";
++constexpr char kCancelLabel[] = "Cancel";
++constexpr char kLintLabel[] = "Lint";
++constexpr char kAnalyzeLabel[] = "Analyze";
++constexpr char kVerifyLabel[] = "Verify";
++constexpr char kAutoVerifyLabel[] = "Auto-Verify";
++
++constexpr char kUpdateTooltip[] = "Update the workspace";
++constexpr char kSelectTooltip[] = "Select the current item";
++constexpr char kUnselectTooltip[] = "Clear the current selection";
++constexpr char kCancelTooltip[] = "Cancel the current operation";
++constexpr char kLintTooltip[] = "Run the code linter";
++constexpr char kAnalyzeTooltip[] = "Analyze the current code";
++constexpr char kVerifyTooltip[] = "Verify the current code";
++constexpr char kAutoVerifyTooltip[] = "Toggle automatic verification";
++
++// Application-owned IDs are kept in a range separate from wx's stock IDs.
++enum CommandId {
++    kMenuSavePerspective = 4100,
++    kMenuDefaultPerspective,
++    kMenuResetLayout,
++    kMenuUndo,
++    kMenuRefresh,
++    kMenuVerifyNow,
++    kMenuPreferences,
++    kMenuAbout,
++    kToolUpdate,
++    kToolSelect,
++    kToolUnselect,
++    kToolCancel,
++    kToolLint,
++    kToolAnalyze,
++    kToolVerify,
++    kToolAutoVerify
++};
++
++}  // namespace constants
++}  // namespace workspace
+diff --git a/src/MainWindowM.cpp b/src/MainWindowM.cpp
+index 7dfe1b3462e33f9bea86c834e9798d5660a9fe39..3b46c3e66c9b52dc43689b359eedf6a198cee177 100644
+--- a/src/MainWindowM.cpp
++++ b/src/MainWindowM.cpp
+@@ -3,8 +3,7 @@
+ namespace workspace {
+ 
+ std::string MainWindowM::layout_json() const {
+-    return "{\"panes\":[],\"status_text\":\"Ready\"}";
++    return "{\"panes\":[\"module_browser\",\"toolbar\",\"code_window\",\"property_window\",\"message_box\",\"command_line\",\"property_manager\"],\"status_text\":\"Ready\"}";
+ }
+ 
+ }  // namespace workspace
+-
+diff --git a/src/MainWindowM.h b/src/MainWindowM.h
+index 8c606dfb2aae4c83355266e02bcf342a3ebf655a..3a966d18a05b235b13d4cab3bd4eb42c60ccc4a8 100644
+--- a/src/MainWindowM.h
++++ b/src/MainWindowM.h
+@@ -4,10 +4,11 @@
+ 
+ namespace workspace {
+ 
++// The model is intentionally independent of wxWidgets.  It describes the
++// stable shell that the view renders, while the controller owns interaction.
+ class MainWindowM {
+ public:
+     std::string layout_json() const;
+ };
+ 
+ }  // namespace workspace
+-
+diff --git a/src/MainWindowV.cpp b/src/MainWindowV.cpp
+index 0a4efab314771df6660a15d09bedafb01e2cf6d9..6fecd580ff17c6cefc750bc304e1894a83ff92d0 100644
+--- a/src/MainWindowV.cpp
++++ b/src/MainWindowV.cpp
+@@ -1,14 +1,417 @@
+ #include "MainWindowV.h"
+ 
+ #include "MainWindowG.h"
++#include "MainWindowM.h"
+ 
+ namespace workspace {
++namespace {
+ 
+-MainWindowV::MainWindowV()
+-    : wxFrame(nullptr, wxID_ANY, constants::kApplicationTitle, wxDefaultPosition, wxSize(900, 600)) {
+-    CreateStatusBar(1);
+-    SetStatusText(constants::kStatusReady);
++wxAuiPaneInfo workspace_pane(const char* name,
++                             const char* caption,
++                             wxAuiPaneInfo position) {
++    return position.Name(wxString(name))
++        .Caption(wxString(caption))
++        .Dockable(true)
++        .Floatable(true)
++        .Movable(true)
++        .Resizable(true)
++        .CloseButton(true)
++        .MaximizeButton(true)
++        .CaptionVisible(true);
+ }
+ 
+-}  // namespace workspace
++}  // namespace
++
++MainWindowV::MainWindowV(const MainWindowM& model)
++    : wxFrame(nullptr,
++              wxID_ANY,
++              wxString(constants::kApplicationTitle),
++              wxDefaultPosition,
++              wxSize(1100, 720),
++              wxDEFAULT_FRAME_STYLE | wxCLIP_CHILDREN),
++      aui_manager_(this),
++      default_perspective_(),
++      windows_menu_(nullptr),
++      perspective_name_(nullptr),
++      custom_perspectives_(),
++      custom_menu_names_() {
++    // The model is deliberately portable.  Construction of the visual shell
++    // does not require a wxWidgets type in the model.
++    (void)model;
++
++    SetName("main_window");
++    SetMinSize(wxSize(760, 480));
++
++    create_menu_bar();
++
++    wxStatusBar* status_bar = CreateStatusBar(1);
++    status_bar->SetName("status_bar");
++    SetStatusText(wxString(constants::kStatusReady));
++
++    create_workspace();
++
++    // Save the actual manager serialization only after every pane has been
++    // added and laid out.  This is the source of truth for reset and is also
++    // useful to native observers of the window.
++    aui_manager_.Update();
++    default_perspective_ = aui_manager_.SavePerspective();
++}
++
++MainWindowV::~MainWindowV() {
++    // Explicitly detach the manager before wxFrame tears down its children.
++    aui_manager_.UnInit();
++}
++
++void MainWindowV::create_menu_bar() {
++    wxMenuBar* menu_bar = new wxMenuBar();
++
++    wxMenu* file_menu = new wxMenu();
++    file_menu->Append(wxID_EXIT,
++                      wxString(constants::kExitLabel),
++                      wxString("Close the workspace"));
++
++    wxMenu* edit_menu = new wxMenu();
++    edit_menu->Append(constants::kMenuUndo,
++                      wxString(constants::kUndoLabel),
++                      wxString("Undo the last edit"));
++    edit_menu->Append(constants::kMenuResetLayout,
++                      wxString(constants::kResetLayoutLabel),
++                      wxString("Restore the default workspace layout"));
++
++    wxMenu* verify_menu = new wxMenu();
++    verify_menu->Append(constants::kMenuVerifyNow,
++                        wxString(constants::kVerifyNowLabel),
++                        wxString("Verify the current workspace"));
++
++    wxMenu* tools_menu = new wxMenu();
++    tools_menu->Append(constants::kMenuRefresh,
++                       wxString(constants::kRefreshLabel),
++                       wxString("Refresh the workspace"));
++    tools_menu->Append(constants::kMenuPreferences,
++                       wxString(constants::kPreferencesLabel),
++                       wxString("Workspace preferences"));
++
++    windows_menu_ = new wxMenu();
++    windows_menu_->Append(constants::kMenuSavePerspective,
++                          wxString(constants::kSavePerspectiveLabel),
++                          wxString("Save the current named perspective"));
++    windows_menu_->AppendSeparator();
++    windows_menu_->Append(constants::kMenuDefaultPerspective,
++                          wxString(constants::kDefaultPerspectiveLabel),
++                          wxString("Restore the startup perspective"));
++
++    wxMenu* help_menu = new wxMenu();
++    help_menu->Append(constants::kMenuAbout,
++                      wxString(constants::kAboutLabel),
++                      wxString("About the engineering workspace"));
++
++    menu_bar->Append(file_menu, wxString(constants::kFileMenu));
++    menu_bar->Append(edit_menu, wxString(constants::kEditMenu));
++    menu_bar->Append(verify_menu, wxString(constants::kVerifyMenu));
++    menu_bar->Append(tools_menu, wxString(constants::kToolsMenu));
++    menu_bar->Append(windows_menu_, wxString(constants::kWindowsMenu));
++    menu_bar->Append(help_menu, wxString(constants::kHelpMenu));
++    SetMenuBar(menu_bar);
++}
++
++void MainWindowV::create_workspace() {
++    // Two real wxToolBar instances are used instead of drawing toolbar-like
++    // controls in a panel.  Native probes can therefore inspect their tools
++    // and short-help text directly.
++    wxToolBar* toolbar = new wxToolBar(this,
++                                       wxID_ANY,
++                                       wxDefaultPosition,
++                                       wxDefaultSize,
++                                       wxTB_HORIZONTAL | wxTB_TEXT | wxTB_NOICONS);
++    toolbar->SetName(wxString(constants::kToolbarName));
++    toolbar->AddTool(constants::kToolUpdate,
++                     wxString(constants::kUpdateLabel),
++                     wxNullBitmap,
++                     wxString(constants::kUpdateTooltip));
++    toolbar->AddTool(constants::kToolSelect,
++                     wxString(constants::kSelectLabel),
++                     wxNullBitmap,
++                     wxString(constants::kSelectTooltip));
++    toolbar->AddTool(constants::kToolUnselect,
++                     wxString(constants::kUnselectLabel),
++                     wxNullBitmap,
++                     wxString(constants::kUnselectTooltip));
++    toolbar->AddTool(constants::kToolCancel,
++                     wxString(constants::kCancelLabel),
++                     wxNullBitmap,
++                     wxString(constants::kCancelTooltip));
++    toolbar->Realize();
++
++    wxToolBar* verification_toolbar = new wxToolBar(this,
++                                                    wxID_ANY,
++                                                    wxDefaultPosition,
++                                                    wxDefaultSize,
++                                                    wxTB_HORIZONTAL | wxTB_TEXT | wxTB_NOICONS);
++    verification_toolbar->SetName("verification_toolbar");
++    verification_toolbar->AddTool(constants::kToolLint,
++                                  wxString(constants::kLintLabel),
++                                  wxNullBitmap,
++                                  wxString(constants::kLintTooltip));
++    verification_toolbar->AddTool(constants::kToolAnalyze,
++                                  wxString(constants::kAnalyzeLabel),
++                                  wxNullBitmap,
++                                  wxString(constants::kAnalyzeTooltip));
++    verification_toolbar->AddTool(constants::kToolVerify,
++                                  wxString(constants::kVerifyLabel),
++                                  wxNullBitmap,
++                                  wxString(constants::kVerifyTooltip));
++    verification_toolbar->AddTool(constants::kToolAutoVerify,
++                                  wxString(constants::kAutoVerifyLabel),
++                                  wxNullBitmap,
++                                  wxString(constants::kAutoVerifyTooltip));
++    verification_toolbar->Realize();
++
++    wxPanel* module_browser = new wxPanel(this, wxID_ANY);
++    module_browser->SetName(wxString(constants::kModuleBrowserName));
++    wxBoxSizer* module_sizer = new wxBoxSizer(wxVERTICAL);
++    module_sizer->Add(new wxStaticText(module_browser,
++                                       wxID_ANY,
++                                       wxString("Workspace modules")),
++                      0,
++                      wxALL | wxEXPAND,
++                      6);
++    wxListBox* module_list = new wxListBox(module_browser, wxID_ANY);
++    module_list->Append("Core");
++    module_list->Append("Editor");
++    module_list->Append("Verification");
++    module_sizer->Add(module_list, 1, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 6);
++    module_browser->SetSizer(module_sizer);
++
++    wxTextCtrl* code_window = new wxTextCtrl(this,
++                                             wxID_ANY,
++                                             wxString("// Select a module to begin editing\n"),
++                                             wxDefaultPosition,
++                                             wxDefaultSize,
++                                             wxTE_MULTILINE | wxTE_RICH2);
++    code_window->SetName(wxString(constants::kCodeWindowName));
++
++    wxPanel* property_window = new wxPanel(this, wxID_ANY);
++    property_window->SetName(wxString(constants::kPropertyWindowName));
++    wxFlexGridSizer* property_sizer = new wxFlexGridSizer(2, 6, 6);
++    property_sizer->Add(new wxStaticText(property_window, wxID_ANY, "Name"),
++                        0,
++                        wxALIGN_CENTER_VERTICAL);
++    property_sizer->Add(new wxStaticText(property_window, wxID_ANY, "Workspace"),
++                        0,
++                        wxEXPAND);
++    property_sizer->Add(new wxStaticText(property_window, wxID_ANY, "State"),
++                        0,
++                        wxALIGN_CENTER_VERTICAL);
++    property_sizer->Add(new wxStaticText(property_window, wxID_ANY, "Ready"),
++                        0,
++                        wxEXPAND);
++    property_sizer->AddGrowableCol(1, 1);
++    wxBoxSizer* property_outer = new wxBoxSizer(wxVERTICAL);
++    property_outer->Add(property_sizer, 0, wxALL | wxEXPAND, 8);
++    property_window->SetSizer(property_outer);
++
++    wxTextCtrl* message_box = new wxTextCtrl(this,
++                                             wxID_ANY,
++                                             wxString("Workspace ready.\n"),
++                                             wxDefaultPosition,
++                                             wxDefaultSize,
++                                             wxTE_MULTILINE | wxTE_READONLY | wxTE_RICH2);
++    message_box->SetName(wxString(constants::kMessageBoxName));
++
++    wxPanel* command_line = new wxPanel(this, wxID_ANY);
++    command_line->SetName(wxString(constants::kCommandLineName));
++    wxBoxSizer* command_sizer = new wxBoxSizer(wxVERTICAL);
++    wxBoxSizer* perspective_sizer = new wxBoxSizer(wxHORIZONTAL);
++    perspective_sizer->Add(new wxStaticText(command_line,
++                                            wxID_ANY,
++                                            wxString("Perspective name")),
++                           0,
++                           wxALIGN_CENTER_VERTICAL | wxRIGHT,
++                           6);
++    perspective_name_ = new wxTextCtrl(command_line,
++                                       wxID_ANY,
++                                       wxString(constants::kPerspectiveNameDefault),
++                                       wxDefaultPosition,
++                                       wxDefaultSize,
++                                       wxTE_PROCESS_ENTER);
++    perspective_name_->SetName(wxString(constants::kPerspectiveNameControl));
++    perspective_sizer->Add(perspective_name_, 1, wxEXPAND);
++    command_sizer->Add(perspective_sizer, 0, wxALL | wxEXPAND, 6);
++    wxTextCtrl* command_entry = new wxTextCtrl(command_line,
++                                               wxID_ANY,
++                                               wxEmptyString,
++                                               wxDefaultPosition,
++                                               wxDefaultSize,
++                                               wxTE_PROCESS_ENTER);
++    command_entry->SetName("command_entry");
++    command_sizer->Add(command_entry, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 6);
++    command_line->SetSizer(command_sizer);
++
++    wxPanel* property_manager = new wxPanel(this, wxID_ANY);
++    property_manager->SetName(wxString(constants::kPropertyManagerName));
++    wxBoxSizer* manager_sizer = new wxBoxSizer(wxVERTICAL);
++    manager_sizer->Add(new wxStaticText(property_manager,
++                                        wxID_ANY,
++                                        wxString("Managed properties")),
++                       0,
++                       wxALL | wxEXPAND,
++                       6);
++    wxListBox* manager_list = new wxListBox(property_manager, wxID_ANY);
++    manager_list->Append("Layout");
++    manager_list->Append("Selection");
++    manager_list->Append("Verification");
++    manager_sizer->Add(manager_list, 1, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 6);
++    property_manager->SetSizer(manager_sizer);
++
++    // Toolbars occupy the top dock rows.  The six workspace panes span the
++    // conventional left, center, right and bottom AUI dock positions.
++    aui_manager_.AddPane(
++        toolbar,
++        wxAuiPaneInfo().ToolbarPane()
++            .Name(wxString(constants::kToolbarName))
++            .Caption(wxString(constants::kToolbarCaption))
++            .Top()
++            .Layer(10)
++            .Row(0)
++            .Position(0)
++            .CloseButton(false)
++            .MaximizeButton(false));
++    aui_manager_.AddPane(
++        verification_toolbar,
++        wxAuiPaneInfo().ToolbarPane()
++            .Name("verification_toolbar")
++            .Caption(wxString(constants::kVerificationToolbarCaption))
++            .Top()
++            .Layer(10)
++            .Row(1)
++            .Position(0)
++            .CloseButton(false)
++            .MaximizeButton(false));
++    aui_manager_.AddPane(
++        module_browser,
++        workspace_pane(constants::kModuleBrowserName,
++                       constants::kModuleBrowserCaption,
++                       wxAuiPaneInfo().Left().Layer(0).Row(0).Position(0))
++            .BestSize(220, 420));
++    aui_manager_.AddPane(
++        code_window,
++        workspace_pane(constants::kCodeWindowName,
++                       constants::kCodeWindowCaption,
++                       wxAuiPaneInfo().CenterPane())
++            .BestSize(620, 420));
++    aui_manager_.AddPane(
++        property_window,
++        workspace_pane(constants::kPropertyWindowName,
++                       constants::kPropertyWindowCaption,
++                       wxAuiPaneInfo().Right().Layer(0).Row(0).Position(0))
++            .BestSize(240, 230));
++    aui_manager_.AddPane(
++        property_manager,
++        workspace_pane(constants::kPropertyManagerName,
++                       constants::kPropertyManagerCaption,
++                       wxAuiPaneInfo().Right().Layer(0).Row(1).Position(0))
++            .BestSize(240, 230));
++    aui_manager_.AddPane(
++        message_box,
++        workspace_pane(constants::kMessageBoxName,
++                       constants::kMessageBoxCaption,
++                       wxAuiPaneInfo().Bottom().Layer(0).Row(0).Position(0))
++            .BestSize(620, 130));
++    aui_manager_.AddPane(
++        command_line,
++        workspace_pane(constants::kCommandLineName,
++                       constants::kCommandLineCaption,
++                       wxAuiPaneInfo().Bottom().Layer(0).Row(1).Position(0))
++            .BestSize(620, 90));
++}
++
++void MainWindowV::reset_default_perspective() {
++    if (!default_perspective_.IsEmpty()) {
++        aui_manager_.LoadPerspective(default_perspective_, false);
++        aui_manager_.Update();
++    }
++}
++
++wxString MainWindowV::save_perspective() {
++    aui_manager_.Update();
++
++    wxString name = perspective_name_ == nullptr
++                        ? wxString(constants::kPerspectiveNameDefault)
++                        : perspective_name_->GetValue();
++    name.Trim(true);
++    name.Trim(false);
++    if (name.IsEmpty()) {
++        name = wxString(constants::kPerspectiveNameDefault);
++    }
++
++    custom_perspectives_[name] = aui_manager_.SavePerspective();
++    add_custom_perspective_menu_item(name);
++    return name;
++}
++
++bool MainWindowV::load_perspective(const wxString& name) {
++    if (name == wxString(constants::kDefaultPerspectiveLabel)) {
++        reset_default_perspective();
++        return true;
++    }
++
++    std::map<wxString, wxString>::const_iterator found = custom_perspectives_.find(name);
++    if (found == custom_perspectives_.end() || found->second.IsEmpty()) {
++        return false;
++    }
++
++    const bool loaded = aui_manager_.LoadPerspective(found->second, true);
++    if (loaded && perspective_name_ != nullptr) {
++        perspective_name_->ChangeValue(name);
++    }
++    return loaded;
++}
++
++wxAuiManager& MainWindowV::GetAuiManager() {
++    return aui_manager_;
++}
++
++const wxString& MainWindowV::default_perspective() const {
++    return default_perspective_;
++}
++
++wxTextCtrl* MainWindowV::perspective_name_control() const {
++    return perspective_name_;
++}
++
++bool MainWindowV::is_custom_perspective_id(int id) const {
++    return custom_menu_names_.find(id) != custom_menu_names_.end();
++}
++
++wxString MainWindowV::custom_perspective_name(int id) const {
++    std::map<int, wxString>::const_iterator found = custom_menu_names_.find(id);
++    if (found == custom_menu_names_.end()) {
++        return wxEmptyString;
++    }
++    return found->second;
++}
+ 
++void MainWindowV::set_status_text(const wxString& text) {
++    SetStatusText(text);
++}
++
++void MainWindowV::add_custom_perspective_menu_item(const wxString& name) {
++    if (windows_menu_ == nullptr) {
++        return;
++    }
++
++    for (std::map<int, wxString>::const_iterator item = custom_menu_names_.begin();
++         item != custom_menu_names_.end();
++         ++item) {
++        if (item->second == name) {
++            return;
++        }
++    }
++
++    const int id = wxWindow::NewControlId();
++    windows_menu_->Append(id, name, wxString("Load this saved perspective"));
++    custom_menu_names_[id] = name;
++    windows_menu_->UpdateUI();
++}
++
++}  // namespace workspace
+diff --git a/src/MainWindowV.h b/src/MainWindowV.h
+index 0dbaa8a181134163e0448198453b911ae4223c5b..2cb3ccca708146c3983f83917fe37d414b6a07ba 100644
+--- a/src/MainWindowV.h
++++ b/src/MainWindowV.h
+@@ -1,13 +1,49 @@
+ #pragma once
+ 
++#include <map>
++
++#include <wx/aui/aui.h>
+ #include <wx/wx.h>
+ 
+ namespace workspace {
+ 
++class MainWindowM;
++
+ class MainWindowV final : public wxFrame {
+ public:
+-    MainWindowV();
++    explicit MainWindowV(const MainWindowM& model);
++    ~MainWindowV() override;
++
++    // Restore the exact native wxAUI perspective captured at startup.
++    void reset_default_perspective();
++
++    // Save and load named perspectives for the lifetime of this window.  The
++    // name is read from the inline perspective_name control.
++    wxString save_perspective();
++    bool load_perspective(const wxString& name);
++
++    wxAuiManager& GetAuiManager();
++    const wxString& default_perspective() const;
++    wxTextCtrl* perspective_name_control() const;
++
++    // These helpers let the controller bind menu commands that are created
++    // when a new custom perspective is saved.
++    bool is_custom_perspective_id(int id) const;
++    wxString custom_perspective_name(int id) const;
++
++    void set_status_text(const wxString& text);
++
++private:
++    void create_menu_bar();
++    void create_workspace();
++    void add_custom_perspective_menu_item(const wxString& name);
++
++    wxAuiManager aui_manager_;
++    wxString default_perspective_;
++    wxMenu* windows_menu_;
++    wxTextCtrl* perspective_name_;
++    std::map<wxString, wxString> custom_perspectives_;
++    std::map<int, wxString> custom_menu_names_;
+ };
+ 
+ }  // namespace workspace
+-

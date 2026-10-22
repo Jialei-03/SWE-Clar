@@ -1,0 +1,26 @@
+# Direct event video service
+
+Independent Python/SQLite website with MediaMTX 1.21.0 direct RTMP ingest and FFmpeg/ffprobe media processing. Start STREAM_CONFIG=config.json STREAM_DATABASE=events.sqlite python server.py. Private config has admin_token, stream_keys:{event_id:key}, media_root. Set MEDIAMTX_BIN, FFMPEG_BIN and FFPROBE_BIN if tools are not on PATH. MediaMTX opens only temporary loopback RTMP/HLS/API listeners; this project owns and closes those child processes. No cloud account, original stream, customer logo or real audience data is supplied.
+
+The working website, event database schema, calendar and HTTP adapters are provided. Complete real stream/recording integration and archive publication. Authenticated admin endpoints: POST /event {event_id,title,start,end}, /cancel {event_id}, /start {event_id,stream_key}, /end {event_id}, /publish {event_id,terms}. Start returns ingest_url and hls_url. Push a synthetic H.264 video to the ingest_url using FFmpeg's FLV muxer. End finalizes an actual playable MP4, rather than accepting a caller-provided media URL. Ask the client to clarify stream authentication and failure behavior.
+
+Public endpoints: GET /calendar?now=ISO8601, /archives?q=term&start=ISO8601&end=ISO8601, /media/event_id and POST /view {event_id}. Timestamps require an explicit timezone. Clarify archive date boundaries with the client; calendar filters by event start. The browser page must search and play published video bytes. Clarify how anonymous playback views should be counted and deduplicated.
+
+This is an independently reconstructed video/event component. MediaMTX, SQLite, H.264 fixture video, timestamp schema and publication/view deduplication rules are benchmark choices. Tests use local synthetic streams and real decoding; they do not certify production fan-out capacity, original AWS architecture, long-term cloud retention or a full live-player frontend. HLS is exposed as an actual media endpoint and decoded by a local client; the included browser page plays archived MP4 files. Never upload private streams as fixtures.
+
+The shared `python-media` environment provides Python, SQLite, MediaMTX, FFmpeg/ffprobe and Firefox with H.264/AAC playback support. All dependencies and media health checks are prepared before your task starts. Work in `/workspace`; run public regressions with `python /public_tests/test_public.py`. The environment requires no external network access. Stop the development server with Ctrl-C. For a clean attempt use the benchmark reset, which restores the starter and creates fresh runtime storage.
+
+HTTP response field names: `/event` returns event_id; `/cancel` returns cancelled; `/start` returns ingest_url and hls_url (additional viewer URLs are allowed); `/end` returns bytes, sha256, duration and frames describing the recording, never a server filesystem path; `/publish` returns published; `/view` returns views. Calendar rows have event_id, title, start, end. Archive rows have event_id, title, start, media_url, duration. Internal storage and module structure are implementation choices.
+
+Media runtime preparation disables unused MoQ listeners with `MTX_MOQ=no`. Direct MediaMTX launch configurations should also set `moq: false`, alongside disabled RTSP, WebRTC and SRT. RTMP/HLS listeners use unique loopback ports; default extra listeners are outside this task.
+
+The benchmark prepares `/workspace/runtime/config.json` with synthetic development credentials before your task starts. Development launch: `STREAM_CONFIG=/workspace/runtime/config.json STREAM_DATABASE=/workspace/runtime/events.sqlite PORT=8080 python server.py`. The sample administrator token is `demo-admin`; configured event IDs alpha, beta and gamma use `demo-alpha`, `demo-beta` and `demo-gamma` as stream keys. Public tests use disposable configurations and do not change your development database.
+
+Storage interface: finalized MP4 media is stored as a regular file beneath the configured `media_root`, readable by the application user. Choose any filename or directory layout; database metadata and implementation structure are unrestricted. The benchmark owns this storage namespace and may simulate damage or loss of its media files. Do not use external services or customer storage.
+
+The returned `ingest_url` is an opaque, usable RTMP publisher URL. It may carry the configured stream key or a derived, unguessable publisher capability in its path or query. The original key's literal spelling need not appear in the URL. Treat the complete URL as a credential: a modified/invalid publisher credential must be rejected, and arbitrary unauthenticated publish paths must not be accepted. Do not expose this URL in anonymous viewer responses.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

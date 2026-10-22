@@ -1,0 +1,123 @@
+"""Pure delivery-order workflow used by the local HTTP adapter.
+
+The adapter is responsible for persistence and for storing proof files.  This
+module only validates an event and returns a new order value; it deliberately
+never mutates either argument.
+"""
+
+from copy import deepcopy
+
+
+_TRANSITIONS = {
+    "created": {"assign": "assigned"},
+    "assigned": {"pickup": "picked_up", "reject": "rejected"},
+    "picked_up": {"deliver": "delivered", "reject": "rejected"},
+}
+
+
+def _error(order: dict, code: str) -> dict:
+    """Return a copied order with a structured business error."""
+    result = deepcopy(order)
+    result["error"] = {"code": code}
+    return result
+
+
+def _nonempty_string(value):
+    """Return a trimmed string, or ``None`` when the value is not usable."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value if value else None
+
+
+def apply_delivery_event(order: dict, event: dict) -> dict:
+    """Apply one delivery event without mutating ``order`` or ``event``.
+
+    Valid transitions are::
+
+        created  --assign-->  assigned  --pickup-->  picked_up
+        picked_up --deliver--> delivered
+        assigned/picked_up --reject--> rejected
+
+    A failed validation returns a deep copy of the input order with an
+    ``error.code`` field.  A successful action removes any prior error, adds
+    the resulting status and appends a compact history record.
+    """
+    if not isinstance(order, dict):
+        # The public interface supplies dictionaries.  Keeping malformed calls
+        # structured is preferable to leaking an AttributeError, and there is
+        # no order object to copy in this case.
+        return {"error": {"code": "invalid_order"}}
+
+    if not isinstance(event, dict):
+        return _error(order, "invalid_event")
+
+    event_type = event.get("type")
+    if not isinstance(event_type, str) or event_type not in {
+        "assign",
+        "pickup",
+        "deliver",
+        "reject",
+    }:
+        return _error(order, "unknown_event")
+
+    status = order.get("status")
+    if not isinstance(status, str) or status not in _TRANSITIONS:
+        # Delivered and rejected are intentionally absent from the transition
+        # table: they, as well as any other unknown state, are terminal/invalid.
+        return _error(order, "invalid_status")
+
+    next_status = _TRANSITIONS[status].get(event_type)
+    if next_status is None:
+        return _error(order, "invalid_transition")
+
+    history = order.get("history")
+    if "history" in order and not isinstance(history, list):
+        return _error(order, "invalid_history")
+
+    proof = None
+    rejection_reason = None
+
+    if event_type == "deliver":
+        receiver = _nonempty_string(event.get("receiver"))
+        if receiver is None:
+            return _error(order, "invalid_receiver")
+
+        # A null optional field represents an omitted proof.  Any other value
+        # supplied for a proof reference must be a non-empty string.  This
+        # permits either or both proof references while rejecting malformed
+        # references rather than trying to inspect them on disk.
+        proof = {"receiver": receiver, "photo": None, "signature": None}
+        valid_proof = False
+        for field in ("photo", "signature"):
+            if field not in event or event[field] is None:
+                continue
+            reference = _nonempty_string(event[field])
+            if reference is None:
+                return _error(order, "invalid_proof")
+            proof[field] = reference
+            valid_proof = True
+
+        if not valid_proof:
+            return _error(order, "missing_proof")
+
+    elif event_type == "reject":
+        rejection_reason = _nonempty_string(event.get("reason"))
+        if rejection_reason is None:
+            return _error(order, "invalid_reason")
+
+    # All validation is complete.  From this point on, construct a new value;
+    # the caller's order, including nested history/metadata, remains intact.
+    result = deepcopy(order)
+    result.pop("error", None)
+    result["status"] = next_status
+    if "history" not in result:
+        result["history"] = []
+    result["history"].append({"type": event_type, "status": next_status})
+
+    if proof is not None:
+        result["proof"] = proof
+    if rejection_reason is not None:
+        result["rejection"] = {"reason": rejection_reason}
+
+    return result

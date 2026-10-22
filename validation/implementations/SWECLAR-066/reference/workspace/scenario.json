@@ -1,0 +1,34 @@
+{
+  "puzzles": {
+    "cubes": {
+      "answer": "7"
+    },
+    "tetra": {
+      "answer": "4"
+    }
+  },
+  "required_puzzles": [
+    "cubes",
+    "tetra"
+  ],
+  "solved": [],
+  "exit_open": false,
+  "escaped": false,
+  "presentation": "standalone",
+  "rotate_prompt": false,
+  "texts": {
+    "en": {
+      "title": "Geometry chamber",
+      "cubes": "Count all gold and blue cubes",
+      "tetra": "Count the tetrahedron vertices",
+      "exit": "Leave the room",
+      "rotate": "Rotate to landscape"
+    },
+    "es": {
+      "title": "Sala de geometria",
+      "cubes": "Cuenta los cubos dorados y azules",
+      "exit": "Salir de la sala",
+      "rotate": "Gira a horizontal"
+    }
+  }
+}

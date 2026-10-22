@@ -1,0 +1,1011 @@
+diff --git a/app.js b/app.js
+index 965ce9d10fdb761b75185afecef5ee318fa127f2..32972e04f2b295f386e367af65dfb7f2e300d7ce 100644
+--- a/app.js
++++ b/app.js
+@@ -1,16 +1,216 @@
+-const h=React.createElement;
+-function App(){
+- const [auth,setAuth]=React.useState(null),[error,setError]=React.useState(''),[rows,setRows]=React.useState([]),[module,setModule]=React.useState('daily_chart'),[messages,setMessages]=React.useState([]);const epoch=React.useRef(0);
+- async function request(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(auth?{Authorization:'Bearer '+auth.token}:{})},body:body?JSON.stringify(body):undefined});const data=await r.json();if(!r.ok)throw Error(data.error);return data;}
+- async function load(m=module){const mark=epoch.current;try{const result=await request('/api/records?module='+m);if(mark!==epoch.current)return;setRows(result);setError('');}catch(e){if(mark===epoch.current){setRows([]);setError(e.message);}}}
+- React.useEffect(()=>{if(auth)load();},[auth,module]);
+- const field=(label,name,type='text')=>h('label',null,label,h('input',{name,type,required:true}));
+- return h('main',null,h('h1',null,'Centre portal'),h('p',null,'Synthetic operational records'),error&&h('p',{role:'alert',id:'error'},error),!auth?
+- h('form',{id:'login',onSubmit:async e=>{e.preventDefault();const mark=++epoch.current;try{const value=await request('/login',Object.fromEntries(new FormData(e.target)));if(mark!==epoch.current)return;setAuth(value);setError('');}catch(e){if(mark===epoch.current)setError(e.message);}}},field('User ID','user_id'),field('Centre ID','centre_id'),field('PIN','pin','password'),h('button',null,'Sign in')):
+- h(React.Fragment,null,h('p',{id:'identity'},auth.user.id+' · '+auth.user.centre_id+' · '+auth.user.role),h('button',{onClick:()=>{epoch.current++;setAuth(null);setRows([]);setMessages([]);}},'Sign out'),
+- h('nav',null,['daily_chart','curriculum','incident','attendance'].map(m=>h('button',{key:m,onClick:()=>{if(m!==module){epoch.current++;setRows([]);setModule(m);}},'data-module':m},m.replaceAll('_',' ')))),h('h2',null,module.replaceAll('_',' ')),
+- h('div',{id:'records'},rows.map(row=>h('article',{key:row.id,'data-record':row.id},h('h3',null,row.id),h('p',null,Object.values(row.data).filter(v=>typeof v==='string'||typeof v==='number').join(' · '))))),
+- auth.user.role!=='parent'&&h('form',{id:'create',onSubmit:async e=>{e.preventDefault();const mark=epoch.current,a=Object.fromEntries(new FormData(e.target));try{await request('/api/records',{id:a.id,module,centre_id:auth.user.centre_id,child_id:a.child_id||null,data:{note:a.note}});if(mark===epoch.current)await load();}catch(e){if(mark===epoch.current)setError(e.message);}}},field('Record ID','id'),field('Child ID','child_id'),field('Note','note'),h('button',null,'Save record')),
+- h('h2',null,'Messages'),h('form',{id:'chat',onSubmit:async e=>{e.preventDefault();const mark=epoch.current;try{await request('/api/messages',Object.fromEntries(new FormData(e.target)));const values=await request('/api/messages');if(mark!==epoch.current)return;setMessages(values);setError('');}catch(e){if(mark===epoch.current)setError(e.message);}}},field('Message ID','message_id'),field('Recipient ID','recipient_id'),field('Message','text'),h('button',null,'Send message')),h('div',{id:'messages'},messages.map(m=>h('p',{key:m.id},m.text)))));
++const h = React.createElement;
++
++function savedAuth() {
++  try {
++    const value = JSON.parse(window.localStorage.getItem('centre-portal-session') || 'null');
++    if (value && value.token && value.user) return value;
++  } catch (_) {
++    // A malformed browser value is not an authenticated session.
++  }
++  return null;
+ }
++
++function App() {
++  const [auth, setAuth] = React.useState(savedAuth);
++  const [error, setError] = React.useState('');
++  const [rows, setRows] = React.useState([]);
++  const [module, setModule] = React.useState('daily_chart');
++  const [messages, setMessages] = React.useState([]);
++  const epoch = React.useRef(0);
++
++  function remember(value) {
++    setAuth(value);
++    try {
++      if (value) window.localStorage.setItem('centre-portal-session', JSON.stringify(value));
++      else window.localStorage.removeItem('centre-portal-session');
++    } catch (_) {
++      // The API session remains authoritative if storage is unavailable.
++    }
++  }
++
++  async function request(path, body) {
++    const options = {
++      method: body === undefined ? 'GET' : 'POST',
++      headers: {
++        'Content-Type': 'application/json',
++        ...(auth ? { Authorization: 'Bearer ' + auth.token } : {})
++      }
++    };
++    if (body !== undefined) options.body = JSON.stringify(body);
++    const response = await fetch(path, options);
++    let data;
++    try {
++      data = await response.json();
++    } catch (_) {
++      data = { error: 'invalid_response' };
++    }
++    if (!response.ok) throw Error(data.error || 'request_failed');
++    return data;
++  }
++
++  async function loadRecords(selectedModule = module) {
++    const mark = epoch.current;
++    try {
++      const result = await request('/api/records?module=' + encodeURIComponent(selectedModule));
++      if (mark !== epoch.current) return;
++      setRows(Array.isArray(result) ? result : []);
++      setError('');
++    } catch (caught) {
++      if (mark === epoch.current) {
++        setRows([]);
++        setError(caught.message);
++      }
++    }
++  }
++
++  async function loadMessages() {
++    const mark = epoch.current;
++    try {
++      const result = await request('/api/messages');
++      if (mark !== epoch.current) return;
++      setMessages(Array.isArray(result) ? result : []);
++    } catch (caught) {
++      if (mark === epoch.current) setError(caught.message);
++    }
++  }
++
++  React.useEffect(() => {
++    if (!auth) return;
++    loadRecords();
++    loadMessages();
++  }, [auth, module]);
++
++  const field = (label, name, type = 'text') => h(
++    'label',
++    { key: name },
++    label,
++    h('input', { name, type, required: true })
++  );
++
++  const submitLogin = async event => {
++    event.preventDefault();
++    const mark = ++epoch.current;
++    try {
++      const value = await request('/login', Object.fromEntries(new FormData(event.target)));
++      if (mark !== epoch.current) return;
++      remember(value);
++      setError('');
++    } catch (caught) {
++      if (mark === epoch.current) setError(caught.message);
++    }
++  };
++
++  const submitRecord = async event => {
++    event.preventDefault();
++    const mark = epoch.current;
++    const value = Object.fromEntries(new FormData(event.target));
++    try {
++      await request('/api/records', {
++        id: value.id,
++        module,
++        centre_id: auth.user.centre_id,
++        child_id: value.child_id || null,
++        data: { note: value.note }
++      });
++      event.target.reset();
++      if (mark === epoch.current) await loadRecords();
++    } catch (caught) {
++      if (mark === epoch.current) setError(caught.message);
++    }
++  };
++
++  const submitMessage = async event => {
++    event.preventDefault();
++    const mark = epoch.current;
++    try {
++      await request('/api/messages', Object.fromEntries(new FormData(event.target)));
++      event.target.reset();
++      if (mark !== epoch.current) return;
++      await loadMessages();
++      setError('');
++    } catch (caught) {
++      if (mark === epoch.current) setError(caught.message);
++    }
++  };
++
++  if (!auth) {
++    return h(
++      'main',
++      null,
++      h('h1', null, 'Centre portal'),
++      h('p', null, 'Synthetic operational records'),
++      error && h('p', { role: 'alert', id: 'error' }, error),
++      h('form', { id: 'login', onSubmit: submitLogin },
++        field('User ID', 'user_id'),
++        field('Centre ID', 'centre_id'),
++        field('PIN', 'pin', 'password'),
++        h('button', { type: 'submit' }, 'Sign in')
++      )
++    );
++  }
++
++  return h(
++    'main',
++    null,
++    h('h1', null, 'Centre portal'),
++    h('p', null, 'Synthetic operational records'),
++    error && h('p', { role: 'alert', id: 'error' }, error),
++    h('p', { id: 'identity' }, auth.user.id + ' · ' + auth.user.centre_id + ' · ' + auth.user.role),
++    h('button', {
++      type: 'button',
++      onClick: () => {
++        epoch.current++;
++        remember(null);
++        setRows([]);
++        setMessages([]);
++        setError('');
++      }
++    }, 'Sign out'),
++    h('nav', null, ['daily_chart', 'curriculum', 'incident', 'attendance'].map(item => h(
++      'button',
++      {
++        key: item,
++        type: 'button',
++        'data-module': item,
++        onClick: () => {
++          if (item !== module) {
++            epoch.current++;
++            setRows([]);
++            setError('');
++            setModule(item);
++          }
++        }
++      },
++      item.replaceAll('_', ' ')
++    ))),
++    h('h2', null, module.replaceAll('_', ' ')),
++    h('section', { id: 'records' }, rows.length ? rows.map(row => h(
++      'article',
++      { key: row.id, 'data-record': row.id },
++      h('h3', null, row.id),
++      h('p', null, row.record_type + ' · ' + row.centre_id + (row.child_id ? ' · ' + row.child_id : '')),
++      h('pre', null, JSON.stringify(row.data, null, 2))
++    )) : h('p', { id: 'no-records' }, 'No records in this module.' )),
++    auth.user.role !== 'parent' && h(
++      'form',
++      { id: 'create', onSubmit: submitRecord },
++      field('Record ID', 'id'),
++      field('Child ID', 'child_id'),
++      field('Note', 'note'),
++      h('button', { type: 'submit' }, 'Save record')
++    ),
++    h('h2', null, 'Messages'),
++    h('form', { id: 'chat', onSubmit: submitMessage },
++      field('Message ID', 'message_id'),
++      field('Recipient ID', 'recipient_id'),
++      field('Message', 'text'),
++      h('button', { type: 'submit' }, 'Send message')
++    ),
++    h('section', { id: 'messages' }, messages.map(message => h(
++      'p', { key: message.id, 'data-message': message.id },
++      message.text
++    )))
++  );
++}
++
+ ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+diff --git a/portal.cjs b/portal.cjs
+index 31a9ea86f9b468c0128e549a6464889a9bedf1e4..e8d799b9a15fcb49d28def11d987cb674021010c 100644
+--- a/portal.cjs
++++ b/portal.cjs
+@@ -1,18 +1,645 @@
+-const crypto=require('node:crypto'),{isDeepStrictEqual}=require('node:util');
+-const modules=['daily_chart','curriculum','incident','attendance'];const string=x=>typeof x==='string'&&x.trim().length>0;const object=x=>x&&typeof x==='object'&&!Array.isArray(x);
+-function fail(code,status=400){const e=Error(code);e.status=status;throw e;}
++'use strict';
++
++const crypto = require('node:crypto');
++const { isDeepStrictEqual } = require('node:util');
++
++const MODULES = Object.freeze(['daily_chart', 'curriculum', 'incident', 'attendance']);
++const PARENT_MODULES = new Set(['daily_chart', 'curriculum']);
++const ROLES = new Set(['admin', 'staff', 'parent']);
++const PRIVATE_USER_FIELDS = ['pin', 'initial_pin', 'initialPin', 'password'];
++
++function isObject(value) {
++  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
++  const prototype = Object.getPrototypeOf(value);
++  return prototype === Object.prototype || prototype === null;
++}
++
++function hasOwn(value, key) {
++  return Object.prototype.hasOwnProperty.call(value, key);
++}
++
++function nonEmptyString(value) {
++  return typeof value === 'string' && value.trim().length > 0;
++}
++
++function fail(code, status) {
++  const error = new Error(code);
++  if (status !== undefined) error.status = status;
++  throw error;
++}
++
++function clone(value) {
++  return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
++}
++
++function safePinVerifier(pin, salt) {
++  return crypto.scryptSync(pin, salt, 32).toString('hex');
++}
++
++function hashToken(token) {
++  return crypto.createHash('sha256').update(token, 'utf8').digest('hex');
++}
++
++function sameVerifier(actual, expected) {
++  if (typeof actual !== 'string' || typeof expected !== 'string') return false;
++  const left = Buffer.from(actual, 'utf8');
++  const right = Buffer.from(expected, 'utf8');
++  return left.length === right.length && crypto.timingSafeEqual(left, right);
++}
++
++function publicRecord(document) {
++  return {
++    id: document._id,
++    record_type: document.record_type,
++    centre_id: document.centre_id,
++    relationship_ids: Array.isArray(document.relationship_ids) ? clone(document.relationship_ids) : [],
++    child_id: document.child_id === undefined ? null : document.child_id,
++    data: clone(document.data)
++  };
++}
++
++function publicMessage(document) {
++  return {
++    id: document._id,
++    sender_id: document.sender_id,
++    recipient_id: document.recipient_id,
++    centre_id: document.centre_id,
++    text: document.text
++  };
++}
++
+ class Portal {
+- constructor(client,db,bootstrap){this.client=client;this.db=db;this.bootstrap=bootstrap;}
+- async initialize(){for(const name of ['centres','users','children','records','sessions','messages']){try{await this.db.createCollection(name);}catch(e){if(e.code!==48)throw e;}}for(const [id,row] of Object.entries(this.bootstrap.centres))await this.db.collection('centres').updateOne({_id:id},{$setOnInsert:row},{upsert:true});for(const [id,row] of Object.entries(this.bootstrap.children))await this.db.collection('children').updateOne({_id:id},{$setOnInsert:row},{upsert:true});for(const [id,row] of Object.entries(this.bootstrap.users)){const salt=crypto.randomBytes(16).toString('hex'),copy=structuredClone(row);delete copy.pin;await this.db.collection('users').updateOne({_id:id},{$setOnInsert:{...copy,salt,pin_hash:crypto.scryptSync(row.pin,salt,32).toString('hex')}},{upsert:true});}}
+- async login(a){if(!string(a.user_id)||!string(a.pin))fail('invalid_login',403);const user=await this.db.collection('users').findOne({_id:a.user_id});if(!user||!user.centre_ids.includes(a.centre_id))fail('invalid_login',403);const hash=crypto.scryptSync(a.pin,user.salt,32).toString('hex');if(!crypto.timingSafeEqual(Buffer.from(hash),Buffer.from(user.pin_hash)))fail('invalid_login',403);const token=crypto.randomBytes(32).toString('hex'),session={user_id:user._id,role:user.role,centre_id:a.centre_id};await this.db.collection('sessions').insertOne({_id:crypto.createHash('sha256').update(token).digest('hex'),...session});return {token,user:{id:user._id,role:user.role,centre_id:a.centre_id}};}
+- async session(token){if(!string(token))fail('unauthorized',403);const session=await this.db.collection('sessions').findOne({_id:crypto.createHash('sha256').update(token).digest('hex')});if(!session)fail('unauthorized',403);return session;}
+- async childAllowed(s,id){if(!string(id))return false;const child=await this.db.collection('children').findOne({_id:id});if(!child)return false;if(s.role==='admin')return true;if(s.role==='parent'){const user=await this.db.collection('users').findOne({_id:s.user_id});return user.child_ids.includes(id)&&child.centre_id===s.centre_id;}return child.centre_id===s.centre_id;}
+- async validateRecord(input,session,centres,children){if(!object(input)||!string(input.legacy_id)||!modules.includes(input.record_type)||!string(input.centre_id)||!centres.has(input.centre_id)||!Array.isArray(input.relationship_ids)||input.relationship_ids.some(x=>!string(x))||!object(input.data))fail('invalid_record');if(input.child_id!==null&&(!string(input.child_id)||!children.has(input.child_id)||children.get(input.child_id)!==input.centre_id))fail('invalid_child');return {_id:input.legacy_id,record_type:input.record_type,centre_id:input.centre_id,relationship_ids:[...input.relationship_ids],child_id:input.child_id,data:structuredClone(input.data)};}
+- async migrate(s,rows){fail('migration_not_implemented');}
+- async addRecord(s,a){if(!['staff','admin'].includes(s.role))fail('write_denied',403);if(s.role!=='admin'&&a.centre_id!==s.centre_id)fail('centre_denied',403);const centres=new Set((await this.db.collection('centres').find({}).toArray()).map(x=>x._id)),children=new Map((await this.db.collection('children').find({}).toArray()).map(x=>[x._id,x.centre_id]));const row=await this.validateRecord({legacy_id:a.id,record_type:a.module,centre_id:a.centre_id,relationship_ids:a.child_id?[a.child_id]:[],child_id:a.child_id??null,data:a.data},null,centres,children);await this.db.collection('records').insertOne(row);return {id:row._id};}
+- async records(s,module,childId){if(!modules.includes(module))fail('unknown_module');const query={record_type:module};if(s.role!=='admin')query.centre_id=s.centre_id;if(s.role==='parent')fail('parent_view_not_implemented');if(childId){if(!await this.childAllowed(s,childId))fail('child_denied',403);query.child_id=childId;}return (await this.db.collection('records').find(query).sort({_id:1}).toArray()).map(({_id,...row})=>({id:_id,...row}));}
+- async parentView(s,childId){if(s.role!=='parent'||!await this.childAllowed(s,childId))fail('child_denied',403);return {daily_chart:await this.records(s,'daily_chart',childId),curriculum:await this.records(s,'curriculum',childId)};}
+- async send(s,a){if(!string(a.message_id)||!string(a.recipient_id)||!string(a.text)||a.recipient_id===s.user_id)fail('invalid_message');const recipient=await this.db.collection('users').findOne({_id:a.recipient_id});if(!recipient||!recipient.centre_ids.includes(s.centre_id))fail('recipient_denied',403);const row={_id:a.message_id,sender_id:s.user_id,recipient_id:a.recipient_id,centre_id:s.centre_id,text:a.text};const existing=await this.db.collection('messages').findOne({_id:a.message_id});if(existing){if(!isDeepStrictEqual(existing,row))fail('message_conflict',409);return {duplicate:true};}try{await this.db.collection('messages').insertOne(row);}catch(e){if(e.code!==11000)throw e;const found=await this.db.collection('messages').findOne({_id:a.message_id});if(!isDeepStrictEqual(found,row))fail('message_conflict',409);return {duplicate:true};}return {duplicate:false};}
+- async messages(s){return (await this.db.collection('messages').find({$or:[{sender_id:s.user_id},{recipient_id:s.user_id}]}).sort({_id:1}).toArray()).map(({_id,...row})=>({id:_id,...row}));}
+-}
+-module.exports={Portal};
++  constructor(client, db, bootstrap) {
++    this.client = client;
++    this.db = db;
++    this.bootstrap = bootstrap || {};
++    this._initializePromise = null;
++  }
++
++  async initialize() {
++    if (this._initializePromise) return this._initializePromise;
++    this._initializePromise = this._doInitialize();
++    try {
++      await this._initializePromise;
++      return undefined;
++    } catch (error) {
++      this._initializePromise = null;
++      throw error;
++    }
++  }
++
++  async _doInitialize() {
++    const collectionNames = [
++      'centres',
++      'users',
++      'children',
++      'records',
++      'sessions',
++      'messages',
++      'migration_batches'
++    ];
++
++    for (const name of collectionNames) {
++      try {
++        await this.db.createCollection(name);
++      } catch (error) {
++        if (error && error.code !== 48) throw error;
++      }
++    }
++
++    const centres = isObject(this.bootstrap.centres) ? this.bootstrap.centres : {};
++    for (const [id, row] of Object.entries(centres)) {
++      if (!nonEmptyString(id) || !isObject(row)) throw new Error('invalid bootstrap');
++      const document = clone(row);
++      delete document._id;
++      await this.db.collection('centres').updateOne(
++        { _id: id },
++        { $setOnInsert: document },
++        { upsert: true }
++      );
++    }
++
++    const children = isObject(this.bootstrap.children) ? this.bootstrap.children : {};
++    for (const [id, row] of Object.entries(children)) {
++      if (!nonEmptyString(id) || !isObject(row)) throw new Error('invalid bootstrap');
++      const document = clone(row);
++      delete document._id;
++      await this.db.collection('children').updateOne(
++        { _id: id },
++        { $setOnInsert: document },
++        { upsert: true }
++      );
++    }
++
++    const users = isObject(this.bootstrap.users) ? this.bootstrap.users : {};
++    for (const [id, row] of Object.entries(users)) {
++      if (!nonEmptyString(id) || !isObject(row)) throw new Error('invalid bootstrap');
++      await this._initializeUser(id, row);
++    }
++
++    // These indexes are deliberately limited to the internal collections.  No
++    // internal collection is exposed by the HTTP file or record routes.
++    await this.db.collection('records').createIndex({ record_type: 1, centre_id: 1, child_id: 1 });
++    await this.db.collection('messages').createIndex({ centre_id: 1, sender_id: 1, recipient_id: 1 });
++    await this.db.collection('sessions').createIndex({ user_id: 1, centre_id: 1 });
++  }
++
++  async _initializeUser(id, source) {
++    const users = this.db.collection('users');
++    const existing = await users.findOne({ _id: id });
++    const sourceCopy = clone(source);
++    delete sourceCopy._id;
++    for (const field of PRIVATE_USER_FIELDS) delete sourceCopy[field];
++
++    const sourcePin = typeof source.pin === 'string' ? source.pin :
++      (typeof source.initial_pin === 'string' ? source.initial_pin :
++        (typeof source.initialPin === 'string' ? source.initialPin : null));
++
++    if (!existing) {
++      let salt = typeof source.salt === 'string' ? source.salt : null;
++      let pinHash = typeof source.pin_hash === 'string' ? source.pin_hash : null;
++      if (sourcePin !== null) {
++        if (!nonEmptyString(sourcePin)) throw new Error('invalid bootstrap');
++        salt = crypto.randomBytes(16).toString('hex');
++        pinHash = safePinVerifier(sourcePin, salt);
++      }
++      if (!nonEmptyString(salt) || !nonEmptyString(pinHash)) throw new Error('invalid bootstrap');
++      const document = {
++        ...sourceCopy,
++        salt,
++        pin_hash: pinHash
++      };
++      delete document.pin;
++      await users.insertOne({ _id: id, ...document });
++      return;
++    }
++
++    // A restart must never leave a bootstrap PIN in an existing user row.  If
++    // a legacy row lacks a verifier, repair it from the bootstrap PIN once.
++    const update = { $unset: {} };
++    for (const field of PRIVATE_USER_FIELDS) update.$unset[field] = '';
++    const hasVerifier = nonEmptyString(existing.salt) && nonEmptyString(existing.pin_hash);
++    if (!hasVerifier) {
++      if (sourcePin === null || !nonEmptyString(sourcePin)) throw new Error('invalid bootstrap');
++      const salt = crypto.randomBytes(16).toString('hex');
++      update.$set = { salt, pin_hash: safePinVerifier(sourcePin, salt) };
++    }
++    await users.updateOne({ _id: id }, update);
++  }
++
++  async _ensureInitialized() {
++    await this.initialize();
++  }
++
++  async login(input) {
++    await this._ensureInitialized();
++    if (!isObject(input) || !nonEmptyString(input.user_id) ||
++        !nonEmptyString(input.centre_id) || !nonEmptyString(input.pin)) {
++      fail('invalid_login', 403);
++    }
++
++    const [user, centre] = await Promise.all([
++      this.db.collection('users').findOne({ _id: input.user_id }),
++      this.db.collection('centres').findOne({ _id: input.centre_id }, { projection: { _id: 1 } })
++    ]);
++    if (!user || !centre || !ROLES.has(user.role) || !Array.isArray(user.centre_ids) ||
++        !user.centre_ids.includes(input.centre_id) ||
++        !nonEmptyString(user.salt) || !nonEmptyString(user.pin_hash)) {
++      fail('invalid_login', 403);
++    }
++
++    let expected;
++    try {
++      expected = safePinVerifier(input.pin, user.salt);
++    } catch (_) {
++      fail('invalid_login', 403);
++    }
++    if (!sameVerifier(expected, user.pin_hash)) fail('invalid_login', 403);
++
++    const token = crypto.randomBytes(32).toString('hex');
++    const session = {
++      _id: hashToken(token),
++      user_id: user._id,
++      role: user.role,
++      centre_id: input.centre_id
++    };
++    await this.db.collection('sessions').insertOne(session);
++    return {
++      token,
++      user: {
++        id: user._id,
++        role: user.role,
++        centre_id: input.centre_id
++      }
++    };
++  }
++
++  async session(token) {
++    await this._ensureInitialized();
++    if (!nonEmptyString(token)) fail('unauthorized', 403);
++    const document = await this.db.collection('sessions').findOne({ _id: hashToken(token) });
++    if (!document || !nonEmptyString(document.user_id) || !ROLES.has(document.role) ||
++        !nonEmptyString(document.centre_id)) {
++      fail('unauthorized', 403);
++    }
++    const result = {
++      user_id: document.user_id,
++      role: document.role,
++      centre_id: document.centre_id
++    };
++    // Keep the database session binding private and non-enumerable.  Portal
++    // methods use it when an actor came from session(token), while the value
++    // can never be serialized as portal identity data.
++    Object.defineProperty(result, '_session_id', {
++      value: document._id,
++      enumerable: false,
++      writable: false,
++      configurable: false
++    });
++    return result;
++  }
++
++  async _authorize(actor) {
++    await this._ensureInitialized();
++    if (!isObject(actor) || !nonEmptyString(actor.user_id) || !ROLES.has(actor.role) ||
++        !nonEmptyString(actor.centre_id)) fail('unauthorized', 403);
++
++    if (actor._session_id !== undefined) {
++      const stored = await this.db.collection('sessions').findOne({ _id: actor._session_id });
++      if (!stored || stored.user_id !== actor.user_id || stored.role !== actor.role ||
++          stored.centre_id !== actor.centre_id) fail('unauthorized', 403);
++    }
++
++    const [user, centre] = await Promise.all([
++      this.db.collection('users').findOne({ _id: actor.user_id }),
++      this.db.collection('centres').findOne({ _id: actor.centre_id }, { projection: { _id: 1 } })
++    ]);
++    if (!user || !centre || user.role !== actor.role || !Array.isArray(user.centre_ids) ||
++        !user.centre_ids.includes(actor.centre_id)) fail('unauthorized', 403);
++    return actor;
++  }
++
++  async _referenceData(mongoSession) {
++    const options = mongoSession ? { session: mongoSession } : undefined;
++    const centreDocuments = await this.db.collection('centres').find({}, options).toArray();
++    const childDocuments = await this.db.collection('children').find({}, options).toArray();
++    const recordDocuments = await this.db.collection('records').find({}, options).toArray();
++    return {
++      centres: new Map(centreDocuments.map(document => [document._id, document])),
++      children: new Map(childDocuments.map(document => [document._id, document.centre_id])),
++      records: new Map(recordDocuments.map(document => [document._id, document]))
++    };
++  }
++
++  _normalizeRecord(input, references) {
++    if (!isObject(input) || !nonEmptyString(input.legacy_id) ||
++        !MODULES.includes(input.record_type) || !nonEmptyString(input.centre_id) ||
++        !references.centres.has(input.centre_id) || !Array.isArray(input.relationship_ids) ||
++        input.relationship_ids.some(id => !nonEmptyString(id)) ||
++        !hasOwn(input, 'child_id') || !isObject(input.data)) {
++      fail('invalid_record');
++    }
++
++    let childId = input.child_id;
++    if (childId !== null) {
++      if (!nonEmptyString(childId) || !references.children.has(childId) ||
++          references.children.get(childId) !== input.centre_id) fail('invalid_child');
++    }
++
++    let data;
++    try {
++      data = clone(input.data);
++    } catch (_) {
++      fail('invalid_record');
++    }
++
++    return {
++      _id: input.legacy_id,
++      record_type: input.record_type,
++      centre_id: input.centre_id,
++      relationship_ids: clone(input.relationship_ids),
++      child_id: childId,
++      data
++    };
++  }
++
++  _validateRelationships(record, references, sameBatch) {
++    for (const relationshipId of record.relationship_ids) {
++      if (sameBatch.has(relationshipId)) {
++        const related = sameBatch.get(relationshipId);
++        if (related.centre_id !== record.centre_id) fail('cross_centre_relationship');
++        continue;
++      }
++
++      const relatedRecord = references.records.get(relationshipId);
++      if (relatedRecord) {
++        if (relatedRecord.centre_id !== record.centre_id) fail('cross_centre_relationship');
++        continue;
++      }
++
++      if (references.children.has(relationshipId)) {
++        if (references.children.get(relationshipId) !== record.centre_id) {
++          fail('cross_centre_relationship');
++        }
++        continue;
++      }
++
++      fail('unknown_relationship');
++    }
++  }
++
++  _equivalentRecord(existing, incoming) {
++    return existing && existing._id === incoming._id &&
++      existing.record_type === incoming.record_type &&
++      existing.centre_id === incoming.centre_id &&
++      isDeepStrictEqual(existing.relationship_ids, incoming.relationship_ids) &&
++      (existing.child_id === undefined ? null : existing.child_id) === incoming.child_id &&
++      isDeepStrictEqual(existing.data, incoming.data);
++  }
++
++  _migrationInput(input) {
++    let rows;
++    let batchId;
++    let wrapperBatch = false;
++
++    if (Array.isArray(input)) {
++      rows = input;
++    } else if (isObject(input) && Array.isArray(input.rows)) {
++      rows = input.rows;
++      if (hasOwn(input, 'batch_id')) {
++        batchId = input.batch_id;
++        wrapperBatch = true;
++      } else if (hasOwn(input, 'batchId')) {
++        batchId = input.batchId;
++        wrapperBatch = true;
++      }
++    } else {
++      fail('invalid_migration');
++    }
++
++    if (wrapperBatch && !nonEmptyString(batchId)) fail('invalid_migration');
++
++    const rowBatchIds = [];
++    for (const row of rows) {
++      if (!isObject(row) || !hasOwn(row, 'batch_id')) continue;
++      if (!nonEmptyString(row.batch_id)) fail('invalid_migration');
++      rowBatchIds.push(row.batch_id);
++    }
++    if (!wrapperBatch && rowBatchIds.length) {
++      const first = rowBatchIds[0];
++      if (rowBatchIds.some(value => value !== first) || rowBatchIds.length !== rows.length) {
++        fail('invalid_migration');
++      }
++      batchId = first;
++    }
++    if (wrapperBatch) {
++      for (const row of rows) {
++        if (isObject(row) && hasOwn(row, 'batch_id') && row.batch_id !== batchId) {
++          fail('invalid_migration');
++        }
++      }
++    }
++
++    return { rows, batchId: batchId === undefined ? null : batchId };
++  }
++
++  async migrate(actor, input) {
++    actor = await this._authorize(actor);
++    if (actor.role !== 'admin') fail('write_denied', 403);
++
++    const { rows, batchId } = this._migrationInput(input);
++    const normalized = [];
++    const ids = new Set();
++    for (const row of rows) {
++      // References are loaded in the transaction below; validating shape here
++      // is safe and ensures caller-owned rows are never modified.
++      if (!isObject(row)) fail('invalid_record');
++      if (ids.has(row.legacy_id)) fail('duplicate_batch', 409);
++      ids.add(row.legacy_id);
++    }
++
++    if (actor.role !== 'admin') {
++      for (const row of rows) {
++        if (!isObject(row) || row.centre_id !== actor.centre_id) fail('centre_denied', 403);
++      }
++    }
++
++    const mongoSession = this.client.startSession();
++    let result = { migrated: 0, skipped: 0 };
++    try {
++      await mongoSession.withTransaction(async () => {
++        // A transaction callback can be retried by the driver after a
++        // transient replica-set error.  Keep every attempt's counters and
++        // normalized rows local so a retry cannot duplicate either in memory.
++        normalized.length = 0;
++        const attempt = { migrated: 0, skipped: 0 };
++        const references = await this._referenceData(mongoSession);
++        for (const row of rows) normalized.push(this._normalizeRecord(row, references));
++
++        const sameBatch = new Map(normalized.map(row => [row._id, row]));
++        for (const row of normalized) this._validateRelationships(row, references, sameBatch);
++
++        if (batchId !== null) {
++          const previousBatch = await this.db.collection('migration_batches').findOne(
++            { _id: batchId },
++            { session: mongoSession }
++          );
++          if (previousBatch) fail('duplicate_batch', 409);
++        }
++
++        const existing = new Map();
++        if (normalized.length) {
++          const existingDocuments = await this.db.collection('records').find(
++            { _id: { $in: normalized.map(row => row._id) } },
++            { session: mongoSession }
++          ).toArray();
++          for (const document of existingDocuments) existing.set(document._id, document);
++        }
++
++        const toInsert = [];
++        for (const row of normalized) {
++          const old = existing.get(row._id);
++          if (old) {
++            if (!this._equivalentRecord(old, row)) fail('record_conflict', 409);
++            attempt.skipped += 1;
++          } else {
++            toInsert.push(row);
++          }
++        }
++
++        if (batchId !== null) {
++          await this.db.collection('migration_batches').insertOne({
++            _id: batchId,
++            record_ids: normalized.map(row => row._id),
++            centre_ids: [...new Set(normalized.map(row => row.centre_id))]
++          }, { session: mongoSession });
++        }
++        if (toInsert.length) {
++          await this.db.collection('records').insertMany(toInsert, { session: mongoSession, ordered: true });
++          attempt.migrated += toInsert.length;
++        }
++        result = attempt;
++      });
++    } finally {
++      await mongoSession.endSession();
++    }
++
++    if (batchId !== null) result.batch_id = batchId;
++    return result;
++  }
++
++  async addRecord(actor, input) {
++    actor = await this._authorize(actor);
++    if (actor.role === 'parent') fail('write_denied', 403);
++    if (!isObject(input) || !nonEmptyString(input.id) || !nonEmptyString(input.module) ||
++        !nonEmptyString(input.centre_id)) fail('invalid_record');
++    if (actor.role !== 'admin' && input.centre_id !== actor.centre_id) {
++      fail('centre_denied', 403);
++    }
++
++    const references = await this._referenceData();
++    const relationshipIds = hasOwn(input, 'relationship_ids') ? input.relationship_ids :
++      (input.child_id === undefined || input.child_id === null ? [] : [input.child_id]);
++    const childId = input.child_id === undefined ? null : input.child_id;
++    const normalized = this._normalizeRecord({
++      legacy_id: input.id,
++      record_type: input.module,
++      centre_id: input.centre_id,
++      relationship_ids: relationshipIds,
++      child_id: childId,
++      data: input.data
++    }, references);
++    this._validateRelationships(normalized, references, new Map());
++
++    const records = this.db.collection('records');
++    if (await records.findOne({ _id: normalized._id })) fail('record_conflict', 409);
++    try {
++      await records.insertOne(normalized);
++    } catch (error) {
++      if (error && error.code === 11000) fail('record_conflict', 409);
++      throw error;
++    }
++    return { id: normalized._id };
++  }
++
++  async childAllowed(actor, childId) {
++    if (!nonEmptyString(childId)) return false;
++    const child = await this.db.collection('children').findOne({ _id: childId });
++    if (!child) return false;
++    if (actor.role === 'admin') return true;
++    if (child.centre_id !== actor.centre_id) return false;
++    if (actor.role === 'parent') {
++      const user = await this.db.collection('users').findOne({ _id: actor.user_id });
++      return !!(user && Array.isArray(user.child_ids) && user.child_ids.includes(childId));
++    }
++    return actor.role === 'staff';
++  }
++
++  async records(actor, module, childId, centreId) {
++    actor = await this._authorize(actor);
++    if (!MODULES.includes(module)) fail('unknown_module');
++    if (actor.role === 'parent' && !PARENT_MODULES.has(module)) fail('module_denied', 403);
++
++    const query = { record_type: module };
++    if (actor.role === 'parent') {
++      query.centre_id = actor.centre_id;
++      const user = await this.db.collection('users').findOne({ _id: actor.user_id });
++      const linkedIds = user && Array.isArray(user.child_ids) ? user.child_ids : [];
++      const linkedChildren = linkedIds.length ? await this.db.collection('children').find(
++        { _id: { $in: linkedIds }, centre_id: actor.centre_id },
++        { projection: { _id: 1 } }
++      ).toArray() : [];
++      if (childId !== undefined) {
++        if (!await this.childAllowed(actor, childId)) fail('child_denied', 403);
++        query.child_id = childId;
++      } else {
++        query.child_id = { $in: linkedChildren.map(child => child._id) };
++      }
++    } else {
++      if (actor.role !== 'admin') query.centre_id = actor.centre_id;
++      if (centreId !== undefined) {
++        if (!nonEmptyString(centreId) || !await this._centreExists(centreId)) fail('invalid_centre');
++        if (actor.role !== 'admin' && centreId !== actor.centre_id) fail('centre_denied', 403);
++        query.centre_id = centreId;
++      }
++      if (childId !== undefined) {
++        if (!await this.childAllowed(actor, childId)) fail('child_denied', 403);
++        query.child_id = childId;
++      }
++    }
++
++    const documents = await this.db.collection('records').find(query).sort({ _id: 1 }).toArray();
++    return documents.map(publicRecord);
++  }
++
++  async _centreExists(centreId) {
++    return !!(await this.db.collection('centres').findOne({ _id: centreId }, { projection: { _id: 1 } }));
++  }
++
++  async parentView(actor, childId) {
++    actor = await this._authorize(actor);
++    if (actor.role !== 'parent') fail('view_denied', 403);
++    if (!nonEmptyString(childId) || !await this.childAllowed(actor, childId)) {
++      fail('child_denied', 403);
++    }
++    return {
++      daily_chart: await this.records(actor, 'daily_chart', childId),
++      curriculum: await this.records(actor, 'curriculum', childId)
++    };
++  }
++
++  async send(actor, input) {
++    actor = await this._authorize(actor);
++    if (!isObject(input) || !nonEmptyString(input.message_id) ||
++        !nonEmptyString(input.recipient_id) || !nonEmptyString(input.text) ||
++        input.recipient_id === actor.user_id) fail('invalid_message');
++
++    const recipient = await this.db.collection('users').findOne({ _id: input.recipient_id });
++    if (!recipient || !Array.isArray(recipient.centre_ids) ||
++        !recipient.centre_ids.includes(actor.centre_id)) fail('recipient_denied', 403);
++
++    const incoming = {
++      _id: input.message_id,
++      sender_id: actor.user_id,
++      recipient_id: input.recipient_id,
++      centre_id: actor.centre_id,
++      text: input.text
++    };
++    const messages = this.db.collection('messages');
++    const sameMessage = document => document &&
++      document._id === incoming._id &&
++      document.sender_id === incoming.sender_id &&
++      document.recipient_id === incoming.recipient_id &&
++      document.centre_id === incoming.centre_id &&
++      document.text === incoming.text;
++
++    const existing = await messages.findOne({ _id: incoming._id });
++    if (existing) {
++      if (!sameMessage(existing)) fail('message_conflict', 409);
++      return { duplicate: true };
++    }
++
++    try {
++      await messages.insertOne(incoming);
++    } catch (error) {
++      if (error && error.code === 11000) {
++        const raced = await messages.findOne({ _id: incoming._id });
++        if (sameMessage(raced)) return { duplicate: true };
++        fail('message_conflict', 409);
++      }
++      throw error;
++    }
++    return { duplicate: false };
++  }
++
++  async messages(actor) {
++    actor = await this._authorize(actor);
++    const documents = await this.db.collection('messages').find({
++      centre_id: actor.centre_id,
++      $or: [{ sender_id: actor.user_id }, { recipient_id: actor.user_id }]
++    }).sort({ _id: 1 }).toArray();
++    return documents.map(publicMessage);
++  }
++}
++
++module.exports = { Portal, MODULES };
+diff --git a/server.cjs b/server.cjs
+index 782833b113ef11e9790c69a913d8e93fe3e142c5..ff2e9674f74cbf89e7f92afd60057ffda2f73ff4 100644
+--- a/server.cjs
++++ b/server.cjs
+@@ -1,3 +1,101 @@
+-const express=require('express'),{MongoClient}=require('mongodb'),fs=require('node:fs/promises'),path=require('node:path');const {Portal}=require('./portal.cjs');
+-(async()=>{const client=new MongoClient(process.env.MONGODB_URI);await client.connect();const portal=new Portal(client,client.db(process.env.PORTAL_DATABASE),JSON.parse(await fs.readFile(process.env.PORTAL_BOOTSTRAP,'utf8')));await portal.initialize();const app=express();app.use(express.json({limit:'1mb'}));for(const [url,file] of Object.entries({'/':'index.html','/app.js':'app.js','/style.css':'style.css','/vendor/react.production.min.js':'vendor/react.production.min.js','/vendor/react-dom.production.min.js':'vendor/react-dom.production.min.js'}))app.get(url,(req,res)=>res.sendFile(path.join(__dirname,file)));app.post('/login',async(req,res)=>res.json(await portal.login(req.body)));app.use(async(req,res,next)=>{if(!req.path.startsWith('/api/'))return res.sendStatus(404);const header=req.get('Authorization')||'';req.actor=await portal.session(header.startsWith('Bearer ')?header.slice(7):null);next();});
+-app.post('/api/migrate',async(req,res)=>res.json(await portal.migrate(req.actor,req.body.rows)));app.post('/api/records',async(req,res)=>res.json(await portal.addRecord(req.actor,req.body)));app.get('/api/records',async(req,res)=>res.json(await portal.records(req.actor,req.query.module,req.query.child_id)));app.get('/api/parent-view',async(req,res)=>res.json(await portal.parentView(req.actor,req.query.child_id)));app.post('/api/messages',async(req,res)=>res.json(await portal.send(req.actor,req.body)));app.get('/api/messages',async(req,res)=>res.json(await portal.messages(req.actor)));app.use((req,res)=>res.sendStatus(404));app.use((error,req,res,next)=>res.status(error.status||(error.code===11000?409:400)).json({error:error.status?error.message:'invalid_request'}));const server=app.listen(Number(process.env.PORT||0),'127.0.0.1',()=>console.log(JSON.stringify({port:server.address().port})));process.on('SIGTERM',()=>server.close(async()=>{await client.close();process.exit(0);}));})().catch(e=>{console.error(e.message);process.exit(1)});
++'use strict';
++
++const express = require('express');
++const { MongoClient } = require('mongodb');
++const fs = require('node:fs/promises');
++const path = require('node:path');
++const { Portal } = require('./portal.cjs');
++
++(async () => {
++  const client = new MongoClient(process.env.MONGODB_URI);
++  await client.connect();
++  const bootstrap = JSON.parse(await fs.readFile(process.env.PORTAL_BOOTSTRAP, 'utf8'));
++  const portal = new Portal(client, client.db(process.env.PORTAL_DATABASE), bootstrap);
++  await portal.initialize();
++
++  const app = express();
++  app.disable('x-powered-by');
++  app.use(express.json({ limit: '1mb' }));
++
++  // Deliberately enumerate portal assets.  This avoids exposing bootstrap,
++  // server source, runtime configuration, or arbitrary database files.
++  const assets = {
++    '/': 'index.html',
++    '/app.js': 'app.js',
++    '/style.css': 'style.css',
++    '/vendor/react.production.min.js': 'vendor/react.production.min.js',
++    '/vendor/react-dom.production.min.js': 'vendor/react-dom.production.min.js'
++  };
++  for (const [url, file] of Object.entries(assets)) {
++    app.get(url, (request, response) => response.sendFile(path.join(__dirname, file)));
++  }
++
++  app.post('/login', async (request, response) => {
++    response.json(await portal.login(request.body));
++  });
++
++  app.use('/api', async (request, response, next) => {
++    try {
++      const header = request.get('Authorization') || '';
++      const token = header.startsWith('Bearer ') ? header.slice(7) : null;
++      request.actor = await portal.session(token);
++      next();
++    } catch (error) {
++      next(error);
++    }
++  });
++
++  app.post('/api/migrate', async (request, response) => {
++    // Passing the complete object also permits an optional batch_id without
++    // changing the long-standing Portal.migrate(session, rows) array form.
++    response.json(await portal.migrate(request.actor, request.body));
++  });
++  app.post('/api/records', async (request, response) => {
++    response.json(await portal.addRecord(request.actor, request.body));
++  });
++  app.get('/api/records', async (request, response) => {
++    response.json(await portal.records(
++      request.actor,
++      request.query.module,
++      request.query.child_id,
++      request.query.centre_id
++    ));
++  });
++  app.get('/api/parent-view', async (request, response) => {
++    response.json(await portal.parentView(request.actor, request.query.child_id));
++  });
++  app.post('/api/messages', async (request, response) => {
++    response.json(await portal.send(request.actor, request.body));
++  });
++  app.get('/api/messages', async (request, response) => {
++    response.json(await portal.messages(request.actor));
++  });
++
++  app.use((request, response) => response.sendStatus(404));
++  app.use((error, request, response, next) => {
++    if (response.headersSent) return next(error);
++    const duplicate = error && error.code === 11000;
++    const status = duplicate ? 409 :
++      (Number.isInteger(error && error.status) ? error.status : 400);
++    const exposed = error && error.status ? error.message : 'invalid_request';
++    response.status(status).json({ error: exposed });
++  });
++
++  const server = app.listen(Number(process.env.PORT || 0), '127.0.0.1', () => {
++    console.log(JSON.stringify({ port: server.address().port }));
++  });
++
++  const close = signal => {
++    server.close(async () => {
++      await client.close();
++      process.exit(0);
++    });
++    // Keep the signal argument intentionally unused; close is graceful.
++    void signal;
++  };
++  process.on('SIGTERM', close);
++  process.on('SIGINT', close);
++})().catch(error => {
++  console.error(error && error.message ? error.message : error);
++  process.exit(1);
++});

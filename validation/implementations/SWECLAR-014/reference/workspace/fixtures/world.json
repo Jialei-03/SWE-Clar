@@ -1,0 +1,6 @@
+{
+  "rooms": [
+    {"id":"room-a","label":"Synthetic arena A","cols":20,"rows":12,"walls":[[10,5],[10,6],[10,7]],"spawn_points":[[3,5],[5,5],[3,8],[5,8]]},
+    {"id":"room-b","label":"Synthetic arena B","cols":16,"rows":10,"walls":[[8,3],[8,4]],"spawn_points":[[2,3],[4,3],[2,6],[4,6]]}
+  ]
+}

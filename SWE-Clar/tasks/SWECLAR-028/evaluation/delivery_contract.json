@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-028",
+  "public": {
+    "readme": "# Shift scheduling automation service\n\nBuild a local scheduling automation service using the provided Python and SQLite project. This is an independently reconstructed workflow task; it does not claim n8n import compatibility or use external business accounts.\n\nThe benchmark prepares Python, SQLite, timezone data, a writable database, configuration, and a local notification endpoint before the coding budget. Do not install dependencies or request service credentials. Work in `/workspace`; generated data belongs in `runtime/` and is excluded from submission. Start with `python server.py --config runtime/config.json --port 8080`. The configuration supplies `database`, `notification_url`, and an IANA `timezone`.\n\nThe existing signup path links employees, shifts and signups, sends employee SMS/email and assigned-manager email, and confirms successful signups. Complete the scheduled automation and preserve the existing service. Ask the client for reminder eligibility, manager reporting, capacity handling and attendance policies.\n\n## HTTP contract\n\n- `GET /health`: HTTP 200 with `{\"ready\": true}`.\n- `GET /state`: HTTP 200 with `employees`, `shifts` and `signups` arrays, reflecting persisted records.\n- `POST /signups`: JSON `{\"id\":\"signup-a\",\"shift_id\":\"shift-a\",\"employee\":{\"id\":\"worker-a\",\"name\":\"Worker A\",\"email\":\"worker@example.test\",\"phone\":\"+12025550101\"}}`. Return the persisted signup with `id`, `employee_id`, `shift_id`, `status` and `checked_in`.\n- `POST /tick`: JSON `{\"now\":\"2030-04-03T06:00:00+00:00\"}`. The benchmark's scheduler invokes this with an explicit clock. Return HTTP 200 after successful processing. Do not rely on the host's actual date.\n\nEmployee identity is resolved by email. An existing employee is reused. Shifts supply `id`, `starts_at` (offset-aware ISO timestamp), `location`, `address`, `map_url`, `manager_email`, `capacity` and `status`. Signup IDs identify one employee/shift pair; conflicting reuse must fail. Same-ID repeated requests must not duplicate records or successful notifications. Use SQLite for persistent records; internal tables and implementation may differ if the supplied seed data remains usable and `/state` preserves these fields.\n\nThe notification endpoint accepts `POST /messages` with string fields `id`, `channel`, `recipient`, `body`. Channels are `sms`, `email`, `manager_email`. A successful request returns 200. A stable unique ID makes retries idempotent: the same payload returns 200 again, but changed payload under the same ID returns 409. Transient errors may return 503. Do not mark a notification-dependent step complete after failure. The service has no public receipt-editing endpoint.\n\nSignup notification bodies must contain the worker, shift timestamp, location, address and map URL. Wording and internal helper names are unrestricted. Return 400 for malformed input or conflicting records and 503 for unavailable delivery; unknown paths return 404. No public internet or real delivery is needed.\n\n## Structured notification interface\n\nFor machine-readable roster notifications, `body` is a JSON array of records with `shift_id`, `starts_at`, `location`, `total`, `filled`, and `remaining`. Full-capacity notices use one JSON record with the same fields. Array order, whitespace and JSON key order are unrestricted. These serialization choices are benchmark transport conventions, not original customer wording. Other notification bodies remain ordinary text. Ask the client when and to whom these reports should be sent.",
+    "interfaces": [
+      {
+        "type": "command",
+        "entry": {
+          "language": "Python",
+          "file": "server.py",
+          "command": "python server.py --config runtime/config.json --port 8080"
+        },
+        "inputs": {
+          "transport": "HTTP JSON",
+          "contract": "README.md"
+        },
+        "output": {
+          "type": "persisted_state_and_http_delivery",
+          "meaning": "Connected scheduling records"
+        },
+        "operations": []
+      },
+      {
+        "type": "command",
+        "entry": {
+          "language": "Python",
+          "file": "server.py",
+          "command": "python server.py --config runtime/config.json --port 8080"
+        },
+        "inputs": {
+          "transport": "HTTP JSON",
+          "contract": "README.md"
+        },
+        "output": {
+          "type": "persisted_state_and_http_delivery",
+          "meaning": "Dynamic signup notifications"
+        },
+        "operations": []
+      },
+      {
+        "type": "command",
+        "entry": {
+          "language": "Python",
+          "file": "server.py",
+          "command": "python server.py --config runtime/config.json --port 8080"
+        },
+        "inputs": {
+          "transport": "HTTP JSON",
+          "contract": "README.md"
+        },
+        "output": {
+          "type": "persisted_state_and_http_delivery",
+          "meaning": "Confirmed signup state and retries"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "command",
+      "entry": {
+        "language": "Python",
+        "file": "server.py",
+        "command": "python server.py --config runtime/config.json --port 8080"
+      },
+      "inputs": {
+        "transport": "HTTP JSON",
+        "contract": "README.md"
+      },
+      "output": {
+        "type": "persisted_state_and_http_delivery",
+        "meaning": "Connected scheduling records"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "command",
+      "entry": {
+        "language": "Python",
+        "file": "server.py",
+        "command": "python server.py --config runtime/config.json --port 8080"
+      },
+      "inputs": {
+        "transport": "HTTP JSON",
+        "contract": "README.md"
+      },
+      "output": {
+        "type": "persisted_state_and_http_delivery",
+        "meaning": "Dynamic signup notifications"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "command",
+      "entry": {
+        "language": "Python",
+        "file": "server.py",
+        "command": "python server.py --config runtime/config.json --port 8080"
+      },
+      "inputs": {
+        "transport": "HTTP JSON",
+        "contract": "README.md"
+      },
+      "output": {
+        "type": "persisted_state_and_http_delivery",
+        "meaning": "Confirmed signup state and retries"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "command",
+      "entry": {
+        "language": "Python",
+        "file": "server.py",
+        "command": "python server.py --config runtime/config.json --port 8080"
+      },
+      "inputs": {
+        "transport": "HTTP JSON",
+        "contract": "README.md"
+      },
+      "output": {
+        "type": "persisted_state_and_http_delivery",
+        "meaning": "Two-stage reminders"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "command",
+      "entry": {
+        "language": "Python",
+        "file": "server.py",
+        "command": "python server.py --config runtime/config.json --port 8080"
+      },
+      "inputs": {
+        "transport": "HTTP JSON",
+        "contract": "README.md"
+      },
+      "output": {
+        "type": "persisted_state_and_http_delivery",
+        "meaning": "Manager rosters and full-capacity alerts"
+      },
+      "operations": []
+    },
+    "RU-006": {
+      "type": "command",
+      "entry": {
+        "language": "Python",
+        "file": "server.py",
+        "command": "python server.py --config runtime/config.json --port 8080"
+      },
+      "inputs": {
+        "transport": "HTTP JSON",
+        "contract": "README.md"
+      },
+      "output": {
+        "type": "persisted_state_and_http_delivery",
+        "meaning": "Manual attendance"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "cd2b947ef71e13a9b08bfd316f594e474ffc0cf54a90ed8fd36b62b7c3d44fef",
+  "test_sources_sha256": {
+    "evaluation/tests/expected_gates.json": "070767deb54d86afdce8e245eef44138cf6a668beea203cbd5219d5316e674b1",
+    "evaluation/tests/official_verifier.py": "04d647a82c038359e98c74f52b40fddcd7281c651075d3e5455d4e1b82b340db",
+    "evaluation/tests/scheduling_contract.py": "da7debdc9101e8f5f3d05488d5302542b1d646e43fee4524758439bef96b253a"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

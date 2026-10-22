@@ -1,0 +1,16 @@
+# Local music presave HTTP integration
+
+Complete `solution.py` and `music_client.py` in the supplied Python campaign component. Preserve working artist/campaign/presave handling while implementing provider authorization and release-time library saves. This is a benchmark-owned local HTTP protocol, with synthetic accounts; live service deployment, real music files and production credential storage are outside scope.
+
+Workdir `/workspace`. Entry: `process_presave_action(state, action, service=None) -> dict`. It returns new state with result or error.code and never mutates inputs. State collections are artists, releases, campaigns, listeners, presaves and libraries. Errors preserve prior business collections; nonempty alternative error codes and additional metadata are accepted. Generated access tokens/client secrets must stay outside returned state. Reuse one MusicClient instance within a session; persistence or refresh across client restarts is not required.
+
+Actions: create_artist(artist_id,name); create_release(release_id,artist_id,release_at,now=0,spotify_uri); publish_campaign(release_id,slug); authorize_listener(listener_id,authorization_code); presave(listener_id,slug,consent); fulfill(slug,now). Artist/release IDs are unique; release owner must exist. release_at and now are finite numbers, excluding booleans; release_at must be future. URI format is spotify:track: followed by exactly 22 alphanumeric characters. Preserve the existing one-campaign-per-release and unique-slug behavior and repeated presave result. Ask about authorization/consent policy and fulfillment timing, failures or retries.
+
+The client constructor is MusicClient(token_url,api_base,client_id,client_secret,redirect_uri). Its methods are authorize_listener(listener_id,code), returning provider_user_id and scopes, and save_track(listener_id,uri), returning success or raising on failure. Public wire contract: POST token_url uses form grant_type=authorization_code, code, redirect_uri and HTTP Basic client authentication. Token JSON has access_token and space-separated scope. GET api_base/me uses Bearer authorization and returns id. PUT api_base/me/library?uris=<URL-encoded URI> uses Bearer authorization; HTTP 200 acknowledges success. Required business scope/consent policies can be clarified. Errors may use any nonempty code.
+
+Python standard library only; fixed python-web environment supplies Python 3.12.3 and dependencies. Start synthetic provider: `python local_provider.py` (prints loopback configuration; server logs stay in terminal). Check environment: `python /public_tests/preflight.py`. Public smoke/regressions: `python /public_tests/test_public.py`. Reset by stopping/restarting provider and creating a fresh empty state and MusicClient. No downloads/accounts. Limits: 2 CPU, 2 GiB RAM, 256 MiB workspace; network is disabled except loopback. Protected tests/reference/source materials are unavailable.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

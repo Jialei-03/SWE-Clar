@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Local attendance fixture</title>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <main>
+      <section id="auth">
+        <h1>Local attendance</h1>
+        <form id="account">
+          <label>Email<input id="email" type="email" autocomplete="email" required></label>
+          <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+          <div class="account-actions">
+            <button type="submit">Sign in</button>
+            <button type="button" id="register">Create account</button>
+          </div>
+        </form>
+        <p id="error" role="alert"></p>
+      </section>
+
+      <section id="workspace" hidden>
+        <header>
+          <h1>Attendance</h1>
+          <p id="actor"></p>
+          <button type="button" id="logout">Sign out</button>
+        </header>
+
+        <section aria-live="polite">
+          <h2 id="section">Home</h2>
+          <label>Site<select id="sites"></select></label>
+          <div class="actions">
+            <button type="button" id="checkin">Check in with location</button>
+            <button type="button" id="checkout">Check out</button>
+          </div>
+          <p id="status" role="status"></p>
+        </section>
+
+        <h2>Attendance history</h2>
+        <div id="history"></div>
+        <nav id="nav" aria-label="Main sections"></nav>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

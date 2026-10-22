@@ -1,0 +1,19 @@
+--- a/packages/flutter_tools/lib/src/flutter_cache.dart
++++ b/packages/flutter_tools/lib/src/flutter_cache.dart
+@@ -832,6 +832,16 @@
+     'DYLD_LIBRARY_PATH': cache.getArtifactDirectory(name).path,
+   };
+ 
++  // Linux prepared environments do not use macOS-only USB artifacts.
++  // Match updateInner's platform guard before trying to create cache entries.
++  @override
++  Future<bool> isUpToDate(FileSystem fileSystem) async {
++    if (!_platform.isMacOS && !ignorePlatformFiltering) {
++      return true;
++    }
++    return super.isUpToDate(fileSystem);
++  }
++
+   @override
+   bool isUpToDateInner(FileSystem fileSystem) {
+     final List<String>? executables = _kExecutables[name];

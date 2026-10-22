@@ -1,0 +1,17 @@
+# Supplier registration web component
+
+Use the prepared python-vision environment with Pillow 12.3.0 already installed; do not install dependencies. Run `DATABASE_PATH=records.sqlite IDENTITIES_PATH=identities.json python server.py`. The server binds to loopback and reports its port. identities.json is a private test/deployment configuration mapping access tokens to {id,role:review|supplier,supplier_id?}; it is never served or included in the dataset. Requests use Authorization: Bearer. The page lets an authenticated user register staff, review rows and download CSV.
+
+Repair the existing SQLite web component. Actions at POST /action: add_supplier(supplier_id,name), register_staff(staff_id,supplier_id,name,birth_city), review(staff_id,status), upload_photo(asset_id,supplier_id,media_type,data:base64), attach_photo(staff_id,asset_id), import(csv). GET /staff lists authorized rows, /history returns audit/photo history, /photo?id=... returns image bytes, /export.csv produces actual CSV. Images are PNG/JPEG up to 2,000,000 bytes and four million pixels. Server time is used for audit entries. Keep database writes transactional and foreign keys enforced.
+
+This is an independently reconstructed web/database component, not the original proprietary module or production cloud deployment. All evaluator staff names, cities, supplier IDs and geometric photo images are synthetic. Original identity documents, photographs and customer data are excluded. The minimal field schema is staff_id,supplier_id,name,birth_city,status,photo_id; birth_city is the benchmark's single place/city-of-birth field. Trusted access-token configuration replaces production account provisioning.
+
+
+Work in `/workspace`. Benchmark preparation creates `runtime/identities.json` with fresh synthetic access tokens (review and supplier roles), and `runtime/records.sqlite` with supplier `sample-supplier`. Inspect the local identity file to use these development accounts; it is generated before the budget, not a released customer credential. Start with `DATABASE_PATH=runtime/records.sqlite IDENTITIES_PATH=runtime/identities.json PORT=8080 python server.py`, then open `http://127.0.0.1:8080/`. Server diagnostics appear on stderr. Public regression command: `python /public_tests/test_public.py`. Reset the running application by stopping it and using a fresh SQLite path; keep or regenerate local development identities as needed. The benchmark resets all state for each attempt. Limits: 2 CPU, 2048 MiB memory, 256 processes, 256 MiB workspace, loopback network only.
+
+Existing registration, authorization, list forms and database initialization are public regression responsibilities; complete the unfinished review, photo and CSV paths. Denied API requests must fail without data changes; no exact error text is required. Additional nonconflicting response metadata and equivalent image encodings are allowed. CSV imports accept exactly the declared set of columns in any order. PNG/JPEG uploads are real bytes; original customer photos and documents are never supplied.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

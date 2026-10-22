@@ -1,0 +1,402 @@
+schema_version: 1
+task_id: SWECLAR-055
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual MQTT telemetry ingestion, entity permissions, aggregation and alarm component
+requirement_units:
+- ru_id: RU-001
+  name: IoT workflow entry point
+  content: Complete the existing Python telemetry component with actual MQTT TCP subscriptions through
+    ingest_mqtt(state,host,port,max_messages=1,timeout=2), while preserving process_iot_action and input
+    immutability. The supplied broker speaks MQTT 3.1.1; a pure record-processing substitute is incomplete.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for iot workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_iot_action
+      signature: 'process_iot_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        ingest:
+          fields:
+          - payload
+          - timestamp
+          - topic
+          - type
+      protocol_fields:
+      - devices
+      - entities
+      - payload
+      - rules
+      - timestamp
+      - topic
+      - topics
+      - type
+      - users
+      mqtt_entry: ingest_mqtt(state,host,port,max_messages=1,timeout=2)
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: MQTT 3.1.1 QoS 0 subscription and synthetic JSON envelope are explicit reconstruction choices.
+    Local protocol fixture verifies actual traffic; production broker deployment and visual dashboard
+    are not claimed.
+- ru_id: RU-002
+  name: Hierarchy-controlled entity CRUD
+  content: State users, entities, and devices are mappings keyed by their IDs. Permit tenant administrators
+    to create reseller or company entities, tenant administrators may also update devices in any company.
+    Permit company administrators to create or update devices whose company_id equals their own. A created
+    device is stored under the same ID in both entities and devices. Reject invalid creation with create_denied
+    and invalid or cross-company update with update_denied. A company administrator cannot reassign an
+    owned device to a different company through changes.company_id.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for hierarchy-controlled entity crud.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_iot_action
+      signature: 'process_iot_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        create_entity:
+          fields:
+          - actor_id
+          - company_id
+          - entity_id
+          - entity_type
+          - name
+          - type
+        update_device:
+          fields:
+          - actor_id
+          - changes
+          - device_id
+          - type
+      protocol_fields:
+      - actor_id
+      - company_id
+      - devices
+      - entities
+      - entity_id
+      - entity_type
+      - name
+      - rules
+      - topics
+      - type
+      - users
+      mqtt_entry: ingest_mqtt(state,host,port,max_messages=1,timeout=2)
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - error
+      - error.code
+      - entities
+      - entities.<id>
+      - devices
+      - devices.<id>
+      - result
+      - result.entity_id
+      required_tokens:
+        error.code:
+        - create_denied
+        - update_denied
+      field_schemas:
+        entities:
+          type: object
+        devices:
+          type: object
+        error.code:
+          type: string
+        result.entity_id:
+          type: string
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: MQTT 3.1.1 QoS 0 subscription and synthetic JSON envelope are explicit reconstruction choices.
+    Local protocol fixture verifies actual traffic; production broker deployment and visual dashboard
+    are not claimed.
+- ru_id: RU-003
+  name: MQTT telemetry conversion
+  content: Subscribe at QoS 0 to every exact configured topic in state.topics over an actual MQTT 3.1.1
+    connection. Receive at most max_messages publications, bounded by timeout, and parse UTF-8 JSON {timestamp,values};
+    each topic maps to a known device. Values must be an object and timestamp a finite number excluding
+    booleans. Append normalized samples in timestamp order. Malformed envelopes and unknown topics do
+    not change telemetry/alarms and are reported per message while later valid messages continue. Return
+    result.received, accepted and errors with topic/code=invalid_telemetry. Connection/subscription refusal
+    or no messages before timeout returns mqtt_failed. Accept fragmented TCP delivery and payloads over
+    127 bytes. Close the connection after the batch.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for mqtt telemetry conversion.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_iot_action
+      signature: 'process_iot_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        ingest:
+          fields:
+          - payload
+          - timestamp
+          - topic
+          - type
+      protocol_fields:
+      - devices
+      - entities
+      - payload
+      - rules
+      - timestamp
+      - topic
+      - topics
+      - type
+      - users
+      mqtt_entry: ingest_mqtt(state,host,port,max_messages=1,timeout=2)
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - error
+      - error.code
+      - telemetry
+      - telemetry.<id>
+      - telemetry.<id>.temperature
+      - telemetry.<id>.temperature.<index>.timestamp
+      - timestamp
+      required_tokens:
+        error.code:
+        - invalid_telemetry
+      field_schemas:
+        error.code:
+          type: string
+        telemetry.<id>.temperature.<index>.timestamp:
+          type: number
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: MQTT 3.1.1 QoS 0 subscription and synthetic JSON envelope are explicit reconstruction choices.
+    Local protocol fixture verifies actual traffic; production broker deployment and visual dashboard
+    are not claimed.
+- ru_id: RU-004
+  name: Telemetry aggregation
+  content: Aggregate a known numeric telemetry key over an inclusive time range using count, minimum,
+    maximum, and arithmetic mean, ignoring nonnumeric samples and returning not_found for an empty range.
+    Boolean and non-finite values do not count as numeric measurements.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for telemetry aggregation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_iot_action
+      signature: 'process_iot_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        aggregate:
+          fields:
+          - device_id
+          - end
+          - key
+          - start
+          - type
+        ingest:
+          fields:
+          - payload
+          - timestamp
+          - topic
+          - type
+      protocol_fields:
+      - device_id
+      - devices
+      - end
+      - entities
+      - key
+      - payload
+      - rules
+      - start
+      - timestamp
+      - topic
+      - topics
+      - type
+      - users
+      mqtt_entry: ingest_mqtt(state,host,port,max_messages=1,timeout=2)
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - result
+      - result.count
+      - result.max
+      - result.mean
+      - result.min
+      field_schemas:
+        result:
+          type: object
+          required_fields:
+          - count
+          - max
+          - mean
+          - min
+          properties:
+            count:
+              type: integer
+            max:
+              type: number
+            mean:
+              type: number
+            min:
+              type: number
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: MQTT 3.1.1 QoS 0 subscription and synthetic JSON envelope are explicit reconstruction choices.
+    Local protocol fixture verifies actual traffic; production broker deployment and visual dashboard
+    are not claimed.
+- ru_id: RU-005
+  name: Threshold alarms and role dashboard
+  content: State rules and alarms are mappings keyed by rule ID and alarm ID. Each rule supplies key,
+    operator (gt or lt), and numeric threshold; after ingestion evaluate the payload value against every
+    rule and create at most one alarm for each device/rule pair. Alarm IDs are the deterministic string
+    "<device_id>:<rule_id>". Acknowledge changes the alarm status to acknowledged and clear changes it
+    to cleared. Dashboard returns devices and non-cleared alarms as arrays; tenant administrators see
+    all companies while company administrators see only their own company. Only a tenant administrator
+    or an administrator of that device's company may acknowledge or clear an alarm; other actors get alarm_denied
+    without changing it. Boolean values do not trigger numeric rules. Other roles cannot gain dashboard
+    access merely by sharing company_id. Other-role dashboard denial may be a nonempty error or empty
+    device/alarm arrays; no exact denial code is required.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for threshold alarms and role dashboard.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_iot_action
+      signature: 'process_iot_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        ack_alarm:
+          fields:
+          - actor_id
+          - alarm_id
+          - type
+        clear_alarm:
+          fields:
+          - actor_id
+          - alarm_id
+          - type
+        dashboard:
+          fields:
+          - type
+          - user_id
+        ingest:
+          fields:
+          - payload
+          - timestamp
+          - topic
+          - type
+      protocol_fields:
+      - actor_id
+      - alarm_id
+      - devices
+      - entities
+      - payload
+      - rules
+      - timestamp
+      - topic
+      - topics
+      - type
+      - user_id
+      - users
+      mqtt_entry: ingest_mqtt(state,host,port,max_messages=1,timeout=2)
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - alarms
+      - result
+      - result.alarms
+      - result.devices
+      field_schemas:
+        alarms:
+          type: object
+        result.alarms:
+          type: array
+          items:
+            type: object
+        result.devices:
+          type: array
+          items:
+            type: object
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: MQTT 3.1.1 QoS 0 subscription and synthetic JSON envelope are explicit reconstruction choices.
+    Local protocol fixture verifies actual traffic; production broker deployment and visual dashboard
+    are not claimed.

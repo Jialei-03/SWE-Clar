@@ -1,0 +1,1 @@
+Five protected requirement gates invoke candidate code only through a generic UID1000 public worker or ordinary CLI process with an explicit environment allowlist. Actual SQLite state/ledger persistence, fresh-process replay and competing unlocks are tested without locking a SQL schema. Additional metadata and unspecified error wording are allowed.

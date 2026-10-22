@@ -1,0 +1,56 @@
+{
+  "timestamp": 0,
+  "mode": "room",
+  "lives": 2,
+  "initial_lives": 2,
+  "portals": {
+    "p": {
+      "active": true
+    }
+  },
+  "asteroids": {
+    "a": {
+      "position": {
+        "x": 2.7,
+        "y": 0,
+        "z": 0
+      },
+      "velocity": {
+        "x": 0.6,
+        "y": 0.15,
+        "z": 0.1
+      }
+    }
+  },
+  "level_asteroids": {
+    "a": {
+      "position": {
+        "x": 2.7,
+        "y": 0,
+        "z": 0
+      },
+      "velocity": {
+        "x": 0.6,
+        "y": 0.15,
+        "z": 0.1
+      }
+    }
+  },
+  "weapons": {
+    "g1": {
+      "power": 2
+    },
+    "g2": {
+      "power": 3
+    },
+    "g3": {
+      "power": 1
+    }
+  },
+  "equipped": [],
+  "shield_energy": 0,
+  "wave": 0,
+  "enemies": {},
+  "events": [],
+  "restart_count": 0
+}

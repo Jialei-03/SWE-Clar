@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Catalogue kiosk</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <button id="logo" type="button">Catalogue</button>
+    <button id="back" type="button" disabled>Back</button>
+    <label id="language-control">
+      <span id="language-label">Language</span>
+      <select id="language" aria-label="Language">
+        <option value="en">English</option>
+        <option value="es">Spanish</option>
+      </select>
+    </label>
+  </header>
+  <main>
+    <p id="version" aria-live="polite">No synchronized content</p>
+    <h1 id="heading">Catalogue</h1>
+    <section id="content" aria-live="polite"></section>
+    <p id="status" role="status" aria-live="polite"></p>
+    <details>
+      <summary id="tools-label">Connection and device tools</summary>
+      <form id="connect">
+        <label>
+          <span id="token-label">Access token</span>
+          <input id="token" type="password" required autocomplete="off">
+        </label>
+        <button id="connect-button" type="submit">Connect</button>
+      </form>
+      <button id="sync" type="button">Synchronize content</button>
+      <form id="settings">
+        <label>
+          <span id="device-label">Managed device</span>
+          <input id="device" required>
+        </label>
+        <button id="settings-button" type="submit">Request network settings</button>
+      </form>
+    </details>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

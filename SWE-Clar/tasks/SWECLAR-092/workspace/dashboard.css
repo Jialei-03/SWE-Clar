@@ -1,0 +1,10 @@
+body { margin:0; background:#f3f6fa; color:#24364b; }
+.fleet-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; }
+.summary-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:16px; }
+.summary-tile { background:white; border:1px solid #dce4ed; border-radius:8px; padding:20px; }
+.summary-value { font-size:28px; font-weight:600; }
+.card { min-width:0; } .list-group-item { overflow-wrap:anywhere; }
+#sidebar { position:fixed; right:0; top:0; bottom:0; width:min(420px,100%); padding:24px; background:white; box-shadow:-8px 0 30px #17243833; overflow:auto; z-index:20; }
+[hidden] { display:none !important; }
+@media (max-width:1023px) { .fleet-grid { gap:16px; } }
+@media (max-width:599px) { .fleet-grid { grid-template-columns:repeat(2,360px); } main.container-fluid { padding:16px !important; } .card-header { align-items:flex-start !important; gap:10px; } }

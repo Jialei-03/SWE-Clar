@@ -1,0 +1,732 @@
+diff --git a/lib/api.dart b/lib/api.dart
+index d283b54317ae2d6e0e58c38011b9a6b224c598be..624efc4e268bbdb80c29d217079b781c4107c34e 100644
+--- a/lib/api.dart
++++ b/lib/api.dart
+@@ -3,34 +3,68 @@ import 'dart:io';
+ 
+ abstract class ServiceApi {
+   Future<Map<String, dynamic>> login(String username, String password);
++
+   Future<List<Map<String, dynamic>>> services();
++
+   Future<Map<String, dynamic>> book(String serviceId, String slot);
+ }
+ 
++/// HTTP implementation of the service contract used by the mobile component.
++/// Each call creates a short-lived client, sends a real request, checks the
++/// status code, and decodes the JSON response before returning it.
+ class HttpServiceApi implements ServiceApi {
+   final Uri baseUrl;
++
+   HttpServiceApi(this.baseUrl);
++
+   Future<dynamic> request(String path, [Map<String, dynamic>? body]) async {
+     final client = HttpClient();
+     try {
+-      final request = await client.openUrl(body == null ? 'GET' : 'POST', baseUrl.resolve(path));
++      final request = await client.openUrl(
++        body == null ? 'GET' : 'POST',
++        baseUrl.resolve(path),
++      );
++      request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
+       if (body != null) {
++        final bytes = utf8.encode(jsonEncode(body));
+         request.headers.contentType = ContentType.json;
+-        request.write(jsonEncode(body));
++        request.contentLength = bytes.length;
++        request.add(bytes);
+       }
+       final response = await request.close();
+       final text = await utf8.decoder.bind(response).join();
+-      if (response.statusCode < 200 || response.statusCode >= 300) throw StateError('api_failed');
++      if (response.statusCode < 200 || response.statusCode >= 300) {
++        throw StateError('api_failed');
++      }
+       return jsonDecode(text);
+-    } finally { client.close(force: true); }
++    } finally {
++      client.close(force: true);
++    }
+   }
++
+   @override
+-  Future<Map<String, dynamic>> login(String username, String password) async =>
+-      Map<String, dynamic>.from(await request('/login', {'username': username, 'password': password}));
++  Future<Map<String, dynamic>> login(String username, String password) async {
++    final value = await request('/login', <String, dynamic>{
++      'username': username,
++      'password': password,
++    });
++    return Map<String, dynamic>.from(value as Map);
++  }
++
+   @override
+-  Future<List<Map<String, dynamic>>> services() async =>
+-      (await request('/services') as List).map((row) => Map<String, dynamic>.from(row)).toList();
++  Future<List<Map<String, dynamic>>> services() async {
++    final value = await request('/services');
++    return (value as List)
++        .map((dynamic row) => Map<String, dynamic>.from(row as Map))
++        .toList();
++  }
++
+   @override
+-  Future<Map<String, dynamic>> book(String serviceId, String slot) async =>
+-      Map<String, dynamic>.from(await request('/appointments', {'service_id': serviceId, 'slot': slot}));
++  Future<Map<String, dynamic>> book(String serviceId, String slot) async {
++    final value = await request('/appointments', <String, dynamic>{
++      'service_id': serviceId,
++      'slot': slot,
++    });
++    return Map<String, dynamic>.from(value as Map);
++  }
+ }
+diff --git a/lib/controller.dart b/lib/controller.dart
+index 1ceb5274c618eb49c6e53f9fe3140edd792d5067..cf89b4a5e12353c93ecc4cf3551a8806b371dd3e 100644
+--- a/lib/controller.dart
++++ b/lib/controller.dart
+@@ -1,45 +1,325 @@
+-import 'dart:convert';
+ import 'package:flutter/foundation.dart';
++
+ import 'api.dart';
+ 
++/// The routes that can be displayed by [ServiceApp].
++const Set<String> _knownRoutes = <String>{
++  'login',
++  'dashboard',
++  'appointments',
++  'notifications',
++};
++
++/// Make a defensive, recursively copied value from data returned by an API or
++/// supplied by a caller.  The controller owns the data it exposes through its
++/// public fields; in particular, notification state must not alias the map
++/// passed to the constructor.
++dynamic _copyValue(dynamic value) {
++  if (value is Map) {
++    return <String, dynamic>{
++      for (final entry in value.entries)
++        entry.key.toString(): _copyValue(entry.value),
++    };
++  }
++  if (value is List) {
++    return value.map<dynamic>(_copyValue).toList();
++  }
++  return value;
++}
++
++Map<String, dynamic> _copyMap(Map value) =>
++    Map<String, dynamic>.from(_copyValue(value) as Map);
++
++/// Identity-bearing lease for one asynchronous operation.  Keeping the
++/// session and operation together means completion checks can reject both an
++/// older session and a newer operation without exposing either detail in the
++/// controller's public API.
++class _OperationLease {
++  final int session;
++  final int sequence;
++
++  const _OperationLease(this.session, this.sequence);
++}
++
+ class ServiceController extends ChangeNotifier {
+   final ServiceApi api;
++
+   Map<String, dynamic>? user;
+   String route = 'login';
+   String? error;
+   bool busy = false;
+-  List<Map<String, dynamic>> services = [];
+-  final Map<String, Map<String, dynamic>> appointments = {};
++  List<Map<String, dynamic>> services = <Map<String, dynamic>>[];
++  final Map<String, Map<String, dynamic>> appointments =
++      <String, Map<String, dynamic>>{};
+   final Map<String, Map<String, dynamic>> notifications;
+-  ServiceController(this.api, {Map<String, Map<String, dynamic>>? notifications})
+-      : notifications = (jsonDecode(jsonEncode(notifications ?? {})) as Map<String, dynamic>)
+-          .map((key, value) => MapEntry(key, Map<String, dynamic>.from(value)));
+ 
++  // A logout starts a new session.  Both the session number and operation
++  // number are checked when an asynchronous request completes, so an old
++  // request cannot update a newer session (or a controller that was disposed).
++  int _session = 0;
++  int _nextOperation = 0;
++  _OperationLease? _activeOperation;
++  bool _disposed = false;
++
++  ServiceController(
++    this.api, {
++    Map<String, Map<String, dynamic>>? notifications,
++  }) : notifications = <String, Map<String, dynamic>>{
++         for (final entry
++             in (notifications ?? <String, Map<String, dynamic>>{}).entries)
++           entry.key: _copyMap(entry.value),
++       };
++
++  void _notify() {
++    if (!_disposed) {
++      notifyListeners();
++    }
++  }
++
++  bool _isCurrent(_OperationLease operation) =>
++      !_disposed &&
++      _session == operation.session &&
++      _activeOperation?.sequence == operation.sequence;
++
++  _OperationLease _startOperation() {
++    final operation = _OperationLease(_session, ++_nextOperation);
++    _activeOperation = operation;
++    busy = true;
++    error = null;
++    _notify();
++    return operation;
++  }
++
++  void _finishOperation(_OperationLease operation) {
++    if (!_isCurrent(operation)) return;
++    _activeOperation = null;
++    busy = false;
++    _notify();
++  }
++
++  void _setError(String value) {
++    if (_disposed) return;
++    error = value;
++    _notify();
++  }
++
++  /// Validate and defensively copy a service catalog before it is committed.
++  /// A catalog is only useful to the UI when every entry has the public API
++  /// shape promised by the service contract.
++  List<Map<String, dynamic>> _validatedServices(
++    List<Map<String, dynamic>> response,
++  ) {
++    final result = <Map<String, dynamic>>[];
++    for (final raw in response) {
++      final row = _copyMap(raw);
++      final id = row['id'];
++      final title = row['title'];
++      final slots = row['available_slots'];
++      if (id is! String ||
++          id.isEmpty ||
++          title is! String ||
++          slots is! List ||
++          slots.any((dynamic slot) => slot is! String)) {
++        throw const FormatException('invalid_service');
++      }
++      result.add(row);
++    }
++    return result;
++  }
++
++  /// Log in and load the catalog as one guarded operation.  Neither the user
++  /// nor the catalog is committed until both responses have been validated.
+   Future<void> login(String username, String password) async {
+-    if (busy) return;
+-    busy = true; error = null; notifyListeners();
++    if (_disposed || busy) return;
++
++    final operation = _startOperation();
+     try {
+-      final nextUser = await api.login(username, password);
+-      if (nextUser['id'] is! String || (nextUser['id'] as String).isEmpty) throw StateError('invalid_user');
+-      final nextServices = await api.services();
+-      user = Map<String, dynamic>.from(nextUser); services = nextServices; route = 'dashboard';
+-    } catch (_) { error = 'api_failed'; }
+-    busy = false; notifyListeners();
++      final response = await api.login(username, password);
++      if (!_isCurrent(operation)) return;
++
++      final id = response['id'];
++      if (id is! String || id.isEmpty) {
++        throw const FormatException('invalid_user');
++      }
++      final nextUser = _copyMap(response);
++
++      final responseServices = await api.services();
++      if (!_isCurrent(operation)) return;
++      final nextServices = _validatedServices(responseServices);
++
++      if (!_isCurrent(operation)) return;
++      user = nextUser;
++      services = nextServices;
++      route = 'dashboard';
++      error = null;
++    } catch (_) {
++      // A request invalidated by logout/disposal is deliberately silent.  In
++      // particular it must not restore a user or replace a newer error.
++      if (_isCurrent(operation)) {
++        error = 'api_failed';
++      }
++    } finally {
++      _finishOperation(operation);
++    }
+   }
++
++  /// Navigate to a known route, applying the authentication guard before
++  /// changing either the route or the visible error state.
+   void navigate(String destination) {
+-    if (false) { error = 'authentication_required'; notifyListeners(); return; }
+-    if (!['login', 'dashboard', 'appointments', 'notifications'].contains(destination)) {
+-      error = 'unknown_route'; notifyListeners(); return;
++    if (_disposed) return;
++    if (!_knownRoutes.contains(destination)) {
++      _setError('unknown_route');
++      return;
+     }
+-    route = destination; error = null; notifyListeners();
++    if (destination != 'login' && user == null) {
++      _setError('authentication_required');
++      return;
++    }
++    route = destination;
++    error = null;
++    _notify();
+   }
++
++  /// End the current session immediately.  The session counter invalidates
++  /// every in-flight request before any of the visible state is reset.
+   void logout() {
+-    user = null; route = 'login'; services = []; appointments.clear(); error = null; notifyListeners();
++    if (_disposed) return;
++    _session++;
++    _activeOperation = null;
++    busy = false;
++    user = null;
++    route = 'login';
++    services = <Map<String, dynamic>>[];
++    appointments.clear();
++    error = null;
++    _notify();
+   }
++
++  Map<String, dynamic>? _findService(String serviceId) {
++    for (final service in services) {
++      if (service['id'] == serviceId) return service;
++    }
++    return null;
++  }
++
++  bool _alreadyBooked(String serviceId, String slot) {
++    for (final appointment in appointments.values) {
++      if (appointment['service_id'] == serviceId &&
++          appointment['slot'] == slot) {
++        return true;
++      }
++    }
++    return false;
++  }
++
++  bool _alreadyUsedAppointmentId(String id) {
++    if (appointments.containsKey(id)) return true;
++    return appointments.values.any((appointment) => appointment['id'] == id);
++  }
++
++  /// Book one slot after validating it against the loaded catalog.  Local
++  /// validation happens before [ServiceApi.book], which keeps invalid actions
++  /// from producing network calls and gives retryable API failures a stable
++  /// state to return to.
+   Future<void> book(String serviceId, String slot) async {
+-    error = 'not_implemented'; notifyListeners();
++    if (_disposed || busy) return;
++
++    if (user == null) {
++      _setError('authentication_required');
++      return;
++    }
++
++    final service = _findService(serviceId);
++    if (service == null) {
++      _setError('unknown_service');
++      return;
++    }
++
++    final slots = service['available_slots'];
++    if (slots is! List || !slots.contains(slot)) {
++      _setError('unavailable_slot');
++      return;
++    }
++
++    if (_alreadyBooked(serviceId, slot)) {
++      _setError('duplicate_appointment');
++      return;
++    }
++
++    final operation = _startOperation();
++    try {
++      final response = await api.book(serviceId, slot);
++      if (!_isCurrent(operation)) return;
++
++      final appointment = _copyMap(response);
++      final id = appointment['id'];
++      if (id is! String ||
++          id.isEmpty ||
++          _alreadyUsedAppointmentId(id) ||
++          appointment['service_id'] != serviceId ||
++          appointment['slot'] != slot ||
++          _alreadyBooked(serviceId, slot)) {
++        throw const FormatException('invalid_appointment');
++      }
++
++      appointments[id] = appointment;
++      route = 'appointments';
++      error = null;
++    } catch (_) {
++      if (_isCurrent(operation)) {
++        error = 'api_failed';
++      }
++    } finally {
++      _finishOperation(operation);
++    }
++  }
++
++  String? _notificationDestination(Map<String, dynamic> notification) {
++    // `route` is the compact form used by the original component.  Accepting
++    // `destination` (and the descriptive `destination_route`) keeps the data
++    // contract tolerant without changing the copied notification map.
++    final routeValue = notification['route'];
++    if (routeValue is String) return routeValue;
++    final destination = notification['destination'];
++    if (destination is String) return destination;
++    final destinationRoute = notification['destination_route'];
++    if (destinationRoute is String) return destinationRoute;
++    return null;
+   }
++
++  /// Mark one valid notification as read and navigate to its destination.
++  /// All validation occurs before mutating the notification map.
+   void openNotification(String id) {
+-    error = 'not_implemented'; notifyListeners();
++    if (_disposed) return;
++    if (user == null) {
++      _setError('authentication_required');
++      return;
++    }
++
++    final notification = notifications[id];
++    if (notification == null) {
++      _setError('unknown_notification');
++      return;
++    }
++
++    final destination = _notificationDestination(notification);
++    if (destination == null || !_knownRoutes.contains(destination)) {
++      _setError('unknown_route');
++      return;
++    }
++
++    notification['read'] = true;
++    route = destination;
++    error = null;
++    _notify();
++  }
++
++  @override
++  void dispose() {
++    _disposed = true;
++    _session++;
++    _activeOperation = null;
++    busy = false;
++    super.dispose();
+   }
+ }
+diff --git a/lib/main.dart b/lib/main.dart
+index cbe0dfbcf7f4fe663b12a274acd32580f2ba6a69..2f7d2e0cbeb1c8f6db69179cadf50558d299adf9 100644
+--- a/lib/main.dart
++++ b/lib/main.dart
+@@ -1,8 +1,17 @@
+ import 'package:flutter/material.dart';
++
+ import 'api.dart';
+ import 'controller.dart';
+ import 'service_app.dart';
++
+ void main() {
+-  const endpoint = String.fromEnvironment('API_BASE', defaultValue: 'http://127.0.0.1:8080');
+-  runApp(ServiceApp(controller: ServiceController(HttpServiceApi(Uri.parse(endpoint)))));
++  const endpoint = String.fromEnvironment(
++    'API_BASE',
++    defaultValue: 'http://127.0.0.1:8080',
++  );
++  runApp(
++    ServiceApp(
++      controller: ServiceController(HttpServiceApi(Uri.parse(endpoint))),
++    ),
++  );
+ }
+diff --git a/lib/service_app.dart b/lib/service_app.dart
+index eeab924d81655ce96ff7af0998dec68eddcd44fb..8ffc0d343f468c0d0d5029ca6725f0d53bff233f 100644
+--- a/lib/service_app.dart
++++ b/lib/service_app.dart
+@@ -1,68 +1,219 @@
+ import 'package:flutter/material.dart';
++
+ import 'controller.dart';
+ 
+ class ServiceApp extends StatefulWidget {
+   final ServiceController controller;
++
+   const ServiceApp({super.key, required this.controller});
++
+   @override
+   State<ServiceApp> createState() => _ServiceAppState();
+ }
++
+ class _ServiceAppState extends State<ServiceApp> {
+   final username = TextEditingController();
+   final password = TextEditingController();
++
+   @override
+-  void dispose() { username.dispose(); password.dispose(); super.dispose(); }
++  void dispose() {
++    username.dispose();
++    password.dispose();
++    super.dispose();
++  }
++
++  Widget _serviceCard(
++    BuildContext context,
++    ServiceController controller,
++    Map<String, dynamic> service,
++  ) {
++    final id = service['id'] as String;
++    final title = service['title'] as String;
++    final slots = (service['available_slots'] as List).whereType<String>();
++    return Card(
++      child: Padding(
++        padding: const EdgeInsets.all(16),
++        child: Column(
++          crossAxisAlignment: CrossAxisAlignment.start,
++          children: [
++            Text(title, style: const TextStyle(fontSize: 20)),
++            const SizedBox(height: 12),
++            Wrap(
++              spacing: 8,
++              runSpacing: 8,
++              children: [
++                for (final slot in slots)
++                  OutlinedButton(
++                    key: Key('book-$id-$slot'),
++                    onPressed: controller.busy
++                        ? null
++                        : () => controller.book(id, slot),
++                    child: Text(slot),
++                  ),
++              ],
++            ),
++          ],
++        ),
++      ),
++    );
++  }
++
++  Widget _notificationTile(
++    ServiceController controller,
++    MapEntry<String, Map<String, dynamic>> entry,
++  ) {
++    final title = entry.value['title'];
++    return ListTile(
++      key: Key('notification-${entry.key}'),
++      title: Text(title is String ? title : entry.key),
++      leading: Icon(
++        entry.value['read'] == true
++            ? Icons.mark_email_read
++            : Icons.mark_email_unread,
++      ),
++      onTap: () => controller.openNotification(entry.key),
++    );
++  }
++
+   @override
+   Widget build(BuildContext context) => MaterialApp(
+     debugShowCheckedModeBanner: false,
+-    theme: ThemeData(colorSchemeSeed: const Color(0xff235a73), useMaterial3: true),
+-    home: AnimatedBuilder(animation: widget.controller, builder: (context, _) {
+-      final c = widget.controller;
+-      return Scaffold(
+-        appBar: AppBar(title: const Text('Service appointments'), actions: c.user == null ? [] : [
+-          IconButton(key: const Key('notifications'), tooltip: 'Notifications', icon: const Icon(Icons.notifications_outlined), onPressed: () => c.navigate('notifications')),
+-          TextButton(key: const Key('logout'), onPressed: c.logout, child: const Text('Sign out')),
+-        ]),
+-        body: SafeArea(child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 700), child: ListView(
+-          padding: const EdgeInsets.all(20), children: [
+-            if (c.error != null) Text(c.error!, key: const Key('error'), style: const TextStyle(color: Colors.red)),
+-            if (c.route == 'login') ...[
+-              const Text('Welcome back', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+-              const SizedBox(height: 24),
+-              TextField(key: const Key('username'), controller: username, decoration: const InputDecoration(labelText: 'Username')),
+-              TextField(key: const Key('password'), controller: password, obscureText: true, decoration: const InputDecoration(labelText: 'Password')),
+-              const SizedBox(height: 20),
+-              FilledButton(key: const Key('login'), onPressed: c.busy ? null : () => c.login(username.text, password.text), child: const Text('Sign in')),
+-            ] else ...[
+-              Wrap(spacing: 12, children: [
+-                TextButton(key: const Key('dashboard-tab'), onPressed: () => c.navigate('dashboard'), child: const Text('Services')),
+-                TextButton(key: const Key('appointments-tab'), onPressed: () => c.navigate('appointments'), child: const Text('Appointments')),
+-              ]),
+-              if (c.route == 'dashboard') ...[
+-                const Text('Choose a service', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+-                const SizedBox(height: 12),
+-                for (final service in c.services) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+-                  Text(service['title'] as String, style: const TextStyle(fontSize: 20)),
+-                  const SizedBox(height: 12),
+-                  Wrap(spacing: 8, runSpacing: 8, children: [for (final slot in service['available_slots'] as List)
+-                    OutlinedButton(key: Key('book-${service['id']}-$slot'), onPressed: c.busy ? null : () => c.book(service['id'] as String, slot as String), child: Text(slot as String))]),
+-                ]))),
+-              ],
+-              if (c.route == 'appointments') ...[
+-                const Text('Your appointments', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+-                for (final row in c.appointments.values) ListTile(key: Key('appointment-${row['id']}'), leading: const Icon(Icons.event_available), title: Text(row['service_id'] as String), subtitle: Text(row['slot'] as String)),
+-              ],
+-              if (c.route == 'notifications') ...[
+-                const Text('Notifications', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+-                for (final entry in c.notifications.entries) ListTile(key: Key('notification-${entry.key}'), title: Text(entry.value['title'] as String? ?? entry.key),
+-                  leading: Icon(entry.value['read'] == true ? Icons.mark_email_read : Icons.mark_email_unread),
+-                  onTap: () => c.openNotification(entry.key)),
+-              ],
+-            ],
+-            if (c.busy) const LinearProgressIndicator(),
+-          ],
+-        )))),
+-      );
+-    }),
++    theme: ThemeData(
++      colorSchemeSeed: const Color(0xff235a73),
++      useMaterial3: true,
++    ),
++    home: AnimatedBuilder(
++      animation: widget.controller,
++      builder: (context, _) {
++        final c = widget.controller;
++        return Scaffold(
++          appBar: AppBar(
++            title: const Text('Service appointments'),
++            actions: c.user == null
++                ? []
++                : [
++                    IconButton(
++                      key: const Key('notifications'),
++                      tooltip: 'Notifications',
++                      icon: const Icon(Icons.notifications_outlined),
++                      onPressed: () => c.navigate('notifications'),
++                    ),
++                    TextButton(
++                      key: const Key('logout'),
++                      onPressed: c.logout,
++                      child: const Text('Sign out'),
++                    ),
++                  ],
++          ),
++          body: SafeArea(
++            child: Center(
++              child: ConstrainedBox(
++                constraints: const BoxConstraints(maxWidth: 700),
++                child: ListView(
++                  padding: const EdgeInsets.all(20),
++                  children: [
++                    if (c.error != null)
++                      Text(
++                        c.error!,
++                        key: const Key('error'),
++                        style: const TextStyle(color: Colors.red),
++                      ),
++                    if (c.route == 'login') ...[
++                      const Text(
++                        'Welcome back',
++                        style: TextStyle(
++                          fontSize: 28,
++                          fontWeight: FontWeight.bold,
++                        ),
++                      ),
++                      const SizedBox(height: 24),
++                      TextField(
++                        key: const Key('username'),
++                        controller: username,
++                        decoration: const InputDecoration(
++                          labelText: 'Username',
++                        ),
++                      ),
++                      TextField(
++                        key: const Key('password'),
++                        controller: password,
++                        obscureText: true,
++                        decoration: const InputDecoration(
++                          labelText: 'Password',
++                        ),
++                      ),
++                      const SizedBox(height: 20),
++                      FilledButton(
++                        key: const Key('login'),
++                        onPressed: c.busy
++                            ? null
++                            : () => c.login(username.text, password.text),
++                        child: const Text('Sign in'),
++                      ),
++                    ] else ...[
++                      Wrap(
++                        spacing: 12,
++                        children: [
++                          TextButton(
++                            key: const Key('dashboard-tab'),
++                            onPressed: () => c.navigate('dashboard'),
++                            child: const Text('Services'),
++                          ),
++                          TextButton(
++                            key: const Key('appointments-tab'),
++                            onPressed: () => c.navigate('appointments'),
++                            child: const Text('Appointments'),
++                          ),
++                        ],
++                      ),
++                      if (c.route == 'dashboard') ...[
++                        const Text(
++                          'Choose a service',
++                          style: TextStyle(
++                            fontSize: 26,
++                            fontWeight: FontWeight.bold,
++                          ),
++                        ),
++                        const SizedBox(height: 12),
++                        for (final service in c.services)
++                          _serviceCard(context, c, service),
++                      ],
++                      if (c.route == 'appointments') ...[
++                        const Text(
++                          'Your appointments',
++                          style: TextStyle(
++                            fontSize: 26,
++                            fontWeight: FontWeight.bold,
++                          ),
++                        ),
++                        for (final row in c.appointments.values)
++                          ListTile(
++                            key: Key('appointment-${row['id']}'),
++                            leading: const Icon(Icons.event_available),
++                            title: Text(row['service_id'] as String),
++                            subtitle: Text(row['slot'] as String),
++                          ),
++                      ],
++                      if (c.route == 'notifications') ...[
++                        const Text(
++                          'Notifications',
++                          style: TextStyle(
++                            fontSize: 26,
++                            fontWeight: FontWeight.bold,
++                          ),
++                        ),
++                        for (final entry in c.notifications.entries)
++                          _notificationTile(c, entry),
++                      ],
++                    ],
++                    if (c.busy) const LinearProgressIndicator(),
++                  ],
++                ),
++              ),
++            ),
++          ),
++        );
++      },
++    ),
+   );
+ }

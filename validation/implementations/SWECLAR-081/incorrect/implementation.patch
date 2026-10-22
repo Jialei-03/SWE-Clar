@@ -1,0 +1,533 @@
+diff --git a/directory_planner.py b/directory_planner.py
+index 9ee1d77092be57ccce34c1912e8a1fe4d30c7744..58ab452e84d21ed3e0ff3ab2ba0cdfbb31329b5c 100644
+--- a/directory_planner.py
++++ b/directory_planner.py
+@@ -1,3 +1,526 @@
+-"""Independent directory page planning starter."""
++"""Deterministic, offline planning for a synthetic business directory.
++
++The planner deliberately only builds data structures and a cache work list.  It
++has no filesystem, network, or CMS side effects; the small CLI in ``cli.py``
++is responsible for the optional HTML view.
++"""
++
++from __future__ import annotations
++
++import re
++import unicodedata
++from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
++
++
++# These are kept in one place so that route construction, semantic grouping,
++# and validation all use the same canonical representation.
++_ROUTE_RUN_RE = re.compile(r"[^a-z0-9]+")
++_TOKEN_RUN_RE = re.compile(r"[^a-z0-9]+")
++_REQUIRED_RECORD_FIELDS = (
++    "id",
++    "business_name",
++    "country_code",
++    "state_name",
++    "state_code",
++    "main_city",
++    "other_cities",
++    "services",
++    "sponsored",
++)
++
++
++class _PreparedRecord:
++    """Validated record data and its canonical components.
++
++    The original strings are retained for labels.  The canonical strings are
++    used only for semantic keys and routes, which makes equivalent spellings
++    share a page without changing the caller's data.
++    """
++
++    __slots__ = (
++        "record_id",
++        "business_name",
++        "country_code",
++        "state_name",
++        "state_code",
++        "main_city",
++        "other_cities",
++        "services",
++        "sponsored",
++        "country_key",
++        "state_key",
++        "state_code_key",
++        "main_city_key",
++        "other_city_keys",
++        "service_keys",
++        "business_name_slug",
++        "record_id_slug",
++        "state_name_slug",
++        "state_code_slug",
++        "main_city_slug",
++        "other_city_slugs",
++        "service_slugs",
++    )
++
++    def __init__(
++        self,
++        *,
++        record_id: str,
++        business_name: str,
++        country_code: str,
++        state_name: str,
++        state_code: str,
++        main_city: str,
++        other_cities: List[str],
++        services: List[str],
++        sponsored: bool,
++        country_key: str,
++        state_key: str,
++        state_code_key: str,
++        main_city_key: str,
++        other_city_keys: List[str],
++        service_keys: List[str],
++        business_name_slug: str,
++        record_id_slug: str,
++        state_name_slug: str,
++        state_code_slug: str,
++        main_city_slug: str,
++        other_city_slugs: List[str],
++        service_slugs: List[str],
++    ) -> None:
++        self.record_id = record_id
++        self.business_name = business_name
++        self.country_code = country_code
++        self.state_name = state_name
++        self.state_code = state_code
++        self.main_city = main_city
++        self.other_cities = other_cities
++        self.services = services
++        self.sponsored = sponsored
++
++        self.country_key = country_key
++        self.state_key = state_key
++        self.state_code_key = state_code_key
++        self.main_city_key = main_city_key
++        self.other_city_keys = other_city_keys
++        self.service_keys = service_keys
++
++        self.business_name_slug = business_name_slug
++        self.record_id_slug = record_id_slug
++        self.state_name_slug = state_name_slug
++        self.state_code_slug = state_code_slug
++        self.main_city_slug = main_city_slug
++        self.other_city_slugs = other_city_slugs
++        self.service_slugs = service_slugs
++
++
++class _Page:
++    """Mutable internal representation of one generated page."""
++
++    __slots__ = ("route", "kind", "label", "business_ids")
++
++    def __init__(self, route: str, kind: str, label: str) -> None:
++        self.route = route
++        self.kind = kind
++        self.label = label
++        self.business_ids: Set[str] = set()
++
++
++# A semantic key is intentionally separate from a route.  A route can be
++# shared by equivalent spellings, but sharing it between different semantic
++# keys is an input error rather than an implicit merge.
++SemanticKey = Tuple[Any, ...]
++
++
++def _ascii_text(value: str) -> str:
++    """Return the specified NFKD/ASCII form of *value*."""
++
++    return unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode(
++        "ascii"
++    )
++
++
++def _slug(value: str, field: str = "value") -> str:
++    """Canonical route component, or raise for an empty component."""
++
++    ascii_value = _ascii_text(value).lower()
++    slug = _ROUTE_RUN_RE.sub("-", ascii_value).strip("-")
++    if not slug:
++        raise ValueError("empty canonical component for " + field)
++    return slug
++
++
++def _tokens(value: str) -> str:
++    """Normalize labels and queries to lowercase ASCII tokens separated by spaces."""
++
++    ascii_value = _ascii_text(value).lower()
++    return _TOKEN_RUN_RE.sub(" ", ascii_value).strip()
++
++
++def _nonempty_string(value: Any, field: str) -> str:
++    if not isinstance(value, str) or value == "":
++        raise ValueError("invalid " + field)
++    return value
++
++
++def _required_list(value: Any, field: str) -> List[Any]:
++    if not isinstance(value, list):
++        raise ValueError("invalid " + field)
++    return value
++
++
++def _trimmed_label(*parts: str) -> str:
++    """Build a human label without allowing input edge whitespace to leak in."""
++
++    return " ".join(part.strip() for part in parts).strip()
++
++
++def _prepare_records(records: Any) -> Tuple[List[_PreparedRecord], Dict[str, _PreparedRecord]]:
++    """Validate and canonicalize all records before page generation."""
++
++    if not isinstance(records, list):
++        raise ValueError("records must be a list")
++
++    prepared: List[_PreparedRecord] = []
++    by_id: Dict[str, _PreparedRecord] = {}
++
++    for index, record in enumerate(records):
++        if not isinstance(record, dict):
++            raise ValueError("record must be an object")
++
++        for field in _REQUIRED_RECORD_FIELDS:
++            if field not in record:
++                raise ValueError("missing record field: " + field)
++
++        record_id = _nonempty_string(record["id"], "record id")
++        if record_id in by_id:
++            raise ValueError("duplicate record id")
++
++        business_name = _nonempty_string(
++            record["business_name"], "business_name"
++        )
++        country_code = _nonempty_string(record["country_code"], "country_code")
++        state_name = _nonempty_string(record["state_name"], "state_name")
++        state_code = _nonempty_string(record["state_code"], "state_code")
++        main_city = _nonempty_string(record["main_city"], "main_city")
++
++        other_cities_raw = _required_list(record["other_cities"], "other_cities")
++        services_raw = _required_list(record["services"], "services")
++        other_cities: List[str] = []
++        services: List[str] = []
++        for city_index, city in enumerate(other_cities_raw):
++            other_cities.append(
++                _nonempty_string(city, "other_cities[{}]".format(city_index))
++            )
++        for service_index, service in enumerate(services_raw):
++            services.append(
++                _nonempty_string(service, "services[{}]".format(service_index))
++            )
++
++        if not isinstance(record["sponsored"], bool):
++            raise ValueError("invalid sponsored")
++        sponsored = record["sponsored"]
++
++        # Every value used as a route component is canonicalized while inputs
++        # are still being validated.  This also rejects punctuation-only or
++        # non-ASCII-only components instead of creating an unusable route.
++        record_id_slug = _slug(record_id, "id")
++        business_name_slug = _slug(business_name, "business_name")
++        state_name_slug = _slug(state_name, "state_name")
++        state_code_slug = _slug(state_code, "state_code")
++        main_city_slug = _slug(main_city, "main_city")
++        other_city_slugs = [
++            _slug(city, "other_cities") for city in other_cities
++        ]
++        service_slugs = [_slug(service, "services") for service in services]
++
++        # Semantic components use the same canonical normalization as routes.
++        # Country codes do not appear in a route, but retaining their canonical
++        # form in the key prevents otherwise unrelated country/state records
++        # from being silently grouped together.
++        country_key = _slug(country_code, "country_code")
++
++        item = _PreparedRecord(
++            record_id=record_id,
++            business_name=business_name,
++            country_code=country_code,
++            state_name=state_name,
++            state_code=state_code,
++            main_city=main_city,
++            other_cities=other_cities,
++            services=services,
++            sponsored=sponsored,
++            country_key=country_key,
++            state_key=state_name_slug,
++            state_code_key=state_code_slug,
++            main_city_key=main_city_slug,
++            other_city_keys=list(other_city_slugs),
++            service_keys=list(service_slugs),
++            business_name_slug=business_name_slug,
++            record_id_slug=record_id_slug,
++            state_name_slug=state_name_slug,
++            state_code_slug=state_code_slug,
++            main_city_slug=main_city_slug,
++            other_city_slugs=other_city_slugs,
++            service_slugs=service_slugs,
++        )
++        prepared.append(item)
++        by_id[record_id] = item
++
++    return prepared, by_id
++
++
++def _validate_id_list(value: Any, field: str, known_ids: Set[str]) -> List[str]:
++    if not isinstance(value, list):
++        raise ValueError(field + " must be a list")
++    result: List[str] = []
++    for item in value:
++        if not isinstance(item, str) or item not in known_ids:
++            raise ValueError(field + " contains an unknown id")
++        result.append(item)
++    return result
++
++
++def _add_page(
++    pages: Dict[SemanticKey, _Page],
++    route_keys: Dict[str, SemanticKey],
++    key: SemanticKey,
++    route: str,
++    kind: str,
++    label: str,
++    record_id: str,
++    record_routes: Dict[str, Set[str]],
++) -> None:
++    """Add one contribution and enforce global route collision safety."""
++
++    existing_key = route_keys.get(route)
++    if existing_key is not None and existing_key != key:
++        raise ValueError("route collision")
++    route_keys[route] = key
++
++    page = pages.get(key)
++    if page is None:
++        page = _Page(route, kind, label)
++        pages[key] = page
++    else:
++        # This should be impossible for a well-formed semantic key, but it is
++        # safer to reject than to let a malformed key merge two routes.
++        if page.route != route or page.kind != kind:
++            raise ValueError("semantic page collision")
++        if label < page.label:
++            page.label = label
++
++    page.business_ids.add(record_id)
++    record_routes.setdefault(record_id, set()).add(route)
++
++
++def _state_identity(item: _PreparedRecord) -> Tuple[str, str]:
++    # State routes intentionally key only on the state spelling/code.  This
++    # makes otherwise identical state routes across country codes share one
++    # semantic page.
++    return (item.state_key, item.state_code_key)
++
++
++def _city_identity(item: _PreparedRecord, city_key: str) -> Tuple[str, str, str]:
++    return (
++        item.state_key,
++        item.state_code_key,
++        city_key,
++    )
++
++
++def _page_output(
++    pages: Iterable[_Page],
++    records_by_id: Dict[str, _PreparedRecord],
++) -> List[Dict[str, Any]]:
++    result: List[Dict[str, Any]] = []
++    ordered_pages = sorted(pages, key=lambda page: page.route)
++    for page in ordered_pages:
++        ordered_ids = sorted(
++            page.business_ids,
++            key=lambda record_id: (
++                0 if records_by_id[record_id].sponsored else 1,
++                record_id,
++            ),
++        )
++        result.append(
++            {
++                "route": page.route,
++                "kind": page.kind,
++                "label": page.label,
++                "business_ids": ordered_ids,
++            }
++        )
++    return result
++
++
++def _suggestions(pages: List[Dict[str, Any]], query: Optional[str]) -> List[Dict[str, Any]]:
++    if query is None:
++        return []
++    normalized_query = _tokens(query)
++    if not normalized_query:
++        return []
++
++    found: List[Dict[str, Any]] = []
++    for page in pages:
++        normalized_label = _tokens(page["label"])
++        if normalized_label == normalized_query:
++            score = 300
++        elif normalized_label.startswith(normalized_query):
++            score = 200
++        elif normalized_query in normalized_label:
++            score = 100
++        else:
++            continue
++        found.append(
++            {
++                "target": page["route"],
++                "kind": page["kind"],
++                "label": page["label"],
++                "score": score,
++            }
++        )
++
++    found.sort(key=lambda suggestion: (-suggestion["score"], suggestion["target"]))
++    return found[:10]
++
++
++def _cache_queue(
++    record_routes: Dict[str, Set[str]],
++    changed_ids: List[str],
++    immediate_ids: List[str],
++) -> List[Dict[str, str]]:
++    immediate_set = set(immediate_ids)
++    changed_set = set(changed_ids)
++    routes: Dict[str, str] = {}
++
++    for record_id in changed_set | immediate_set:
++        for route in record_routes[record_id]:
++            # Assigning immediate routes after nightly routes makes the
++            # priority rule explicit, regardless of input list order.
++            mode = "immediate" if record_id in immediate_set else "nightly"
++            previous = routes.get(route)
++            if previous != "immediate":
++                routes[route] = mode
++
++    return [
++        {"route": route, "mode": routes[route]}
++        for route in sorted(routes)
++    ]
++
++
+ def plan_directory_update(records, changed_ids, query=None, immediate_ids=None):
+-    raise NotImplementedError('Implement the disclosed directory policies')
++    """Build deterministic directory pages, search suggestions, and cache work.
++
++    All validation happens before returning anything.  The function only reads
++    caller-owned objects and constructs fresh output objects, so neither the
++    records nor any of the ID/query lists are modified.
++    """
++
++    prepared, records_by_id = _prepare_records(records)
++    known_ids = set(records_by_id)
++
++    changed = _validate_id_list(changed_ids, "changed_ids", known_ids)
++    if immediate_ids is None:
++        immediate = []
++    else:
++        immediate = _validate_id_list(immediate_ids, "immediate_ids", known_ids)
++
++    if query is not None and not isinstance(query, str):
++        raise ValueError("query must be a string or None")
++
++    pages: Dict[SemanticKey, _Page] = {}
++    route_keys: Dict[str, SemanticKey] = {}
++    record_routes: Dict[str, Set[str]] = {item.record_id: set() for item in prepared}
++
++    for item in prepared:
++        state_identity = _state_identity(item)
++        state_route = "/{}-movers".format(item.state_name_slug)
++        _add_page(
++            pages,
++            route_keys,
++            ("state",) + state_identity,
++            state_route,
++            "state",
++            _trimmed_label(item.state_name, "Movers"),
++            item.record_id,
++            record_routes,
++        )
++
++        business_route = "/business/{}-{}".format(
++            item.business_name_slug, item.record_id_slug
++        )
++        _add_page(
++            pages,
++            route_keys,
++            ("business", item.record_id),
++            business_route,
++            "business",
++            item.business_name.strip(),
++            item.record_id,
++            record_routes,
++        )
++
++        # A record may repeat a city or service in different spellings.  The
++        # page builder deduplicates membership while retaining the smallest
++        # candidate label for the shared semantic page.
++        city_values = [(item.main_city, item.main_city_slug, item.main_city_key)]
++        city_values.extend(
++            zip(item.other_cities, item.other_city_slugs, item.other_city_keys)
++        )
++        service_values = list(zip(item.services, item.service_slugs, item.service_keys))
++
++        for service_name, service_slug, service_key in service_values:
++            state_service_route = "/{}-{}-movers".format(
++                item.state_name_slug, service_slug
++            )
++            _add_page(
++                pages,
++                route_keys,
++                ("state_service",) + state_identity + (service_key,),
++                state_service_route,
++                "state_service",
++                _trimmed_label(item.state_name, service_name, "Movers"),
++                item.record_id,
++                record_routes,
++            )
++
++        for city_name, city_slug, city_key in city_values:
++            city_identity = _city_identity(item, city_key)
++            city_route = "/{}-{}-movers".format(city_slug, item.state_code_slug)
++            _add_page(
++                pages,
++                route_keys,
++                ("city",) + city_identity,
++                city_route,
++                "city",
++                _trimmed_label(city_name, item.state_code, "Movers"),
++                item.record_id,
++                record_routes,
++            )
++
++            for service_name, service_slug, service_key in service_values:
++                city_service_route = "/{}-{}-{}-movers".format(
++                    city_slug, item.state_code_slug, service_slug
++                )
++                _add_page(
++                    pages,
++                    route_keys,
++                    ("city_service",)
++                    + city_identity
++                    + (service_key,),
++                    city_service_route,
++                    "city_service",
++                    _trimmed_label(
++                        city_name, item.state_code, service_name, "Movers"
++                    ),
++                    item.record_id,
++                    record_routes,
++                )
++
++    pages_output = _page_output(pages.values(), records_by_id)
++    return {
++        "pages": pages_output,
++        "suggestions": _suggestions(pages_output, query),
++        "cache_queue": _cache_queue(record_routes, changed, immediate),
++    }

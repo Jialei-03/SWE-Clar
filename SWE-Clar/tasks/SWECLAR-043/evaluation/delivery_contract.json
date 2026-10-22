@@ -1,0 +1,234 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-043",
+  "public": {
+    "readme": "# Delivery workbench\n\nComplete `apply_delivery_event(order: dict, event: dict) -> dict` in `solution.py`. The provided local HTTP server, SQLite order storage, proof-file storage and browser form work already. Preserve their functionality.\n\n## Prepared environment and commands\n\nUse `/workspace` with the supplied `python-web` runtime. Python, SQLite and browser tooling are prepared before the task; no installation, internet, credentials or external service is needed. Resources: 2 CPU, 2048 MiB memory, 256 processes, 256 MiB workspace. Local loopback networking is available.\n\n- Start: `python server.py --port 8080 --data runtime`; open `http://127.0.0.1:8080/`.\n- Public check: `python /public_tests/test_public.py`.\n- Reset: stop the server and run `python -c \"import shutil; shutil.rmtree('runtime', ignore_errors=True)\"`, then restart.\n- Stop: Ctrl-C. Adapter errors appear in terminal output and JSON responses.\n\nThe public check uses temporary data. Runtime files must not be included in code delivery. Keep entry-point filenames and public interfaces; internal implementation is free.\n\n## Record and HTTP interfaces\n\nAn order is a JSON object with `id`, `status`, `history` (list) and optional unrelated metadata. Direct function calls may omit `id` or `history`; a missing history starts as an empty list on successful transitions. Events have `type`: `assign`, `pickup`, `deliver` or `reject`. Other possible fields are `receiver`, `photo`, `signature`, `reason`. Proof references are opaque strings; file storage is handled separately. Ask the client about validation policies.\n\nReturn the resulting order. Successful history entries have at least `type` (event type) and `status` (resulting status). Extra nonconflicting metadata is allowed. Errors use `error: {code: <nonempty string>}` alongside unchanged order fields; any nonempty error code is accepted. Stored proof uses `proof.receiver`, `proof.photo` and `proof.signature`; an unused proof field may be absent or null. Stored rejection uses `rejection.reason`.\n\nThe supplied server manages one synthetic order `parcel-demo`:\n\n- `GET /api/order` returns persisted state.\n- `POST /api/event` accepts event JSON, invokes the workflow, persists successful results and returns the result. Business errors use HTTP 200 with `error.code`; malformed transport requests use HTTP 400.\n- `POST /api/proofs` accepts `{\"data\": \"<base64 bytes>\"}` and returns HTTP 201 with `{\"ref\": \"/files/<opaque token>\"}`. Nonempty files up to 1 MB are supported. Original filename and metadata are not stored separately.\n- `GET <ref>` returns exact uploaded bytes. Files and orders survive restart with the same data directory.\n- `GET /` serves the form, which uploads selected files and applies events without manual API calls.\n\nThe workflow is also tested with synthetic references directly; do not require every reference to exist on disk. Camera capture, signature recognition, authentication and external delivery integration are outside scope.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "apply_delivery_event",
+          "signature": "apply_delivery_event(order: dict, event: dict) -> dict"
+        },
+        "inputs": {
+          "arguments": [
+            "order",
+            "event"
+          ],
+          "protocol_fields": [
+            "status",
+            "type"
+          ]
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "Updated order or unchanged order plus error.code. Public README defines HTTP and record shapes. Extra nonconflicting metadata and arbitrary nonempty error codes are allowed."
+        },
+        "operations": []
+      },
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "apply_delivery_event",
+          "signature": "apply_delivery_event(order: dict, event: dict) -> dict"
+        },
+        "inputs": {
+          "arguments": [
+            "order",
+            "event"
+          ],
+          "protocol_fields": [
+            "id",
+            "reason",
+            "status",
+            "type"
+          ]
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "Updated order or unchanged order plus error.code. Public README defines HTTP and record shapes. Extra nonconflicting metadata and arbitrary nonempty error codes are allowed."
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "apply_delivery_event",
+        "signature": "apply_delivery_event(order: dict, event: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "order",
+          "event"
+        ],
+        "protocol_fields": [
+          "status",
+          "type"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Updated order or unchanged order plus error.code. Public README defines HTTP and record shapes. Extra nonconflicting metadata and arbitrary nonempty error codes are allowed."
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "apply_delivery_event",
+        "signature": "apply_delivery_event(order: dict, event: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "order",
+          "event"
+        ],
+        "protocol_fields": [
+          "id",
+          "reason",
+          "status",
+          "type"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Updated order or unchanged order plus error.code. Public README defines HTTP and record shapes. Extra nonconflicting metadata and arbitrary nonempty error codes are allowed."
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "apply_delivery_event",
+        "signature": "apply_delivery_event(order: dict, event: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "order",
+          "event"
+        ],
+        "action_variants": {
+          "deliver": {
+            "fields": [
+              "photo",
+              "receiver",
+              "type"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "history",
+          "photo",
+          "receiver",
+          "signature",
+          "status",
+          "type"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Updated order or unchanged order plus error.code. Public README defines HTTP and record shapes. Extra nonconflicting metadata and arbitrary nonempty error codes are allowed."
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "apply_delivery_event",
+        "signature": "apply_delivery_event(order: dict, event: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "order",
+          "event"
+        ],
+        "action_variants": {
+          "reject": {
+            "fields": [
+              "reason",
+              "type"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "reason",
+          "status",
+          "type"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Updated order or unchanged order plus error.code. Public README defines HTTP and record shapes. Extra nonconflicting metadata and arbitrary nonempty error codes are allowed."
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "apply_delivery_event",
+        "signature": "apply_delivery_event(order: dict, event: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "order",
+          "event"
+        ],
+        "action_variants": {
+          "deliver": {
+            "fields": [
+              "photo",
+              "receiver",
+              "type"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "history",
+          "meta",
+          "photo",
+          "receiver",
+          "status",
+          "type"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Updated order or unchanged order plus error.code. Public README defines HTTP and record shapes. Extra nonconflicting metadata and arbitrary nonempty error codes are allowed."
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "1e4fa801813686060a49d95d92d505edab8b662e611ce6d8f40fe0abdcb87492",
+  "test_sources_sha256": {
+    "evaluation/tests/adapters.py": "ccc9e3a6394373cd223c7fcf7b87a81afbfca289b2dce16c8bf050de3f00cf67",
+    "evaluation/tests/boundaries.py": "70f5a0c4691a4df5cc7bd4a83624f14ffa5a4c284f86968d30817bc6af75f985",
+    "evaluation/tests/candidate_proxy.py": "ae32862f7e7fb9db1d6d56447e9536adfd3611d60b4aa94619a0bb8f74000066",
+    "evaluation/tests/conftest.py": "d6014a327a13d478b3634b7c8d63b6a47a376d3b5d9492b9952feab0406febce",
+    "evaluation/tests/evaluate.py": "5828872190eba92398341c2d582738c5bf6a4a5555643ccbb134edc61ed21cfd",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "37e47068b600a3d85da514cc37c7f437a2190ba03a2d3c927824dadb6c3e9a90"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

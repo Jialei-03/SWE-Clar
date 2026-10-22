@@ -1,0 +1,2 @@
+import 'dart:convert';import 'dart:io';import 'package:flutter/material.dart';import 'package:flutter/services.dart';import 'booking_app.dart';import 'controller.dart';
+Future<void> main()async{WidgetsFlutterBinding.ensureInitialized();final seed=jsonDecode(await rootBundle.loadString('assets/initial_state.json')) as Map<String,dynamic>;final path=Platform.environment['BOOKING_STATE_PATH']??'booking-state.json';final controller=BookingController(seed,FileBookingStorage(File(path)),actorId:'member');await controller.restore();runApp(BookingApp(controller:controller));}

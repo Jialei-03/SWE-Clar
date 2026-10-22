@@ -1,0 +1,38 @@
+{
+  "profile": "php-document",
+  "platform": "linux/amd64",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "network": "none except loopback",
+    "workspace_mb": 512,
+    "evaluation_wall_seconds": 300
+  },
+  "workdir": "/workspace",
+  "public_test": [
+    "python",
+    "/public_tests/test_public.py"
+  ],
+  "start": [
+    "env",
+    "INSPECTION_CONFIG=/workspace/runtime/config.json",
+    "INSPECTION_DB=/workspace/runtime/records.sqlite",
+    "PHP_CLI_SERVER_WORKERS=4",
+    "php",
+    "-S",
+    "127.0.0.1:8000",
+    "-t",
+    "web",
+    "router.php"
+  ],
+  "preflight": [
+    "python",
+    "/opt/sweclar/preflight.py"
+  ],
+  "task_preflight": [
+    "python",
+    "/public_tests/preflight.py"
+  ],
+  "prepare_owner": "benchmark before candidate budget"
+}

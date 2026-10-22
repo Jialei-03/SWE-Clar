@@ -1,0 +1,136 @@
+schema_version: 1
+task_id: SWECLAR-098
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Responsive layout repair in an independently reconstructed static two-page project
+requirement_units:
+- ru_id: RU-001
+  name: Preserve the two-page delivery
+  content: Repair the existing project without removing the Home page, Cookie Policy page, their shared
+    local assets, or the local navigation back to the Home page.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What existing pages, local assets, and navigation behavior must remain intact while
+    you repair the responsive layout?
+  matching_keywords: []
+  test_interface:
+    type: web_ui
+    entry:
+      language: html
+      pages:
+      - index.html
+      - cookie-policy.html
+    inputs:
+      viewport_width_px: integer
+    output:
+      type: rendered_pages
+      meaning: both existing pages and their local navigation remain usable
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/browser_contract.py
+  pass_rule: all_tests_pass
+  notes: null
+- ru_id: RU-002
+  name: Accepted desktop content alignment
+  content: From 992px through 1380px, keep the existing desktop composition aligned to the reconstructed
+    content shell. The content shell may not exceed 1240px and must remain centered when the viewport
+    is wider than the shell. Each offer-card composition, including its logo, must stay aligned with that
+    shell, while the label and metric groups retain visible separation rather than touching, overlapping,
+    or overflowing.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: State the accepted desktop viewport interval, maximum content-shell width, and alignment
+    behavior required within that interval.
+  matching_keywords: []
+  test_interface:
+    type: web_ui
+    entry:
+      language: html_css
+      pages:
+      - index.html
+      - cookie-policy.html
+    inputs:
+      viewport_width_px: representative widths from 992px through 1380px
+    output:
+      type: computed_layout
+      meaning: a centered content shell no wider than 1240px whose existing desktop card composition remains
+        aligned, separated, and free of collisions
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/browser_contract.py
+  pass_rule: all_tests_pass
+  notes: The numeric layout constraints are retained from the processed specification. The supplied project
+    and visuals are independently reconstructed; this benchmark does not establish visual equivalence
+    to the original customer design.
+- ru_id: RU-003
+  name: No horizontal page overflow
+  content: Neither delivered page may expose a horizontal page scrollbar at responsive, desktop, or wide-desktop
+    widths. If layout content extends beyond the viewport, the page-level horizontal overflow must be
+    clipped.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What overflow behavior must hold on both pages across responsive and wide desktop viewports?
+  matching_keywords: []
+  test_interface:
+    type: web_ui
+    entry:
+      language: html_css
+      pages:
+      - index.html
+      - cookie-policy.html
+    inputs:
+      viewport_width_px: representative responsive, desktop, and wide-desktop widths
+    output:
+      type: computed_layout
+      meaning: no visible horizontal page scrollbar
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/browser_contract.py
+  pass_rule: all_tests_pass
+  notes: null
+- ru_id: RU-004
+  name: Usable tablet and mobile composition
+  content: 'Below 992px, preserve a usable responsive composition: the desktop hero image is removed from
+    the layout, primary content stacks vertically, and offer cards do not force their desktop row geometry
+    into the viewport.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe how the hero and card composition must adapt below the desktop breakpoint.
+  matching_keywords: []
+  test_interface:
+    type: web_ui
+    entry:
+      language: html_css
+      pages:
+      - index.html
+    inputs:
+      viewport_width_px: representative widths below 992px
+    output:
+      type: computed_layout
+      meaning: stacked responsive content without desktop-only geometry
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/browser_contract.py
+  pass_rule: all_tests_pass
+  notes: null

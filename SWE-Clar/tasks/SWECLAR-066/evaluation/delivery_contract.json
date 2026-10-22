@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-066",
+  "public": {
+    "readme": "# Three-dimensional geometry escape room\n\nComplete apply_escape_room_action(state,action) in solution.py and preserve the real browser game. The supplied native WebGL scene uses a fixed perspective camera, depth, walls/floor, two geometric clues, lock indicators and an exit. Count the gold and blue cubes for one answer; inspect the tetrahedron's wireframe vertices for the other. Submit answers through the controls, unlock both seals, then leave. Do not replace the scene or controls with solved flags or plain text records. All geometry, clues and wording are independently synthetic; this is one small room, not the original commercial 3D games.\n\nUse prepared python-web (Python3.12.3, Playwright/Chromium), no dependencies/accounts/assets to fetch. In /workspace run `python server.py --port 8080`. `/game` is the playable room; `/embed` is a local host with an actual iframe of it. `/health` reports startup, `/state` returns application state, `/action` accepts one JSON action, `/reset` resets the scenario. Rejected actions return HTTP400 with nonempty error.code; accepted actions return200 and updated state. Extra metadata and alternate error wording are allowed. Public check: `python /public_tests/test_public.py`. Resource limits:2 CPU,2048 MiB,256 processes,256 MiB workspace; loopback only.\n\nState includes puzzles (ID to configured answer), required_puzzles, solved, exit_open, escaped, texts (locale to key/string mapping), presentation, rotate_prompt and aspect_supported. Scene geometry and the synthetic scenario must remain consistent. Both function inputs remain unchanged; invalid actions preserve existing gameplay state. Puzzle answers are configured strings. Correct answer comparison trims surrounding whitespace. Unknown puzzle or incorrect answer rejects; repeat correct submission cannot duplicate solved entries. Exit opens exactly when every required puzzle is solved. The exit action then sets escaped=true and the page visibly completes the room.\n\nActions:\n\n- solve: puzzle, answer, obtained from the actual answer field.\n- exit: no other fields.\n- viewport: width,height (finite positive numbers, not booleans).\n- presentation: mode.\n- text: locale,key; returns top-level text.\n\nThe browser reports actual viewport dimensions, selects a presentation for standalone/iframe play, and refreshes visible strings from backend lookup when the locale selector changes. Keep the16:9 canvas display area and actual3D rendering. Ask the client about rotation/aspect behavior, supported presentation modes and localization fallback. Shape dimensions, the two answers and local host are synthetic engineering fixtures. No customer model, story, source translation or remote URL is included.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "apply_escape_room_action",
+          "signature": "apply_escape_room_action(state,action) -> dict"
+        },
+        "inputs": {
+          "state": "Synthetic room scenario",
+          "action": "Public operation schema in README"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "New state with actual WebGL/browser actions and observations"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "apply_escape_room_action",
+        "signature": "apply_escape_room_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic room scenario",
+        "action": "Public operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with actual WebGL/browser actions and observations"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "apply_escape_room_action",
+        "signature": "apply_escape_room_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic room scenario",
+        "action": "Public operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with actual WebGL/browser actions and observations"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "apply_escape_room_action",
+        "signature": "apply_escape_room_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic room scenario",
+        "action": "Public operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with actual WebGL/browser actions and observations"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "apply_escape_room_action",
+        "signature": "apply_escape_room_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic room scenario",
+        "action": "Public operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with actual WebGL/browser actions and observations"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "apply_escape_room_action",
+        "signature": "apply_escape_room_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic room scenario",
+        "action": "Public operation schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with actual WebGL/browser actions and observations"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "53b01723d821ef933b13c6109259c7985cda7f5b7afd660e2025e973836f5d6a",
+  "test_sources_sha256": {
+    "evaluation/tests/candidate_proxy.py": "d67b05c38f1a4c310e7351917ea691d30f525c9d4b8049eeabe559e6b5949dbb",
+    "evaluation/tests/conftest.py": "e9af3d0a9aa5a7a3e430fd300b851a0973a110910e32ca894c38018582bf3f82",
+    "evaluation/tests/evaluate.py": "3d311739a1248844fc45b50bd249e396cc89b9164db9b487eee2a485b6c57cd0",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/scene_content.py": "04e2ef82f7c1567f52b38c952fa4e9508cb8e0de7f0ae1c3ba84e2407720a77d",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "80d9445a7baceadcf37718261e4d22dddee1333feb9a7e88ab58dc5b529ac91b"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

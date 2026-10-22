@@ -1,0 +1,353 @@
+schema_version: 1
+task_id: SWECLAR-001
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Working synthetic property listing and offer-review web application
+requirement_units:
+- ru_id: RU-001
+  name: Runnable property workspace
+  content: Complete the existing HTTP/SQLite/browser application and preserve the public README interfaces.
+    Work with only synthetic fixture identities and properties, using the already prepared loopback offer
+    service; no installation, accounts or remote models are required. Persist committed drafts, offers,
+    notifications and integration checkpoints across process restart. The published UI selectors must
+    support actual record selection, editing, analysis, synchronization and offer review. Use real HTTP
+    requests for provider operations and render results in the browser. The X-Actor header is an already-authenticated
+    fixture identity, not a user-supplied role; unknown identities return 401. Collections are sorted
+    by listing ID; unavailable single records return 404; identified read-only writes return 403; invalid
+    input returns 400 with an errors object; failed provider operations return 502. Successful operations
+    return 200 and creation 201. Rejected operations never partially change stored state. A fresh database
+    initializes from seed.json or --seed once; generated listing IDs must be unique and filesystem paths,
+    original identities or source records are not API output.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern runnable property workspace?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --host 127.0.0.1 --port PORT --db PATH [--seed FILE] [--offer-service
+        URL]
+      runtime: Prepared Python/SQLite/Chromium and loopback offer-service environment
+    inputs:
+      identity: X-Actor synthetic fixture ID for user routes
+      routes: GET /api/actors; GET/POST /api/listings; GET/PUT /api/listings/<id>; POST /api/listings/<id>/analysis;
+        POST /api/sync {now}; POST /api/offer-events {events}; POST /api/offers/<id>/review {}
+      provider: GET /health {ready:true}; GET /capabilities {webhook_supported:boolean}; POST /subscriptions
+        {callback_url} -> {subscribed:true}; GET /offers?after=N -> {events,cursor}; GET /review/<encoded
+        id> -> HTML. Callbacks deliver {events}. Only loopback HTTP is available.
+    output:
+      listing: id,owner_id,agent_id,label,property_type,bedrooms,bathrooms,floor_area,asking_price,features,state
+      detail: '{listing,offers,notifications}'
+      notice: sequence,kind,actor,offer_id,revision,listing_id,data:{amount,terms}
+      analysis: '{pricing: object|null,descriptions: string[]}'
+      sync: '{mode,updated,polled}'
+      review: '{url:string}'
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: The business category is grounded in private source evidence. Software, interfaces, exact policies,
+    users, records and provider are independent benchmark designs. No original product, service brand,
+    code or private artifact is distributed.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/listing_contract.py
+- ru_id: RU-002
+  name: Draft validation and persistence
+  content: Editable fields are label (trimmed nonempty string up to 120 characters), property_type (house|apartment),
+    bedrooms (integer 0..10), bathrooms (integer 1..10), floor_area (integer 10..2000), asking_price (integer
+    1..10^12), and features (at most 20 nonempty strings up to 80 trimmed characters each). Booleans are
+    not integers. Preserve first-occurrence order when deduplicating trimmed features. New features default
+    to []; omitted update fields retain their values. Other required fields must exist after merging an
+    update. Reject unknown/immutable submitted fields including id, owner_id, agent_id and state. Return
+    field-specific validation errors and reject the whole create/update without changing any row. New
+    listing ownership uses the authenticated fixture caller and its configured agent; stored listings
+    always remain draft. There is no automatic publication. Who may create or modify records is a separate
+    client access policy.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern draft validation and persistence?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --host 127.0.0.1 --port PORT --db PATH [--seed FILE] [--offer-service
+        URL]
+      runtime: Prepared Python/SQLite/Chromium and loopback offer-service environment
+    inputs:
+      identity: X-Actor synthetic fixture ID for user routes
+      routes: GET /api/actors; GET/POST /api/listings; GET/PUT /api/listings/<id>; POST /api/listings/<id>/analysis;
+        POST /api/sync {now}; POST /api/offer-events {events}; POST /api/offers/<id>/review {}
+      provider: GET /health {ready:true}; GET /capabilities {webhook_supported:boolean}; POST /subscriptions
+        {callback_url} -> {subscribed:true}; GET /offers?after=N -> {events,cursor}; GET /review/<encoded
+        id> -> HTML. Callbacks deliver {events}. Only loopback HTTP is available.
+    output:
+      listing: id,owner_id,agent_id,label,property_type,bedrooms,bathrooms,floor_area,asking_price,features,state
+      detail: '{listing,offers,notifications}'
+      notice: sequence,kind,actor,offer_id,revision,listing_id,data:{amount,terms}
+      analysis: '{pricing: object|null,descriptions: string[]}'
+      sync: '{mode,updated,polled}'
+      review: '{url:string}'
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: The business category is grounded in private source evidence. Software, interfaces, exact policies,
+    users, records and provider are independent benchmark designs. No original product, service brand,
+    code or private artifact is distributed.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/listing_contract.py
+- ru_id: RU-003
+  name: Comparable pricing policy
+  content: Comparable records have id (nonempty string up to 64 characters), property_type house|apartment,
+    bedrooms integer 0..10, floor_area integer 10..2000, sale_price integer 1..10^12 and age_days integer
+    0..36500; bool is not an integer. Ignore structurally invalid records. For duplicate IDs, retain the
+    last structurally valid record before filtering eligibility; a later valid but ineligible record replaces
+    the earlier eligible one. Eligible comparables match property type, differ by at most one bedroom,
+    have area inclusively 0.75..1.25 times target area and age_days at most 180. Sort by age_days then
+    id ascending and take at most five. Compute each adjusted price as sale_price * target_area / comparable_area
+    using exact rational arithmetic. minimum/maximum are the adjusted extrema; midpoint is the median
+    (average the central pair for even counts). Round monetary outputs only at the final result, to nearest
+    integer with half values rounded upward. confidence is the number selected divided by five. Return
+    null when none qualify. Output selected comparable_ids in selection order and corresponding adjusted_prices,
+    along with minimum, midpoint, maximum, confidence. Display actual computed prices in the browser.
+    No proprietary AI-model accuracy claim is involved.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern comparable pricing policy?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --host 127.0.0.1 --port PORT --db PATH [--seed FILE] [--offer-service
+        URL]
+      runtime: Prepared Python/SQLite/Chromium and loopback offer-service environment
+    inputs:
+      identity: X-Actor synthetic fixture ID for user routes
+      routes: GET /api/actors; GET/POST /api/listings; GET/PUT /api/listings/<id>; POST /api/listings/<id>/analysis;
+        POST /api/sync {now}; POST /api/offer-events {events}; POST /api/offers/<id>/review {}
+      provider: GET /health {ready:true}; GET /capabilities {webhook_supported:boolean}; POST /subscriptions
+        {callback_url} -> {subscribed:true}; GET /offers?after=N -> {events,cursor}; GET /review/<encoded
+        id> -> HTML. Callbacks deliver {events}. Only loopback HTTP is available.
+    output:
+      listing: id,owner_id,agent_id,label,property_type,bedrooms,bathrooms,floor_area,asking_price,features,state
+      detail: '{listing,offers,notifications}'
+      notice: sequence,kind,actor,offer_id,revision,listing_id,data:{amount,terms}
+      analysis: '{pricing: object|null,descriptions: string[]}'
+      sync: '{mode,updated,polled}'
+      review: '{url:string}'
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: The business category is grounded in private source evidence. Software, interfaces, exact policies,
+    users, records and provider are independent benchmark designs. No original product, service brand,
+    code or private artifact is distributed.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/listing_contract.py
+- ru_id: RU-004
+  name: Grounded description variants
+  content: Analysis accepts an object with comparables (list of at most 1000 records), count (integer
+    2 or 3, not bool), and tone (warm|concise); invalid analysis options return 400. For a valid authorized
+    listing, return exactly count distinct, readable description strings in stable order, with the same
+    input yielding the same strings. Each description contains the listing label, property type, bedrooms,
+    bathrooms, floor area, asking price, selected tone and all supplied feature strings. Use only that
+    listing's facts; features from other records or comparables and unsupported amenity/school/investment
+    claims must not appear. Templates and equivalent wording are allowed; descriptions must be readable
+    prose rather than serialized JSON. No remote language model is needed.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern grounded description variants?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --host 127.0.0.1 --port PORT --db PATH [--seed FILE] [--offer-service
+        URL]
+      runtime: Prepared Python/SQLite/Chromium and loopback offer-service environment
+    inputs:
+      identity: X-Actor synthetic fixture ID for user routes
+      routes: GET /api/actors; GET/POST /api/listings; GET/PUT /api/listings/<id>; POST /api/listings/<id>/analysis;
+        POST /api/sync {now}; POST /api/offer-events {events}; POST /api/offers/<id>/review {}
+      provider: GET /health {ready:true}; GET /capabilities {webhook_supported:boolean}; POST /subscriptions
+        {callback_url} -> {subscribed:true}; GET /offers?after=N -> {events,cursor}; GET /review/<encoded
+        id> -> HTML. Callbacks deliver {events}. Only loopback HTTP is available.
+    output:
+      listing: id,owner_id,agent_id,label,property_type,bedrooms,bathrooms,floor_area,asking_price,features,state
+      detail: '{listing,offers,notifications}'
+      notice: sequence,kind,actor,offer_id,revision,listing_id,data:{amount,terms}
+      analysis: '{pricing: object|null,descriptions: string[]}'
+      sync: '{mode,updated,polled}'
+      review: '{url:string}'
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: The business category is grounded in private source evidence. Software, interfaces, exact policies,
+    users, records and provider are independent benchmark designs. No original product, service brand,
+    code or private artifact is distributed.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/listing_contract.py
+- ru_id: RU-005
+  name: Actual offer ingestion and synchronization
+  content: First successful sync reads the provider capabilities. For webhook support register the current
+    application /api/offer-events callback once per callback URL, do not poll, and re-register if restart
+    changes that URL. The single-consumer fixture replaces the old URL. Otherwise first sync immediately
+    GETs /offers?after=0; later polls occur only when now minus last successful poll time is at least
+    120 seconds. now is an integer 0..10^12; earlier values simply are not due. Persist mode, provider
+    cursor and last successful poll time. Response events must have increasing unique cursors greater
+    than the previous cursor, bounded above by the response cursor, which cannot decrease. Validate the
+    whole response and event batch before committing. Events require cursor integer 1..10^12, external_id
+    and listing_id nonempty strings up to 64 chars, revision integer 1..10^9, amount integer 1..10^12
+    and terms nonempty string up to 2000 chars; reject booleans in integer fields. Unknown listing, malformed
+    event or changing an existing external ID to another listing invalidates the whole batch. Apply events
+    in received order. Each strictly newer revision per external ID updates its stored current value and
+    creates exactly one update notice for the listing owner, with offer ID, revision, amount and terms.
+    Thus multiple advancing revisions within a batch each create a notice. Repeated or older revisions
+    are no-ops; concurrent duplicates commit once. Direct invalid callback batches return 400. Failed
+    HTTP operations, malformed responses or invalid polled batches return 502 and do not advance cursor/success
+    time or create partial offers/notices; the next due tick can retry. Sync returns mode webhook|poll,
+    updated (number of advancing revisions) and polled boolean; callbacks return updated. Actual HTTP
+    traffic, not a declared action list, implements these policies.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern actual offer ingestion and synchronization?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --host 127.0.0.1 --port PORT --db PATH [--seed FILE] [--offer-service
+        URL]
+      runtime: Prepared Python/SQLite/Chromium and loopback offer-service environment
+    inputs:
+      identity: X-Actor synthetic fixture ID for user routes
+      routes: GET /api/actors; GET/POST /api/listings; GET/PUT /api/listings/<id>; POST /api/listings/<id>/analysis;
+        POST /api/sync {now}; POST /api/offer-events {events}; POST /api/offers/<id>/review {}
+      provider: GET /health {ready:true}; GET /capabilities {webhook_supported:boolean}; POST /subscriptions
+        {callback_url} -> {subscribed:true}; GET /offers?after=N -> {events,cursor}; GET /review/<encoded
+        id> -> HTML. Callbacks deliver {events}. Only loopback HTTP is available.
+    output:
+      listing: id,owner_id,agent_id,label,property_type,bedrooms,bathrooms,floor_area,asking_price,features,state
+      detail: '{listing,offers,notifications}'
+      notice: sequence,kind,actor,offer_id,revision,listing_id,data:{amount,terms}
+      analysis: '{pricing: object|null,descriptions: string[]}'
+      sync: '{mode,updated,polled}'
+      review: '{url:string}'
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: The business category is grounded in private source evidence. Software, interfaces, exact policies,
+    users, records and provider are independent benchmark designs. No original product, service brand,
+    code or private artifact is distributed.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/listing_contract.py
+- ru_id: RU-006
+  name: Workspace authorization
+  content: Sellers read and update only their own listings and create drafts owned by themselves. Agents
+    read and update only listings assigned to them and cannot create. Administrators read all listings
+    but cannot create or update them. Reads include listing detail, analysis, related offers, related
+    notices and opening external review. Every single-record route enforces the listing scope, returning
+    404 outside it, rather than exposing a redacted record. Collection results omit all unauthorized records.
+    Admin read-only restrictions apply to listing mutation; opening a permitted external review and its
+    idempotent review notice is allowed for any actor who can read the listing. An unknown actor or unsupported
+    role returns 401. Service sync/callback endpoints are separately simulated infrastructure paths, not
+    user-role inputs. On identity change the browser clears the previous detail, analysis, offers and
+    notices; old asynchronous responses must not repopulate another identity's view. Ownership or assignment
+    cannot be forged via submitted draft fields.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern workspace authorization?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --host 127.0.0.1 --port PORT --db PATH [--seed FILE] [--offer-service
+        URL]
+      runtime: Prepared Python/SQLite/Chromium and loopback offer-service environment
+    inputs:
+      identity: X-Actor synthetic fixture ID for user routes
+      routes: GET /api/actors; GET/POST /api/listings; GET/PUT /api/listings/<id>; POST /api/listings/<id>/analysis;
+        POST /api/sync {now}; POST /api/offer-events {events}; POST /api/offers/<id>/review {}
+      provider: GET /health {ready:true}; GET /capabilities {webhook_supported:boolean}; POST /subscriptions
+        {callback_url} -> {subscribed:true}; GET /offers?after=N -> {events,cursor}; GET /review/<encoded
+        id> -> HTML. Callbacks deliver {events}. Only loopback HTTP is available.
+    output:
+      listing: id,owner_id,agent_id,label,property_type,bedrooms,bathrooms,floor_area,asking_price,features,state
+      detail: '{listing,offers,notifications}'
+      notice: sequence,kind,actor,offer_id,revision,listing_id,data:{amount,terms}
+      analysis: '{pricing: object|null,descriptions: string[]}'
+      sync: '{mode,updated,polled}'
+      review: '{url:string}'
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: The business category is grounded in private source evidence. Software, interfaces, exact policies,
+    users, records and provider are independent benchmark designs. No original product, service brand,
+    code or private artifact is distributed.
+  tests:
+  - test_id: RU-006-T01
+    file: evaluation/tests/listing_contract.py
+- ru_id: RU-007
+  name: External offer review boundary
+  content: Opening review returns the prepared provider base URL plus /review/<percent-encoded external
+    ID> and provides a usable browser link to the real synthetic offer HTML. It never changes offer amount,
+    terms or revision, never posts offer mutations, and never trusts an arbitrary URL from an event. For
+    each actor, external offer ID and revision create one persistent review notice with amount/terms;
+    repeated opens, including across restart, add no duplicate. A newer version can produce a new review
+    notice. Review requires access to the associated listing. Inline accept/counter or other offer resolution
+    is not an application operation; it is left to the separate synthetic provider review workflow.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern external offer review boundary?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --host 127.0.0.1 --port PORT --db PATH [--seed FILE] [--offer-service
+        URL]
+      runtime: Prepared Python/SQLite/Chromium and loopback offer-service environment
+    inputs:
+      identity: X-Actor synthetic fixture ID for user routes
+      routes: GET /api/actors; GET/POST /api/listings; GET/PUT /api/listings/<id>; POST /api/listings/<id>/analysis;
+        POST /api/sync {now}; POST /api/offer-events {events}; POST /api/offers/<id>/review {}
+      provider: GET /health {ready:true}; GET /capabilities {webhook_supported:boolean}; POST /subscriptions
+        {callback_url} -> {subscribed:true}; GET /offers?after=N -> {events,cursor}; GET /review/<encoded
+        id> -> HTML. Callbacks deliver {events}. Only loopback HTTP is available.
+    output:
+      listing: id,owner_id,agent_id,label,property_type,bedrooms,bathrooms,floor_area,asking_price,features,state
+      detail: '{listing,offers,notifications}'
+      notice: sequence,kind,actor,offer_id,revision,listing_id,data:{amount,terms}
+      analysis: '{pricing: object|null,descriptions: string[]}'
+      sync: '{mode,updated,polled}'
+      review: '{url:string}'
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: The business category is grounded in private source evidence. Software, interfaces, exact policies,
+    users, records and provider are independent benchmark designs. No original product, service brand,
+    code or private artifact is distributed.
+  tests:
+  - test_id: RU-007-T01
+    file: evaluation/tests/listing_contract.py

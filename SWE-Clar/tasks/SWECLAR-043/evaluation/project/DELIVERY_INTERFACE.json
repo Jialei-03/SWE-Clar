@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-043",
+  "readme": "# Delivery workbench\n\nComplete `apply_delivery_event(order: dict, event: dict) -> dict` in `solution.py`. The provided local HTTP server, SQLite order storage, proof-file storage and browser form work already. Preserve their functionality.\n\n## Prepared environment and commands\n\nUse `/workspace` with the supplied `python-web` runtime. Python, SQLite and browser tooling are prepared before the task; no installation, internet, credentials or external service is needed. Resources: 2 CPU, 2048 MiB memory, 256 processes, 256 MiB workspace. Local loopback networking is available.\n\n- Start: `python server.py --port 8080 --data runtime`; open `http://127.0.0.1:8080/`.\n- Public check: `python /public_tests/test_public.py`.\n- Reset: stop the server and run `python -c \"import shutil; shutil.rmtree('runtime', ignore_errors=True)\"`, then restart.\n- Stop: Ctrl-C. Adapter errors appear in terminal output and JSON responses.\n\nThe public check uses temporary data. Runtime files must not be included in code delivery. Keep entry-point filenames and public interfaces; internal implementation is free.\n\n## Record and HTTP interfaces\n\nAn order is a JSON object with `id`, `status`, `history` (list) and optional unrelated metadata. Direct function calls may omit `id` or `history`; a missing history starts as an empty list on successful transitions. Events have `type`: `assign`, `pickup`, `deliver` or `reject`. Other possible fields are `receiver`, `photo`, `signature`, `reason`. Proof references are opaque strings; file storage is handled separately. Ask the client about validation policies.\n\nReturn the resulting order. Successful history entries have at least `type` (event type) and `status` (resulting status). Extra nonconflicting metadata is allowed. Errors use `error: {code: <nonempty string>}` alongside unchanged order fields; any nonempty error code is accepted. Stored proof uses `proof.receiver`, `proof.photo` and `proof.signature`; an unused proof field may be absent or null. Stored rejection uses `rejection.reason`.\n\nThe supplied server manages one synthetic order `parcel-demo`:\n\n- `GET /api/order` returns persisted state.\n- `POST /api/event` accepts event JSON, invokes the workflow, persists successful results and returns the result. Business errors use HTTP 200 with `error.code`; malformed transport requests use HTTP 400.\n- `POST /api/proofs` accepts `{\"data\": \"<base64 bytes>\"}` and returns HTTP 201 with `{\"ref\": \"/files/<opaque token>\"}`. Nonempty files up to 1 MB are supported. Original filename and metadata are not stored separately.\n- `GET <ref>` returns exact uploaded bytes. Files and orders survive restart with the same data directory.\n- `GET /` serves the form, which uploads selected files and applies events without manual API calls.\n\nThe workflow is also tested with synthetic references directly; do not require every reference to exist on disk. Camera capture, signature recognition, authentication and external delivery integration are outside scope.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "apply_delivery_event",
+        "signature": "apply_delivery_event(order: dict, event: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "order",
+          "event"
+        ],
+        "protocol_fields": [
+          "status",
+          "type"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Updated order or unchanged order plus error.code. Public README defines HTTP and record shapes. Extra nonconflicting metadata and arbitrary nonempty error codes are allowed."
+      },
+      "operations": []
+    },
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "apply_delivery_event",
+        "signature": "apply_delivery_event(order: dict, event: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "order",
+          "event"
+        ],
+        "protocol_fields": [
+          "id",
+          "reason",
+          "status",
+          "type"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Updated order or unchanged order plus error.code. Public README defines HTTP and record shapes. Extra nonconflicting metadata and arbitrary nonempty error codes are allowed."
+      },
+      "operations": []
+    }
+  ]
+}

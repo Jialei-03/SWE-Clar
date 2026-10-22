@@ -1,0 +1,614 @@
+"""Reference implementation for the recurring-service workflow policy.
+
+The module deliberately keeps the workflow state as ordinary JSON-shaped data.  A
+call works on a deep copy of the supplied state and either returns that new state
+with a result, or a copy carrying an error.  The SQLite command line wrapper uses
+the presence of ``error`` as the transaction rejection marker.
+"""
+
+from __future__ import annotations
+
+import copy
+import math
+from typing import Any
+
+
+class _Rejected(Exception):
+    """Internal control flow for a business or input rejection."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code if isinstance(code, str) and code else "invalid_action"
+        super().__init__(self.code)
+
+
+def _reject(code: str) -> None:
+    raise _Rejected(code)
+
+
+def _is_identifier(value: Any) -> bool:
+    """IDs in the JSON interface are non-empty strings."""
+
+    return isinstance(value, str) and len(value) > 0
+
+
+def _is_finite_number(value: Any) -> bool:
+    """Return true for JSON numeric values except booleans and non-finite floats."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    if isinstance(value, int):
+        # Python integers have no infinity representation.
+        return True
+    try:
+        return math.isfinite(value)
+    except (OverflowError, TypeError, ValueError):
+        return False
+
+
+def _is_nonnegative_number(value: Any) -> bool:
+    return _is_finite_number(value) and value >= 0
+
+
+def _is_positive_number(value: Any) -> bool:
+    return _is_finite_number(value) and value > 0
+
+
+def _is_nonnegative_integer(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _is_positive_integer(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _collection(state: dict[str, Any], name: str, *, create: bool = False) -> dict[Any, Any]:
+    """Get a state mapping, treating an absent optional collection as empty.
+
+    Creation is performed only on the working copy.  Rejection paths return a
+    separate untouched snapshot, so even an eagerly-created collection cannot
+    leak into a rejected result.
+    """
+
+    if name not in state:
+        if create:
+            state[name] = {}
+            return state[name]
+        return {}
+    value = state[name]
+    if not isinstance(value, dict):
+        _reject("invalid_" + name)
+    return value
+
+
+def _known(mapping: dict[Any, Any], identifier: Any, code: str) -> Any:
+    if not _is_identifier(identifier):
+        _reject("invalid_" + code)
+    try:
+        exists = identifier in mapping
+    except (TypeError, ValueError):
+        exists = False
+    if not exists:
+        _reject("unknown_" + code)
+    return mapping[identifier]
+
+
+def _field(action: dict[str, Any], name: str) -> Any:
+    if name not in action:
+        _reject("missing_" + name)
+    return action[name]
+
+
+def _operation(action: dict[str, Any]) -> str:
+    """Read the operation selector.
+
+    ``type`` is the documented/conventional spelling.  A few harmless aliases
+    are accepted as well because the operation list predates a formal per-action
+    schema; conflicting selectors are still rejected as malformed.
+    """
+
+    selectors = [key for key in ("type", "action", "operation", "op") if key in action]
+    if not selectors:
+        _reject("missing_action_type")
+    value = action[selectors[0]]
+    for key in selectors[1:]:
+        if action[key] != value:
+            _reject("conflicting_action_type")
+    if not isinstance(value, str) or not value:
+        _reject("invalid_action_type")
+    return value
+
+
+def _finish(state: dict[str, Any], result: Any) -> dict[str, Any]:
+    # A successful call supersedes workflow metadata from an earlier direct call.
+    state.pop("error", None)
+    state["result"] = result
+    return state
+
+
+def _error_state(snapshot: dict[str, Any], code: str) -> dict[str, Any]:
+    # ``snapshot`` is never handed to a handler, so this preserves all business
+    # collections exactly while making the direct function result unambiguous.
+    snapshot.pop("result", None)
+    snapshot["error"] = {"code": code if code else "invalid_action"}
+    return snapshot
+
+
+def _quote(working: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    clients = _collection(working, "clients")
+    taskers = _collection(working, "taskers")
+
+    client_id = _field(action, "client_id")
+    tasker_id = _field(action, "tasker_id")
+    amount = _field(action, "amount")
+    client = _known(clients, client_id, "client")
+    tasker = _known(taskers, tasker_id, "tasker")
+
+    if not isinstance(tasker, dict):
+        _reject("invalid_tasker")
+    if not _is_nonnegative_number(amount):
+        _reject("invalid_amount")
+
+    # A tasker without a configured rate has no discount.  A configured rate,
+    # however, must obey the same finite-number rule as all monetary policy data.
+    if "recurring_discount" in tasker:
+        rate = tasker["recurring_discount"]
+        if not _is_finite_number(rate) or rate < 0 or rate > 1:
+            _reject("invalid_recurring_discount")
+    else:
+        rate = 0
+
+    eligible = False
+    if isinstance(client, dict) and "completed_orders" in client:
+        history = client["completed_orders"]
+        if not isinstance(history, dict):
+            _reject("invalid_completed_orders")
+        completed = history.get(tasker_id, 0)
+        # A malformed/missing count does not manufacture prior completed work.
+        # Booleans are deliberately not counts here either.
+        eligible = (
+            _is_finite_number(completed)
+            and not isinstance(completed, bool)
+            and completed >= 1
+        )
+
+    applied_rate = rate if eligible else 0
+    if eligible:
+        # Preserve an otherwise-valid integer amount for the two exact boundary
+        # rates instead of needlessly converting a very large integer to float.
+        if rate == 0:
+            final_amount = amount
+        elif rate == 1:
+            final_amount = 0
+        else:
+            try:
+                final_amount = amount * (1 - rate)
+            except (ArithmeticError, OverflowError, TypeError):
+                _reject("invalid_amount")
+        if not _is_finite_number(final_amount):
+            _reject("invalid_amount")
+    else:
+        final_amount = amount
+
+    return _finish(
+        working,
+        {
+            "amount": final_amount,
+            "discount_rate": applied_rate,
+            "recurring": bool(eligible),
+            "subscription": False,
+        },
+    )
+
+
+def _invite_monthly(working: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    clients = _collection(working, "clients")
+    taskers = _collection(working, "taskers")
+    invitations = _collection(working, "invitations", create=False)
+
+    invitation_id = _field(action, "invitation_id")
+    client_id = _field(action, "client_id")
+    tasker_id = _field(action, "tasker_id")
+    monthly_amount = _field(action, "monthly_amount")
+    months = _field(action, "months")
+
+    _known(clients, client_id, "client")
+    _known(taskers, tasker_id, "tasker")
+    if not _is_identifier(invitation_id):
+        _reject("invalid_invitation_id")
+    if not _is_positive_number(monthly_amount):
+        _reject("invalid_monthly_amount")
+    if not _is_positive_integer(months):
+        _reject("invalid_months")
+    if invitation_id in invitations:
+        _reject("duplicate_invitation")
+
+    # The mapping key is authoritative, but also avoid accepting a duplicate ID
+    # supplied by a pre-existing record under a different key.
+    for record in invitations.values():
+        if isinstance(record, dict) and record.get("invitation_id") == invitation_id:
+            _reject("duplicate_invitation")
+
+    new_invitations = _collection(working, "invitations", create=True)
+    new_invitations[invitation_id] = {
+        "client_id": client_id,
+        "tasker_id": tasker_id,
+        "monthly_amount": monthly_amount,
+        "months": months,
+    }
+    return _finish(working, {"invitation_id": invitation_id})
+
+
+def _same_order(record: Any, invitation_id: str, client_id: str, tasker_id: str,
+                monthly_amount: Any, months: int, first_due: int) -> bool:
+    if not isinstance(record, dict):
+        return False
+    return (
+        record.get("invitation_id") == invitation_id
+        and record.get("client_id") == client_id
+        and record.get("tasker_id") == tasker_id
+        and record.get("monthly_amount") == monthly_amount
+        and record.get("months") == months
+        and record.get("first_due") == first_due
+        and record.get("status") == "active"
+    )
+
+
+def _accept_monthly(working: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    invitations = _collection(working, "invitations")
+    orders = _collection(working, "orders")
+
+    invitation_id = _field(action, "invitation_id")
+    client_id = _field(action, "client_id")
+    order_id = _field(action, "order_id")
+    first_due = _field(action, "first_due")
+
+    if not _is_identifier(invitation_id):
+        _reject("invalid_invitation_id")
+    if not _is_identifier(client_id):
+        _reject("invalid_client_id")
+    if not _is_identifier(order_id):
+        _reject("invalid_order_id")
+    if not _is_nonnegative_integer(first_due):
+        _reject("invalid_first_due")
+
+    invitation = _known(invitations, invitation_id, "invitation")
+    if not isinstance(invitation, dict):
+        _reject("invalid_invitation")
+    invited_client = invitation.get("client_id")
+    invited_tasker = invitation.get("tasker_id")
+    monthly_amount = invitation.get("monthly_amount")
+    months = invitation.get("months")
+    if not _is_identifier(invited_client) or not _is_identifier(invited_tasker):
+        _reject("invalid_invitation")
+    if client_id != invited_client:
+        _reject("wrong_client")
+    if not _is_positive_number(monthly_amount) or not _is_positive_integer(months):
+        _reject("invalid_invitation")
+
+    # A repeat carrying the same complete order is idempotent.  Any attempt to
+    # overwrite an order, including with another invitation, is rejected.
+    if order_id in orders:
+        existing = orders[order_id]
+        if _same_order(
+            existing,
+            invitation_id,
+            client_id,
+            invited_tasker,
+            monthly_amount,
+            months,
+            first_due,
+        ):
+            return _finish(working, {"order_id": order_id})
+        _reject("duplicate_order")
+
+    linked_order_ids: list[Any] = []
+    for existing_id, record in orders.items():
+        if isinstance(record, dict) and record.get("invitation_id") == invitation_id:
+            linked_order_ids.append(existing_id)
+    if linked_order_ids:
+        _reject("invitation_already_accepted")
+
+    # Some imported states may carry an explicit association on the invitation.
+    # It is useful for detecting a repeat/partial write, but never permits a new
+    # order to be created for that invitation.
+    marked_order = invitation.get("order_id")
+    if marked_order is not None:
+        _reject("invitation_already_accepted")
+
+    # Imported orders are otherwise checked above, but this implementation
+    # intentionally does not enforce pair-level active-order uniqueness.
+    new_orders = _collection(working, "orders", create=True)
+    new_orders[order_id] = {
+        "invitation_id": invitation_id,
+        "client_id": client_id,
+        "tasker_id": invited_tasker,
+        "monthly_amount": monthly_amount,
+        "months": months,
+        "first_due": first_due,
+        "status": "active",
+    }
+    return _finish(working, {"order_id": order_id})
+
+
+def _validate_existing_invoice_sequence(
+    invoices: dict[Any, Any], order_id: str, monthly_amount: Any, months: int
+) -> dict[int, Any]:
+    """Validate invoices for an order and return their sequence-to-key map."""
+
+    sequences: dict[int, Any] = {}
+    for key, record in invoices.items():
+        if not isinstance(record, dict) or record.get("order_id") != order_id:
+            continue
+        sequence = record.get("sequence")
+        if not _is_positive_integer(sequence):
+            _reject("invalid_invoice")
+        if sequence in sequences:
+            _reject("duplicate_invoice_sequence")
+        if sequence > months:
+            _reject("invoice_duration_exceeded")
+        if record.get("status") not in ("due", "paid"):
+            _reject("invalid_invoice")
+        record_amount = record.get("amount")
+        if not _is_finite_number(record_amount) or record_amount != monthly_amount:
+            _reject("invalid_invoice")
+        sequences[sequence] = key
+
+    return sequences
+
+
+def _issue_invoice(working: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    orders = _collection(working, "orders")
+    invoices = _collection(working, "invoices")
+
+    order_id = _field(action, "order_id")
+    now = _field(action, "now")
+    if not _is_identifier(order_id):
+        _reject("invalid_order_id")
+    if not _is_nonnegative_integer(now):
+        _reject("invalid_now")
+
+    order = _known(orders, order_id, "order")
+    if not isinstance(order, dict) or order.get("status") != "active":
+        _reject("inactive_order")
+    monthly_amount = order.get("monthly_amount")
+    months = order.get("months")
+    first_due = order.get("first_due")
+    if not _is_positive_number(monthly_amount):
+        _reject("invalid_order")
+    if not _is_positive_integer(months) or not _is_nonnegative_integer(first_due):
+        _reject("invalid_order")
+
+    sequences = _validate_existing_invoice_sequence(invoices, order_id, monthly_amount, months)
+
+    # Find the first missing one-based sequence.  A later sequence already
+    # present would mean the state skipped an invoice, which this operation must
+    # never silently repair by issuing another later invoice.
+    sequence = 1
+    while sequence <= months:
+        expected_id = f"{order_id}:{sequence}"
+        if sequence in sequences:
+            if sequences[sequence] != expected_id:
+                _reject("invoice_id_mismatch")
+            sequence += 1
+            continue
+        if expected_id in invoices:
+            # A record occupying the canonical ID but not describing this order
+            # cannot be overwritten.
+            _reject("duplicate_invoice")
+        if any(existing_sequence > sequence for existing_sequence in sequences):
+            _reject("invoice_sequence_gap")
+        break
+
+    if sequence > months:
+        _reject("invoice_duration_exhausted")
+
+    try:
+        due_at = first_due + (sequence - 1) * 30 * 86400
+    except (ArithmeticError, OverflowError, TypeError):
+        _reject("invalid_order")
+    if now < due_at:
+        _reject("invoice_not_due")
+
+    invoice_id = f"{order_id}:{sequence}"
+    new_invoices = _collection(working, "invoices", create=True)
+    if invoice_id in new_invoices:
+        _reject("duplicate_invoice")
+    new_invoices[invoice_id] = {
+        "order_id": order_id,
+        "sequence": sequence,
+        "amount": monthly_amount,
+        "status": "due",
+    }
+    return _finish(working, {"invoice_id": invoice_id})
+
+
+def _payment_associations(invoices: dict[Any, Any]) -> dict[str, Any]:
+    associations: dict[str, Any] = {}
+    for invoice_id, record in invoices.items():
+        if not isinstance(record, dict) or "event_id" not in record:
+            continue
+        event_id = record["event_id"]
+        if not _is_identifier(event_id):
+            _reject("invalid_payment")
+        if event_id in associations and associations[event_id] != invoice_id:
+            _reject("payment_event_conflict")
+        associations[event_id] = invoice_id
+    return associations
+
+
+def _pay_invoice(working: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    invoices = _collection(working, "invoices")
+    invoice_id = _field(action, "invoice_id")
+    event_id = _field(action, "event_id")
+    if not _is_identifier(invoice_id):
+        _reject("invalid_invoice_id")
+    if not _is_identifier(event_id):
+        _reject("invalid_event_id")
+
+    invoice = _known(invoices, invoice_id, "invoice")
+    if not isinstance(invoice, dict):
+        _reject("invalid_invoice")
+    payments_present = "payments" in working
+    payments = working.get("payments", [])
+    if not isinstance(payments, list):
+        _reject("invalid_payments")
+
+    associations = _payment_associations(invoices)
+    status = invoice.get("status")
+    if status == "paid":
+        previous_event = invoice.get("event_id")
+        if not _is_identifier(previous_event):
+            _reject("invoice_already_paid")
+        if previous_event != event_id:
+            _reject("invoice_already_paid")
+        # Replaying the same event for its original invoice is successful and
+        # does not append a second payment.  Repairing a missing list entry is
+        # the one harmless bookkeeping action allowed for an imported state.
+        if event_id not in payments:
+            if not payments_present:
+                working["payments"] = payments
+            payments.append(event_id)
+        return _finish(
+            working,
+            {"invoice_id": invoice_id, "event_id": event_id, "status": "paid"},
+        )
+
+    if status != "due":
+        _reject("invoice_not_due")
+    if event_id in payments:
+        _reject("payment_event_used")
+    if event_id in associations:
+        _reject("payment_event_used")
+
+    invoice["status"] = "paid"
+    invoice["event_id"] = event_id
+    if not payments_present:
+        working["payments"] = payments
+    payments.append(event_id)
+    return _finish(
+        working,
+        {"invoice_id": invoice_id, "event_id": event_id, "status": "paid"},
+    )
+
+
+def _category_depth(category_id: str, categories: dict[Any, Any]) -> int:
+    """Compute actual ancestry depth and reject cycles/missing parents."""
+
+    current = category_id
+    depth = 1
+    visited: set[str] = set()
+    while True:
+        if current in visited:
+            _reject("category_cycle")
+        visited.add(current)
+        if current not in categories:
+            _reject("unknown_category_parent")
+        record = categories[current]
+        if not isinstance(record, dict):
+            _reject("invalid_category")
+        parent = record.get("parent_id")
+        if parent is None:
+            return depth
+        if not _is_identifier(parent):
+            _reject("invalid_category_parent")
+        if parent not in categories:
+            _reject("unknown_category_parent")
+        current = parent
+        depth += 1
+
+
+def _add_category(working: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    categories = _collection(working, "categories", create=False)
+    category_id = _field(action, "category_id")
+    if not _is_identifier(category_id):
+        _reject("invalid_category_id")
+    if category_id in categories:
+        _reject("duplicate_category")
+    for record in categories.values():
+        if isinstance(record, dict) and record.get("category_id") == category_id:
+            _reject("duplicate_category")
+
+    # Validate all existing paths.  This both computes real depth and means an
+    # imported cycle cannot be hidden by adding an unrelated root.
+    for existing_id in categories:
+        if not _is_identifier(existing_id):
+            _reject("invalid_category")
+        existing_depth = _category_depth(existing_id, categories)
+        if existing_depth > 3:
+            _reject("category_depth_exceeded")
+
+    parent_supplied = "parent_id" in action
+    parent_id = action.get("parent_id") if parent_supplied else None
+    if parent_id is not None:
+        if not _is_identifier(parent_id):
+            _reject("invalid_category_parent")
+        if parent_id not in categories:
+            _reject("unknown_category_parent")
+        depth = _category_depth(parent_id, categories) + 1
+    else:
+        depth = 1
+    if depth > 3:
+        _reject("category_depth_exceeded")
+
+    new_categories = _collection(working, "categories", create=True)
+    new_categories[category_id] = {"parent_id": parent_id, "depth": depth}
+    return _finish(working, {"category_id": category_id, "depth": depth})
+
+
+def _admin_tabs(working: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    role = _field(action, "role")
+    if role != "admin":
+        _reject("admin_required")
+    tabs = [
+        {"name": "Moderator", "route": "/admin/moderator"},
+        {"name": "Agents", "route": "/admin/agents"},
+    ]
+    return _finish(working, {"tabs": tabs})
+
+
+def process_tasker_action(state: dict, action: dict) -> dict:
+    """Process exactly one workflow action without mutating either input.
+
+    The returned object is suitable for JSON serialization by ``cli.py``.  A
+    rejection is represented by a non-empty ``error.code``; callers such as the
+    supplied SQLite wrapper can therefore decline to persist that returned copy.
+    """
+
+    if not isinstance(state, dict):
+        return {"error": {"code": "invalid_state"}}
+
+    try:
+        snapshot = copy.deepcopy(state)
+    except Exception:
+        # The public contract is JSON-shaped, but keep malformed direct calls
+        # deterministic rather than leaking a deepcopy exception.
+        return {"error": {"code": "invalid_state"}}
+
+    if not isinstance(action, dict):
+        return _error_state(snapshot, "invalid_action")
+
+    try:
+        operation = _operation(action)
+        working = copy.deepcopy(snapshot)
+
+        if operation == "quote":
+            return _quote(working, action)
+        if operation == "invite_monthly":
+            return _invite_monthly(working, action)
+        if operation == "accept_monthly":
+            return _accept_monthly(working, action)
+        if operation == "issue_invoice":
+            return _issue_invoice(working, action)
+        if operation == "pay_invoice":
+            return _pay_invoice(working, action)
+        if operation == "add_category":
+            return _add_category(working, action)
+        if operation == "admin_tabs":
+            return _admin_tabs(working, action)
+        _reject("unknown_action")
+    except _Rejected as exc:
+        return _error_state(snapshot, exc.code)
+    except Exception:
+        # Malformed records/actions must be a normal rejection, not a process
+        # failure that would make the CLI unusable.
+        return _error_state(snapshot, "invalid_action")

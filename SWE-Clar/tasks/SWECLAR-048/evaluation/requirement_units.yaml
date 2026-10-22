@@ -1,0 +1,190 @@
+schema_version: 1
+task_id: SWECLAR-048
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent synthetic video capture, pixel transformation and dual-input display application.
+requirement_units:
+- ru_id: RU-001
+  name: Actual capture and decoded preview
+  content: Preserve the README pipeline and public source/HTTP/browser interfaces. Open real loopback
+    connections, parse complete source catalogs/frames, capture from explicitly chosen devices and emit
+    valid PNG bytes. Preserve the source sequence in the frame header; display actual pixels on the browser
+    canvas and keep live requests advancing as source sequences change. Startup may work with the supplied
+    port or the included synthetic source. Render names/content as text. A source flag, prebuilt image
+    or saved status is not a substitute for capture.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for actual capture and decoded preview?
+  matching_keywords:
+  - capture
+  - frame
+  - preview
+  - PNG
+  - source
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --camera-port <prepared source>
+      protocol: HTTP/JSON, actual PNG frames and browser controls from README
+    inputs: Synthetic RGB streams, device catalogs and DOM/API events
+    output: Decoded image pixels, source interactions and persisted/runtime control behavior
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source establishes multi-source capture and external input switching; host, video patterns, protocol
+    and exact rules are independent benchmark designs, without original hardware compatibility claims.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/camera_contract.py
+- ru_id: RU-002
+  name: Resolution and image geometry
+  content: Accept exactly 640x480, 1280x720 and 1920x1080; changing resolution changes each subsequent
+    frame and canvas intrinsic dimensions. Use the public nearest-neighbor centered-crop formula for every
+    pixel. Preserve current device, zoom, input and kiosk values when resolution changes; reject other
+    values with invalid_resolution and no state mutation. Frame data comes from the source and remains
+    correct across non-square sizes and more than one source.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for resolution and image geometry?
+  matching_keywords:
+  - resolution
+  - dimensions
+  - scaling
+  - pixels
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --camera-port <prepared source>
+      protocol: HTTP/JSON, actual PNG frames and browser controls from README
+    inputs: Synthetic RGB streams, device catalogs and DOM/API events
+    output: Decoded image pixels, source interactions and persisted/runtime control behavior
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source establishes multi-source capture and external input switching; host, video patterns, protocol
+    and exact rules are independent benchmark designs, without original hardware compatibility claims.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/camera_contract.py
+- ru_id: RU-003
+  name: Preferred source selection and reconnect
+  content: 'Discovery preserves the supplied device order. If the previously selected ID still exists,
+    preserve that choice even if a preferred device appears or the list is reordered. Otherwise choose
+    the lexicographically smallest ID among preferred=true sources; if none are preferred, choose the
+    first source in the catalog; if empty, select null. Preference is a validated field, never inferred
+    from display name or fixed list position. Explicit selection overrides the default until it disappears.
+    A successful rescan does not change resolution/zoom/display/kiosk. Invalid catalogs and source failures
+    retain the entire previous state. Selection is transient across process restart: rediscover and apply
+    the default.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for preferred source selection and reconnect?
+  matching_keywords:
+  - preferred
+  - default
+  - discovery
+  - rescan
+  - selection
+  - reconnect
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --camera-port <prepared source>
+      protocol: HTTP/JSON, actual PNG frames and browser controls from README
+    inputs: Synthetic RGB streams, device catalogs and DOM/API events
+    output: Decoded image pixels, source interactions and persisted/runtime control behavior
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source establishes multi-source capture and external input switching; host, video patterns, protocol
+    and exact rules are independent benchmark designs, without original hardware compatibility claims.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/camera_contract.py
+- ru_id: RU-004
+  name: Keyboard, controller and display behavior
+  content: 'Keyboard codes Enter/Escape/Equal/Minus and virtual controller buttons 0/1/4/5 map respectively
+    to select/back/zoom_in/zoom_out. Select toggles kiosk; back exits kiosk and selects preview while
+    preserving zoom, device and resolution. Zoom in/out step through 1,2,4 and clamp at the endpoints.
+    Both input routes set last_action to the canonical action and produce identical effects. Unknown codes/buttons
+    or boolean button IDs fail without changes. Display events select preview or auxiliary and preserve
+    other values. Auxiliary must capture its separate input stream and visibly replace preview pixels;
+    switching back resumes the selected camera. Kiosk really hides #controls and expands the monitor to
+    the viewport; it must not stop capture or require browser fullscreen permissions.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for keyboard, controller and display behavior?
+  matching_keywords:
+  - keyboard
+  - controller
+  - zoom
+  - kiosk
+  - display
+  - auxiliary
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --camera-port <prepared source>
+      protocol: HTTP/JSON, actual PNG frames and browser controls from README
+    inputs: Synthetic RGB streams, device catalogs and DOM/API events
+    output: Decoded image pixels, source interactions and persisted/runtime control behavior
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source establishes multi-source capture and external input switching; host, video patterns, protocol
+    and exact rules are independent benchmark designs, without original hardware compatibility claims.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/camera_contract.py
+- ru_id: RU-005
+  name: Safe failures, persistence and recovery
+  content: Malformed/truncated frames, wrong magic, invalid dimensions or payload lengths, invalid catalogs
+    and timeouts return HTTP 502 and do not replace application state. Invalid controls return HTTP 400
+    with an error object and no partial changes. No-device preview returns 409. On a failed live frame
+    the browser clears the entire old canvas and shows a text error; it must not leave stale pixels that
+    could be mistaken for current video. Continue polling and resume fresh decoded content after the source
+    recovers. Persist only resolution and kiosk across process restart; reset zoom=1, display_input=preview
+    and last_action=null, and rediscover devices. Concurrent successful controls must preserve each other's
+    disjoint settings. Do not silently reload stale cached frames on failure.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for safe failures, persistence and recovery?
+  matching_keywords:
+  - failure
+  - malformed
+  - timeout
+  - stale
+  - recover
+  - persist
+  - restart
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --camera-port <prepared source>
+      protocol: HTTP/JSON, actual PNG frames and browser controls from README
+    inputs: Synthetic RGB streams, device catalogs and DOM/API events
+    output: Decoded image pixels, source interactions and persisted/runtime control behavior
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source establishes multi-source capture and external input switching; host, video patterns, protocol
+    and exact rules are independent benchmark designs, without original hardware compatibility claims.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/camera_contract.py

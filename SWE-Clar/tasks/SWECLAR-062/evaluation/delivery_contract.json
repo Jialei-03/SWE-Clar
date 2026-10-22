@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-062",
+  "public": {
+    "readme": "# Recurring service backend module\n\nImplement `process_tasker_action(state, action) -> dict` in solution.py. Preserve the supplied SQLite command-line interface. This is a bounded web-backend policy component for quotes, monthly agreements, invoices, supplied payment events, categories and admin navigation records. It has no external payment provider, authentication service or full marketplace UI. Payment records never imply money was charged or settled.\n\nUse the prepared python-web environment (Python 3.12.3, SQLite standard library). No installs or accounts are needed. Work in /workspace. `python cli.py --db workflow.sqlite init` reads one JSON state from stdin; `show` prints stored state; `act` reads one JSON action and prints the resulting state. Each invocation is a separate process. Init may not overwrite an existing state. Successful actions persist atomically; rejected actions print error.code without replacing stored state. The CLI creates its database locally and remains usable after malformed input. Run `python /public_tests/test_public.py` for public checks. Resources: 2 CPU, 2048 MiB, 256 processes and 256 MiB workspace; no external network.\n\nState contains mappings clients, taskers, invitations, orders, invoices, categories and a payments array of accepted synthetic event IDs. Missing optional collections mean empty. Preserve unrelated records and both input objects. Return new state plus result on success or nonempty error.code on rejection; extra metadata and different error wording are allowed. Monetary amounts and rates must be finite numbers, not booleans. No prescribed decimal rounding is required.\n\nPublic recurring quote rule: only prior completed work for the same tasker qualifies for its recurring discount. History is clients[client_id].completed_orders[tasker_id]; rate is taskers[tasker_id].recurring_discount in [0,1]. With at least one prior completion, multiply the nonnegative amount by (1-rate); otherwise use the original amount. Return result.amount, discount_rate (applied rate), recurring (eligibility), subscription=false. Action flags or an agreement are not completed work; subscribe-and-save is separate.\n\nActions and fields:\n\n- quote: client_id, tasker_id, amount.\n- invite_monthly: invitation_id, client_id, tasker_id, monthly_amount, months.\n- accept_monthly: invitation_id, client_id, order_id, first_due.\n- issue_invoice: order_id, now.\n- pay_invoice: invoice_id, event_id.\n- add_category: category_id, optional parent_id.\n- admin_tabs: role (trusted upstream context, not authentication from the CLI).\n\nCreated invitations expose their agreed IDs, monthly_amount and months; accepted orders also expose status and first_due. Quote/invitation/order/invoice outputs identify the created object in result (invitation_id/order_id/invoice_id). Invoice records expose order_id, sequence, amount and status. Categories expose parent_id and depth. Admin tabs expose name and route. Internal event association/counter formats are implementation choices. Ask the client about agreement uniqueness, duration, invoice scheduling and payment replay, category limits and administrative access.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_tasker_action",
+          "signature": "process_tasker_action(state,action) -> dict"
+        },
+        "inputs": {
+          "state": "Synthetic records described in README",
+          "action": "One public operation object"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "New state with result or error; persisted by SQLite CLI on success"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_tasker_action",
+        "signature": "process_tasker_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic records described in README",
+        "action": "One public operation object"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with result or error; persisted by SQLite CLI on success"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_tasker_action",
+        "signature": "process_tasker_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic records described in README",
+        "action": "One public operation object"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with result or error; persisted by SQLite CLI on success"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_tasker_action",
+        "signature": "process_tasker_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic records described in README",
+        "action": "One public operation object"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with result or error; persisted by SQLite CLI on success"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_tasker_action",
+        "signature": "process_tasker_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic records described in README",
+        "action": "One public operation object"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with result or error; persisted by SQLite CLI on success"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_tasker_action",
+        "signature": "process_tasker_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Synthetic records described in README",
+        "action": "One public operation object"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with result or error; persisted by SQLite CLI on success"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "daadfdc1da284a51b20111dfad1fc3317ad5f7a9cc135d8ada30d5ea02c2cc22",
+  "test_sources_sha256": {
+    "evaluation/tests/candidate_proxy.py": "9ea177c9d61bc5715ab44f36613cc85560842954fa9c65146c2203d7b2f368f9",
+    "evaluation/tests/conftest.py": "8b7860e7d8d0902169fab1abc22d2daff6c02906e44d3d565cdd16e3cb0ac45f",
+    "evaluation/tests/evaluate.py": "2d235ecbe7745653f3942a95a228e5105e6b2badf2d37fc290b47acd0c6687ca",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "41d31b0b97595f16bc1fe76425a66c7c38dd7bf19c4f99c5775e1205410e6d2e"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

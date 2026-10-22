@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-055",
+  "readme": "# MQTT telemetry ingestion component\n\nComplete the existing Python entity, telemetry and alarm project with a real MQTT entry point: `ingest_mqtt(state, host, port, max_messages=1, timeout=2)`. The existing `process_iot_action(state, action)` remains available for domain actions. Both return a new chainable state without mutating caller inputs. Implement mqtt_gateway.py; paho-mqtt 2.1.0 is available as a public dependency.\n\nThe evaluator supplies an isolated MQTT 3.1.1 TCP broker fixture and synthetic entity records. This project reconstructs a telemetry integration component; it does not include the original application, customer topic names, device identifiers or telemetry. Production broker administration, TLS provisioning, long-running reconnect policy and a visual dashboard are outside this bounded component. Clarify message mapping, aggregation and alarm details as needed.\n\n## Prepared execution and public data contract\n\nUse `/workspace` with the `python-web-mqtt` environment (Python and paho-mqtt 2.1.0 already installed). No package installation or Internet is needed during the attempt. Limits are 2 CPU, 2048 MiB memory, 256 processes and 256 MiB workspace; loopback connections to the supplied broker are permitted. Run `python /public_tests/test_public.py`. Use `python cli.py < request.json` with `{ \"state\": {...}, \"action\": {...} }` for domain actions, or `{ \"state\": {...}, \"mqtt\": {\"host\":\"127.0.0.1\", \"port\":1883, \"max_messages\":1, \"timeout\":2} }` for a batch. The benchmark supplies the actual broker address, and no broker credentials are required. Reset by using a fresh input state; there is no persistent service to start. Diagnostics go to stderr.\n\n`state.users`, `entities`, `devices`, `topics`, `telemetry`, `rules`, and `alarms` are mappings. A topic maps directly to a device ID. MQTT 3.1.1 uses QoS 0 exact topic subscriptions; a UTF-8 JSON publication is `{ \"timestamp\": 1, \"values\": {\"temperature\": 25} }`. `mqtt_gateway.collect_messages(topics, host, port, max_messages=1, timeout=2)` is the transport extension point; its internal return representation may change with its caller. Preserve the two public solution functions and the JSON console.\n\nExisting behavior is public regression responsibility: tenant administrators create reseller/company entities and can update devices; company administrators create/update their own devices, storing both entity and device records. Cross-company changes are forbidden, including ownership reassignment by a company administrator. Ingest maps topics, stores key/value samples in timestamp order, and returns a chainable copy. Aggregation provides count/min/max/arithmetic mean over an inclusive range. Rules use `gt`/`lt`; the alarm ID is `device_id:rule_id`, only one record per pair is created, acknowledge/clear update its status, and dashboards contain permitted devices and non-cleared alarms. These existing rules are visible in the code and are not new hidden information.\n\nComplete the missing transport and repair permission/numeric defects. Ask the client about malformed-message batch handling, numeric sample eligibility, alarm transition authorization and access for other roles. Required fields permit additional nonconflicting metadata; dashboard array ordering is not a requirement. Only explicitly specified error codes are fixed; other denied actions may return any nonempty error. This is a component and local protocol fixture, not a production broker deployment or visual dashboard.\n\nThe benchmark starts the stateless public development broker at `127.0.0.1:1883` before your budget. Subscribing to `synthetic/sensor` yields `{\"timestamp\":1,\"values\":{\"value\":20}}` once per subscription. Map that topic to a device in your input state to exercise the MQTT function. It supports MQTT 3.1.1, QoS0, exact topics and no credentials. Each connection is independent; reconnecting resets the example. If you deliberately stop it, restart with `python /workspace/dev_runtime/broker.py`; its log is `/tmp/sweclar-public-mqtt.log`. Hidden evaluation uses separate randomized ports and messages.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_iot_action",
+        "signature": "process_iot_action(state: dict, action: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "action"
+        ],
+        "action_variants": {
+          "ingest": {
+            "fields": [
+              "payload",
+              "timestamp",
+              "topic",
+              "type"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "devices",
+          "entities",
+          "payload",
+          "rules",
+          "timestamp",
+          "topic",
+          "topics",
+          "type",
+          "users"
+        ],
+        "mqtt_entry": "ingest_mqtt(state,host,port,max_messages=1,timeout=2)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated."
+      },
+      "operations": []
+    },
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_iot_action",
+        "signature": "process_iot_action(state: dict, action: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "action"
+        ],
+        "action_variants": {
+          "create_entity": {
+            "fields": [
+              "actor_id",
+              "company_id",
+              "entity_id",
+              "entity_type",
+              "name",
+              "type"
+            ]
+          },
+          "update_device": {
+            "fields": [
+              "actor_id",
+              "changes",
+              "device_id",
+              "type"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "actor_id",
+          "company_id",
+          "devices",
+          "entities",
+          "entity_id",
+          "entity_type",
+          "name",
+          "rules",
+          "topics",
+          "type",
+          "users"
+        ],
+        "mqtt_entry": "ingest_mqtt(state,host,port,max_messages=1,timeout=2)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+        "asserted_field_paths": [
+          "error",
+          "error.code",
+          "entities",
+          "entities.<id>",
+          "devices",
+          "devices.<id>",
+          "result",
+          "result.entity_id"
+        ],
+        "required_tokens": {
+          "error.code": [
+            "create_denied",
+            "update_denied"
+          ]
+        },
+        "field_schemas": {
+          "entities": {
+            "type": "object"
+          },
+          "devices": {
+            "type": "object"
+          },
+          "error.code": {
+            "type": "string"
+          },
+          "result.entity_id": {
+            "type": "string"
+          }
+        }
+      },
+      "operations": []
+    }
+  ]
+}

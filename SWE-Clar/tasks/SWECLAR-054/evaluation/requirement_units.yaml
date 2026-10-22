@@ -1,0 +1,194 @@
+schema_version: 1
+task_id: SWECLAR-054
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual authorization-code exchange, consent-gated presave and HTTP library fulfillment
+requirement_units:
+- ru_id: RU-001
+  name: Presave workflow entry point
+  content: Complete the supplied Python project and MusicClient to perform actual authorization and library
+    HTTP calls. Preserve the existing artist/release/campaign workflow, do not mutate state/action inputs,
+    and never include raw access tokens or client secrets in returned JSON. Error codes are nonempty strings;
+    no exact wording is required. Additional result metadata is allowed. On business failure preserve
+    all six business collections. Inputs are credential-free state and workflow actions; authorization
+    grants and client configuration must not be copied into returned state. Work is one in-process client
+    session; refreshing or durable credential storage is outside scope.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for presave workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_presave_action
+      signature: process_presave_action(state, action, service=None) -> dict
+    inputs:
+      state: Artist/release/campaign/listener/presave state without raw credentials
+      action: Workflow action, with authorization_code for listener authorization
+      service: MusicClient configured for the synthetic local provider
+    output:
+      type: dict
+      meaning: New state plus actual token/profile/library HTTP operations, without raw access tokens
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Benchmark-owned local provider protocol. No claim of live service compatibility, approval or
+    production deployment.
+- ru_id: RU-002
+  name: Artist and release management
+  content: 'Create unique artist accounts and unreleased tracks owned by an existing artist. Release timestamps
+    and the supplied current time must be finite numeric values, not booleans; release_at must be in the
+    future. Require a spotify:track: URI with a 22-character alphanumeric track ID. The default now is
+    0 if omitted. Trim IDs and URI strings. Do not otherwise coerce invalid timestamps. Boolean, NaN and
+    infinity are invalid.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for artist and release management.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_presave_action
+      signature: process_presave_action(state, action, service=None) -> dict
+    inputs:
+      state: Artist/release/campaign/listener/presave state without raw credentials
+      action: Workflow action, with authorization_code for listener authorization
+      service: MusicClient configured for the synthetic local provider
+    output:
+      type: dict
+      meaning: New state plus actual token/profile/library HTTP operations, without raw access tokens
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Benchmark-owned local provider protocol. No claim of live service compatibility, approval or
+    production deployment.
+- ru_id: RU-003
+  name: Listener authorization and consent
+  content: Authorize a listener only after a successful authorization-code token exchange and authenticated
+    profile lookup. Read user-library-modify from the provider grant; a caller-supplied scopes flag is
+    insufficient. Exchange with grant_type=authorization_code, code and configured redirect_uri using
+    HTTP Basic client authentication. Reject missing scope or failed authorization without adding a listener.
+    A presave also requires explicit campaign consent. Store provider_user_id and scopes for successful
+    listeners, with credentials only in the service object. An unknown listener cannot presave; consent
+    must be boolean true, not truthy data. Token or profile failure must not create or overwrite listener
+    business state.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for listener authorization and consent.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_presave_action
+      signature: process_presave_action(state, action, service=None) -> dict
+    inputs:
+      state: Artist/release/campaign/listener/presave state without raw credentials
+      action: Workflow action, with authorization_code for listener authorization
+      service: MusicClient configured for the synthetic local provider
+    output:
+      type: dict
+      meaning: New state plus actual token/profile/library HTTP operations, without raw access tokens
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Benchmark-owned local provider protocol. No claim of live service compatibility, approval or
+    production deployment.
+- ru_id: RU-004
+  name: Stable campaign links and idempotent presaves
+  content: Publish one unique slug per release, accept each listener once, and return the same campaign
+    result on duplicate presave submission.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for stable campaign links and idempotent presaves.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_presave_action
+      signature: process_presave_action(state, action, service=None) -> dict
+    inputs:
+      state: Artist/release/campaign/listener/presave state without raw credentials
+      action: Workflow action, with authorization_code for listener authorization
+      service: MusicClient configured for the synthetic local provider
+    output:
+      type: dict
+      meaning: New state plus actual token/profile/library HTTP operations, without raw access tokens
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Benchmark-owned local provider protocol. No claim of live service compatibility, approval or
+    production deployment.
+- ru_id: RU-005
+  name: Release fulfillment
+  content: At or after release_at, perform an authenticated PUT /me/library?uris=<encoded track URI> for
+    every authorized consenting unfulfilled listener, and mark fulfilled/library state only after HTTP
+    200. Keep failed listeners unfulfilled and report failed IDs so a later call can retry; isolate each
+    listener failure. Successful repeats must skip already fulfilled tracks. Recheck consent and required
+    scope at fulfillment time. Return fulfilled, skipped, failed and track fields. now must be finite
+    numeric, not boolean. Unknown campaign or invalid time returns an error. At exact release_at fulfillment
+    is allowed. Result listener arrays have no required order; each eligible listener occurs once. Skipped
+    includes already fulfilled or currently nonconsenting/missing-scope listeners; failed includes attempted
+    saves without HTTP 200 acknowledgement. A missing service credential counts as failed. Libraries contain
+    each successfully saved URI at most once.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for release fulfillment.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_presave_action
+      signature: process_presave_action(state, action, service=None) -> dict
+    inputs:
+      state: Artist/release/campaign/listener/presave state without raw credentials
+      action: Workflow action, with authorization_code for listener authorization
+      service: MusicClient configured for the synthetic local provider
+    output:
+      type: dict
+      meaning: New state plus actual token/profile/library HTTP operations, without raw access tokens
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Benchmark-owned local provider protocol. No claim of live service compatibility, approval or
+    production deployment.

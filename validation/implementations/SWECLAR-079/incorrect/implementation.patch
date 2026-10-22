@@ -1,0 +1,473 @@
+diff --git a/solution.py b/solution.py
+index a7a285d129df2978c8db2efed34db1cc7b3a29eb..5b42a6bb5eed14ede438e0be4eeb980c559f6f3a 100644
+--- a/solution.py
++++ b/solution.py
+@@ -1,13 +1,455 @@
+-"""Native ComfyUI API workflow builder; complete the portrait processing paths."""
+-def build_portrait_workflow(config):
+-    if any(config.get(key) not in config.get('assets',[]) for key in ['template_asset','face_asset']):
+-        return {'error':{'code':'missing_local_image'}}
+-    graph={
+-        'base':{'class_type':'CheckpointLoaderSimple','inputs':{'ckpt_name':config['models']['checkpoint']}},
+-        'scene':{'class_type':'LoadImage','inputs':{'image':config['template_asset']}},
+-        'reference':{'class_type':'LoadImage','inputs':{'image':config['face_asset']}},
+-        'positive':{'class_type':'CLIPTextEncode','inputs':{'clip':['base',1],'text':config['prompt']}},
+-        'negative':{'class_type':'CLIPTextEncode','inputs':{'clip':['base',1],'text':config['negative_prompt']}},
+-    }
+-    # Connect real preprocessing, conditioning, sampling, compositing and save nodes.
+-    return {'prompt':graph}
++"""Build a native, executable ComfyUI portrait workflow.
++
++The function in this module deliberately emits the API prompt format rather
++than the JSON used by the ComfyUI editor.  All of the values used to build the
++prompt come from the supplied configuration (or from inputs which are part of
++an installed node's normal schema); there is no model or image download path.
++"""
++
++from __future__ import annotations
++
++import math
++from typing import Any, Mapping
++
++
++# The two output sizes are part of the public workflow contract.  Keeping the
++# values here also makes it impossible for the graph and validation policy to
++# accidentally disagree about the final canvas size.
++_OUTPUT_SIZES = ((1024, 1536), (1536, 2048))
++
++
++def _error(code: str, message: str | None = None, **details: Any) -> dict:
++    """Return the only error shape exposed by the public interface.
++
++    Do not put the input configuration in an error.  Apart from avoiding an
++    unnecessarily large response, that makes it clear that a failed build
++    never returns a partly runnable prompt.
++    """
++
++    payload: dict[str, Any] = {"code": code}
++    if message:
++        payload["message"] = message
++    payload.update(details)
++    return {"error": payload}
++
++
++def _is_int(value: Any) -> bool:
++    # bool is an int subclass, but is not a valid ComfyUI integer parameter.
++    return isinstance(value, int) and not isinstance(value, bool)
++
++
++def _is_number(value: Any) -> bool:
++    if not isinstance(value, (int, float)) or isinstance(value, bool):
++        return False
++    try:
++        return math.isfinite(float(value))
++    except (OverflowError, ValueError):
++        return False
++
++
++def _inventory_names(value: Any) -> set[str] | None:
++    """Normalize the list-like inventory supplied by the runtime.
++
++    The public fixture supplies lists.  Accepting object-info-like mappings as
++    well is harmless and keeps the builder from inventing a class when a
++    caller passes a mapping of names to metadata.
++    """
++
++    if isinstance(value, Mapping):
++        values = value.keys()
++    elif isinstance(value, (list, tuple, set, frozenset)):
++        values = value
++    else:
++        return None
++
++    names: set[str] = set()
++    for item in values:
++        if isinstance(item, str):
++            names.add(item)
++    return names
++
++
++def _require_inventory(config: Mapping[str, Any]) -> tuple[set[str], Mapping[str, Any]] | dict:
++    available_nodes = _inventory_names(config.get("available_nodes"))
++    available_models = config.get("available_models")
++    if available_nodes is None or not isinstance(available_models, Mapping):
++        return _error(
++            "missing_runtime_inventory",
++            "available_nodes and available_models are required",
++        )
++    return available_nodes, available_models
++
++
++def _require_model(
++    models: Mapping[str, Any], available_models: Mapping[str, Any], key: str
++) -> str | dict:
++    value = models.get(key)
++    if not isinstance(value, str) or not value.strip():
++        return _error("invalid_model", f"models.{key} must be a nonempty filename")
++
++    # The configuration calls the checkpoint field ``checkpoint`` while the
++    # runtime inventory follows ComfyUI's category name ``checkpoints``.
++    inventory_key = "checkpoints" if key == "checkpoint" else key
++    choices = _inventory_names(available_models.get(inventory_key))
++    if choices is None or value not in choices:
++        return _error(
++            "unavailable_model",
++            f"The configured {key} model is not in the local runtime inventory",
++            model_key=key,
++        )
++    return value
++
++
++def _require_box(
++    config: Mapping[str, Any], key: str, *, canvas: tuple[int, int] | None = None
++) -> dict[str, int] | dict:
++    box = config.get(key)
++    if not isinstance(box, Mapping):
++        return _error("invalid_geometry", f"{key} must be an object")
++
++    values: dict[str, int] = {}
++    for field in ("x", "y", "width", "height"):
++        value = box.get(field)
++        if not _is_int(value):
++            return _error("invalid_geometry", f"{key}.{field} must be an integer")
++        values[field] = value
++
++    if values["x"] < 0 or values["y"] < 0:
++        return _error("invalid_geometry", f"{key} cannot start outside the image")
++    if values["width"] <= 0 or values["height"] <= 0:
++        return _error("invalid_geometry", f"{key} must have positive dimensions")
++
++    # These are the limits of the native image-crop/composite integer inputs,
++    # and prevent a graph which the advertised nodes cannot validate.
++    if any(value > 16384 for value in values.values()):
++        return _error("invalid_geometry", f"{key} exceeds ComfyUI image limits")
++
++    if canvas is not None:
++        canvas_width, canvas_height = canvas
++        if (
++            values["x"] + values["width"] > canvas_width
++            or values["y"] + values["height"] > canvas_height
++        ):
++            return _error(
++                "invalid_geometry",
++                f"{key} must be contained by the requested output canvas",
++            )
++
++    return values
++
++
++def build_portrait_workflow(config: dict) -> dict:
++    """Build a native ComfyUI API prompt or a structured build error.
++
++    The graph has one diffusion branch.  The template is converted to Canny
++    conditioning, the cropped face is applied to the checkpoint model through
++    IPAdapter Plus, and both resulting paths meet at KSampler.  The decoded
++    low-resolution sample is resized to ``edit_box`` and composited over a
++    nearest-exact resize of the original template before one SaveImage node.
++    """
++
++    if not isinstance(config, Mapping):
++        return _error("invalid_config", "config must be an object")
++
++    # Inventory validation happens before any graph is made.  Thus every error
++    # path has no prompt key and cannot accidentally be submitted.
++    inventory = _require_inventory(config)
++    if isinstance(inventory, dict):
++        return inventory
++    available_nodes, available_models = inventory
++
++    assets = config.get("assets")
++    if not isinstance(assets, (list, tuple, set, frozenset)):
++        return _error("missing_local_image", "assets must list local input filenames")
++
++    template_asset = config.get("template_asset")
++    face_asset = config.get("face_asset")
++    if not isinstance(template_asset, str) or not isinstance(face_asset, str):
++        return _error("missing_local_image", "template_asset and face_asset are required")
++    if not template_asset or not face_asset:
++        return _error("missing_local_image", "template_asset and face_asset are required")
++    if template_asset not in assets or face_asset not in assets:
++        return _error(
++            "missing_local_image",
++            "both configured image assets must be listed as local assets",
++        )
++    # LoadImage is a local-input node.  Reject URL-like values rather than
++    # allowing a caller to turn the graph into a network-dependent workflow.
++    for asset in (template_asset, face_asset):
++        if "://" in asset or asset.startswith(("data:", "http:", "https:")):
++            return _error("nonlocal_image", "image assets must be local filenames")
++
++    prompt_text = config.get("prompt")
++    negative_text = config.get("negative_prompt")
++    if not isinstance(prompt_text, str) or not prompt_text.strip():
++        return _error("invalid_prompt", "prompt must be nonempty text")
++    if not isinstance(negative_text, str) or not negative_text.strip():
++        return _error("invalid_prompt", "negative_prompt must be nonempty text")
++
++    width = config.get("width")
++    height = config.get("height")
++    if not _is_int(width) or not _is_int(height):
++        return _error("unsupported_output_dimensions", "width and height must be integers")
++    if (width, height) not in _OUTPUT_SIZES:
++        return _error(
++            "unsupported_output_dimensions",
++            "output dimensions must be 1024x1536 or 1536x2048",
++        )
++
++    sample_width = config.get("sample_width")
++    sample_height = config.get("sample_height")
++    if not _is_int(sample_width) or not _is_int(sample_height):
++        return _error("invalid_sample_dimensions", "sample dimensions must be integers")
++    if (
++        sample_width < 64
++        or sample_height < 64
++        or sample_width % 8 != 0
++        or sample_height % 8 != 0
++        or sample_width >= width
++        or sample_height >= height
++    ):
++        return _error(
++            "invalid_sample_dimensions",
++            "sample dimensions must be lower than the requested output and divisible by 8",
++        )
++
++    face_crop = _require_box(config, "face_crop")
++    if isinstance(face_crop, dict) and "error" in face_crop:
++        return face_crop
++    edit_box = _require_box(config, "edit_box", canvas=(width, height))
++    if isinstance(edit_box, dict) and "error" in edit_box:
++        return edit_box
++
++    seed = config.get("seed")
++    if not _is_int(seed) or seed < 0 or seed > 18446744073709551615:
++        return _error("invalid_seed", "seed must be a nonnegative ComfyUI integer")
++
++    steps = config.get("steps")
++    if not _is_int(steps) or not 1 <= steps <= 100:
++        return _error("invalid_steps", "steps must be an integer from 1 through 100")
++
++    vram_gb = config.get("vram_gb")
++    if not _is_number(vram_gb) or float(vram_gb) < 0:
++        return _error("invalid_vram_hint", "vram_gb must be a nonnegative number")
++
++    models = config.get("models")
++    if not isinstance(models, Mapping):
++        return _error("missing_model", "models must be an object")
++
++    model_names: dict[str, str] = {}
++    for model_key in ("checkpoint", "controlnet", "clip_vision", "ipadapter"):
++        result = _require_model(models, available_models, model_key)
++        if isinstance(result, dict):
++            return result
++        model_names[model_key] = result
++
++    tiled_decode = float(vram_gb) < 24.0
++    decoder_class = "VAEDecodeTiled" if tiled_decode else "VAEDecode"
++
++    required_nodes = {
++        "CheckpointLoaderSimple",
++        "LoadImage",
++        "CLIPTextEncode",
++        "ImageCrop",
++        "Canny",
++        "ControlNetLoader",
++        "ControlNetApplyAdvanced",
++        "CLIPVisionLoader",
++        "IPAdapterModelLoader",
++        "IPAdapterAdvanced",
++        "EmptyLatentImage",
++        "KSampler",
++        "ImageScale",
++        "ImageCompositeMasked",
++        decoder_class,
++        "SaveImage",
++    }
++    missing_nodes = sorted(required_nodes - available_nodes)
++    if missing_nodes:
++        return _error(
++            "unavailable_node",
++            "the local runtime does not provide all required workflow nodes",
++            nodes=missing_nodes,
++        )
++
++    # Names are deliberately descriptive rather than numeric.  They are only
++    # API graph keys; all actual semantics are in native class_type/inputs.
++    graph: dict[str, dict[str, Any]] = {}
++
++    graph["checkpoint"] = {
++        "class_type": "CheckpointLoaderSimple",
++        "inputs": {"ckpt_name": model_names["checkpoint"]},
++    }
++    graph["template"] = {
++        "class_type": "LoadImage",
++        "inputs": {"image": template_asset},
++    }
++    graph["face"] = {
++        "class_type": "LoadImage",
++        "inputs": {"image": face_asset},
++    }
++    graph["face_crop"] = {
++        "class_type": "ImageCrop",
++        "inputs": {
++            "image": ["face", 0],
++            "width": face_crop["width"],
++            "height": face_crop["height"],
++            "x": face_crop["x"],
++            "y": face_crop["y"],
++        },
++    }
++
++    # Use the configured low-resolution canvas for the control hint.  The
++    # template remains the source of this branch and its final copy is scaled
++    # independently below with the required nearest-exact method.
++    graph["control_resize"] = {
++        "class_type": "ImageScale",
++        "inputs": {
++            "image": ["template", 0],
++            "upscale_method": "nearest-exact",
++            "width": sample_width,
++            "height": sample_height,
++            "crop": "disabled",
++        },
++    }
++    graph["canny"] = {
++        "class_type": "Canny",
++        "inputs": {
++            "image": ["control_resize", 0],
++            "low_threshold": 0.4,
++            "high_threshold": 0.8,
++        },
++    }
++    graph["controlnet"] = {
++        "class_type": "ControlNetLoader",
++        "inputs": {"control_net_name": model_names["controlnet"]},
++    }
++
++    graph["positive_text"] = {
++        "class_type": "CLIPTextEncode",
++        "inputs": {"text": prompt_text, "clip": ["checkpoint", 1]},
++    }
++    graph["negative_text"] = {
++        "class_type": "CLIPTextEncode",
++        "inputs": {"text": negative_text, "clip": ["checkpoint", 1]},
++    }
++    graph["control_conditioning"] = {
++        "class_type": "ControlNetApplyAdvanced",
++        "inputs": {
++            "positive": ["positive_text", 0],
++            "negative": ["negative_text", 0],
++            "control_net": ["controlnet", 0],
++            "image": ["canny", 0],
++            "strength": 1.0,
++            "start_percent": 0.0,
++            "end_percent": 1.0,
++        },
++    }
++
++    # IPAdapterAdvanced is the native Plus implementation which accepts an
++    # explicitly loaded CLIP_VISION model.  It encodes the cropped face inside
++    # the node and returns the patched MODEL used by KSampler.
++    graph["clip_vision"] = {
++        "class_type": "CLIPVisionLoader",
++        "inputs": {"clip_name": model_names["clip_vision"]},
++    }
++    graph["ipadapter_model"] = {
++        "class_type": "IPAdapterModelLoader",
++        "inputs": {"ipadapter_file": model_names["ipadapter"]},
++    }
++    graph["identity_model"] = {
++        "class_type": "IPAdapterAdvanced",
++        "inputs": {
++            "model": ["checkpoint", 0],
++            "ipadapter": ["ipadapter_model", 0],
++            "image": ["face", 0],
++            "weight": 1.0,
++            "weight_type": "linear",
++            "combine_embeds": "concat",
++            "start_at": 0.0,
++            "end_at": 1.0,
++            "embeds_scaling": "V only",
++            "clip_vision": ["clip_vision", 0],
++        },
++    }
++
++    graph["latent"] = {
++        "class_type": "EmptyLatentImage",
++        "inputs": {
++            "width": sample_width,
++            "height": sample_height,
++            "batch_size": 1,
++        },
++    }
++    graph["sample"] = {
++        "class_type": "KSampler",
++        "inputs": {
++            "model": ["identity_model", 0],
++            "seed": seed,
++            "steps": steps,
++            "cfg": 7.0,
++            "sampler_name": "euler",
++            "scheduler": "normal",
++            "positive": ["control_conditioning", 0],
++            "negative": ["control_conditioning", 1],
++            "latent_image": ["latent", 0],
++            "denoise": 1.0,
++        },
++    }
++
++    decode_inputs: dict[str, Any] = {
++        "samples": ["sample", 0],
++        "vae": ["checkpoint", 2],
++    }
++    if tiled_decode:
++        decode_inputs.update(
++            {
++                "tile_size": 512,
++                "overlap": 64,
++                "temporal_size": 64,
++                "temporal_overlap": 8,
++            }
++        )
++    graph["decode"] = {"class_type": decoder_class, "inputs": decode_inputs}
++
++    # The generated image is first made exactly the size of edit_box.  With
++    # resize_source=false the composite node writes only that rectangle, so
++    # every pixel outside it is the nearest-exact template copy.
++    graph["generated_box"] = {
++        "class_type": "ImageScale",
++        "inputs": {
++            "image": ["decode", 0],
++            "upscale_method": "bilinear",
++            "width": edit_box["width"],
++            "height": edit_box["height"],
++            "crop": "disabled",
++        },
++    }
++    graph["template_output"] = {
++        "class_type": "ImageScale",
++        "inputs": {
++            "image": ["template", 0],
++            "upscale_method": "nearest-exact",
++            "width": width,
++            "height": height,
++            "crop": "disabled",
++        },
++    }
++    graph["composite"] = {
++        "class_type": "ImageCompositeMasked",
++        "inputs": {
++            "destination": ["template_output", 0],
++            "source": ["generated_box", 0],
++            "x": edit_box["x"],
++            "y": edit_box["y"],
++            "resize_source": False,
++        },
++    }
++    graph["save"] = {
++        "class_type": "SaveImage",
++        "inputs": {"images": ["composite", 0], "filename_prefix": "portrait"},
++    }
++
++    # No object from config is returned or attached to the graph.  This is a
++    # fresh JSON-compatible wrapper on every successful invocation.
++    return {"prompt": graph}

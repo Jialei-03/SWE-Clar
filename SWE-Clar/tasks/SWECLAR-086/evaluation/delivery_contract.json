@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-086",
+  "public": {
+    "readme": "# Incremental itinerary backend\nImplement iter_json_objects and stream_itinerary in itinerary_generator.py, and resolve_activity/is_valid_place in place_service.py. Preserve real streaming through main.py --places local.json --location TEXT. Python standard library only; no live external API.\n\nUpstream is an iterable of string chunks containing adjacent JSON objects, arbitrary whitespace and fragmentation. Objects can contain nested arrays/objects and escaped strings. Yield each completed object before requesting another chunk, preserving order/fields. Ignore an incomplete final object; reject a fully closed malformed JSON object/nonobject prefix/nonstring chunk with ValueError. Empty stream/chunks emit nothing. Six-line formatting is accepted but JSON object boundaries define records, not line count.\n\nAn activity contains business_name,description and optional metadata. Resolve using find_place(business_name,location); accepted metadata overrides activity collisions, preserving every other field. Acceptance thresholds/exemptions and replacement rules may be clarified. Local fixture file has primary mapping business_name to place and replacement mapping description to place; callbacks return dictionary or None.\n\nstream_itinerary resolves in order, skips unresolved activities, emits one data: JSON followed by two newlines per acceptable result. JSON spacing/key order is free. CLI must flush an event while stdin is still open; whole-input buffering is incorrect. No external publishing or production provider integration is claimed. Config/openai_client are retained inactive seams; credentials are unnecessary.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "itinerary_generator.py",
+          "function": "iter_json_objects"
+        },
+        "inputs": {
+          "chunks": "iterable of text chunks containing adjacent JSON object records"
+        },
+        "output": {
+          "type": "iterator of dictionaries",
+          "meaning": "each complete JSON object in source order"
+        },
+        "operations": []
+      },
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "place_service.py",
+          "function": "resolve_activity"
+        },
+        "inputs": {
+          "activity": "{business_name: string, description: string, ...additional activity fields}",
+          "location": "string",
+          "find_place": "callable(business_name, location) -> place | None",
+          "find_replacement": "callable(description, location) -> place | None"
+        },
+        "output": {
+          "type": "dictionary or null",
+          "meaning": "enriched acceptable activity, or null when none can be resolved"
+        },
+        "operations": []
+      },
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "itinerary_generator.py",
+          "function": "stream_itinerary"
+        },
+        "inputs": {
+          "chunks": "iterable of text chunks",
+          "location": "string",
+          "find_place": "callable(business_name, location) -> place | None",
+          "find_replacement": "callable(description, location) -> place | None"
+        },
+        "output": {
+          "type": "iterator of strings",
+          "meaning": "one SSE data record per acceptable activity in source order"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "itinerary_generator.py",
+        "function": "iter_json_objects"
+      },
+      "inputs": {
+        "chunks": "iterable of text chunks containing adjacent JSON object records"
+      },
+      "output": {
+        "type": "iterator of dictionaries",
+        "meaning": "each complete JSON object in source order"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "place_service.py",
+        "function": "resolve_activity"
+      },
+      "inputs": {
+        "activity": "{business_name: string, description: string, ...additional activity fields}",
+        "location": "string",
+        "find_place": "callable(business_name, location) -> place | None",
+        "find_replacement": "callable(description, location) -> place | None"
+      },
+      "output": {
+        "type": "dictionary or null",
+        "meaning": "enriched acceptable activity, or null when none can be resolved"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "place_service.py",
+        "function": "is_valid_place"
+      },
+      "inputs": {
+        "place": "{businessStatus: string, rating: number, userRatingCount: integer, types: list[string]}"
+      },
+      "output": {
+        "type": "boolean",
+        "meaning": "true only when the place satisfies the complete acceptance rule"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "place_service.py",
+        "function": "resolve_activity"
+      },
+      "inputs": {
+        "activity": "{business_name: string, description: string, ...additional activity fields}",
+        "location": "string",
+        "find_place": "callable(business_name, location) -> place | None",
+        "find_replacement": "callable(description, location) -> place | None"
+      },
+      "output": {
+        "type": "dictionary or null",
+        "meaning": "acceptable primary or replacement-enriched activity, otherwise null"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "itinerary_generator.py",
+        "function": "stream_itinerary"
+      },
+      "inputs": {
+        "chunks": "iterable of text chunks",
+        "location": "string",
+        "find_place": "callable(business_name, location) -> place | None",
+        "find_replacement": "callable(description, location) -> place | None"
+      },
+      "output": {
+        "type": "iterator of strings",
+        "meaning": "one SSE data record per acceptable activity in source order"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "ed4cf9bff0c911c5fd80d93d1f83e911621fd3cd01f6cd4b1b4a0a532a4fda9e",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "e46c945ae2b1b9c1a6b9a6702fef6fbecc5662b5696339f853c25d05aece1341",
+    "evaluation/tests/candidate_proxy.py": "00eab1c7d9b440415681b58c2eaa7ae5becc880c83399bed15dce2a55a75a926",
+    "evaluation/tests/conftest.py": "8b7860e7d8d0902169fab1abc22d2daff6c02906e44d3d565cdd16e3cb0ac45f",
+    "evaluation/tests/evaluate.py": "2d235ecbe7745653f3942a95a228e5105e6b2badf2d37fc290b47acd0c6687ca",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "f705649bbfec01d7f2ce67cc7cb8dc32c54a3b9b9ec2b7d982535b61c3cd5b69"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

@@ -1,0 +1,1 @@
+Protected Python drives UID-1000 Chromium through the public launcher. Four scored requirements check navigation, decoded local images and responsive geometry. Tests inspect rendered behavior rather than requiring a particular flex/grid implementation.

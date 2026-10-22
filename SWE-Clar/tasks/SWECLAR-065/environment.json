@@ -1,0 +1,20 @@
+{
+  "profile": "python-web",
+  "platform": "linux/amd64",
+  "workdir": "/workspace",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "workspace_mb": 256,
+    "evaluation_wall_seconds": 240
+  },
+  "dependencies": "Prepared Python3.12.3 and Playwright/Chromium; local React18.3.1 assets with MIT licenses",
+  "public_test": [
+    "python",
+    "/public_tests/smoke.py"
+  ],
+  "start": "python /public_tests/server.py",
+  "health": "GET http://127.0.0.1:8080/",
+  "reset": "Reload page resets synthetic state; fresh workspace resets source."
+}

@@ -1,0 +1,194 @@
+schema_version: 1
+task_id: SWECLAR-073
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual asset-byte migration and metadata export into a local content repository
+requirement_units:
+- ru_id: RU-001
+  name: Folder and taxonomy mapping
+  content: migrate_asset_batch(assets,taxonomy,source_root,destination_root) transfers actual bytes from
+    source_root/folder/filename to destination_root plus the mapped /content/dam path and filename. Every
+    success preserves source bytes and maps aem_path/taxonomy. Keep the supplied CLI usable. Source and
+    destination roots must be disjoint; never write into the source tree. This is a local reconstructed
+    repository migration, not a cloud/AEM connection or a manifest-only transformation.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for folder and taxonomy mapping.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: migrate_asset_batch
+      signature: migrate_asset_batch(assets, taxonomy, source_root, destination_root) -> dict
+    inputs:
+      assets: Source descriptors, with actual bytes in source_root/folder/filename
+      taxonomy: Folder mapping to /content/dam path, taxonomy and optional dynamic_media intent
+      source_root: Read-only synthetic asset tree
+      destination_root: Local repository output tree
+    output:
+      type: dict
+      meaning: Migration report plus actual copied files and JSON sidecars
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: The local repository directory and JSON sidecars are benchmark reconstruction choices. dynamic_media
+    is an export intent, not evidence of remote publication.
+- ru_id: RU-002
+  name: Metadata preservation
+  content: Each migrated result and adjacent filename.metadata.json sidecar must preserve id,filename,title
+    (default empty string),metadata (default empty object, including nested values) and include aem_path,taxonomy,dynamic_media,sha256.
+    SHA-256 is over the actual bytes and destination must be byte-identical. Sidecar JSON format/key order
+    and extra top-level metadata are free; compare required fields semantically. Input nested metadata
+    is JSON-compatible and must be preserved, not flattened.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for metadata preservation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: migrate_asset_batch
+      signature: migrate_asset_batch(assets, taxonomy, source_root, destination_root) -> dict
+    inputs:
+      assets: Source descriptors, with actual bytes in source_root/folder/filename
+      taxonomy: Folder mapping to /content/dam path, taxonomy and optional dynamic_media intent
+      source_root: Read-only synthetic asset tree
+      destination_root: Local repository output tree
+    output:
+      type: dict
+      meaning: Migration report plus actual copied files and JSON sidecars
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: The local repository directory and JSON sidecars are benchmark reconstruction choices. dynamic_media
+    is an export intent, not evidence of remote publication.
+- ru_id: RU-003
+  name: Per-record validation
+  content: 'Validate each record independently: missing/empty id,filename,folder => missing_fields; absent
+    folder mapping => unmapped_folder; absent source file => missing_asset; unsafe relative folder, non-basename
+    filename, paths outside roots or mappings outside /content/dam => invalid_path. Reject . or .. components,
+    absolute source folders, separators in basenames and symlink paths; roots may not overlap. A conflicting
+    existing asset or sidecar, including an incomplete pair, returns target_conflict without changing
+    either. Identical existing bytes and required sidecar fields succeed; extra sidecar fields/JSON formatting
+    need not match. On serialization/I/O failure return a nonempty error code, clean partial new output
+    files, and continue later records. Atomicity is per record at function return, not crash/concurrent-reader
+    atomicity and not all-or-nothing for the batch.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for per-record validation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: migrate_asset_batch
+      signature: migrate_asset_batch(assets, taxonomy, source_root, destination_root) -> dict
+    inputs:
+      assets: Source descriptors, with actual bytes in source_root/folder/filename
+      taxonomy: Folder mapping to /content/dam path, taxonomy and optional dynamic_media intent
+      source_root: Read-only synthetic asset tree
+      destination_root: Local repository output tree
+    output:
+      type: dict
+      meaning: Migration report plus actual copied files and JSON sidecars
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: The local repository directory and JSON sidecars are benchmark reconstruction choices. dynamic_media
+    is an export intent, not evidence of remote publication.
+- ru_id: RU-004
+  name: Dynamic Media configuration
+  content: Each successful result and sidecar carries matched rule.dynamic_media as a boolean, default
+    false when omitted. An explicitly non-boolean value rejects the record without partial output. This
+    is stored export configuration only, never proof of remote publication.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for dynamic media configuration.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: migrate_asset_batch
+      signature: migrate_asset_batch(assets, taxonomy, source_root, destination_root) -> dict
+    inputs:
+      assets: Source descriptors, with actual bytes in source_root/folder/filename
+      taxonomy: Folder mapping to /content/dam path, taxonomy and optional dynamic_media intent
+      source_root: Read-only synthetic asset tree
+      destination_root: Local repository output tree
+    output:
+      type: dict
+      meaning: Migration report plus actual copied files and JSON sidecars
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: The local repository directory and JSON sidecars are benchmark reconstruction choices. dynamic_media
+    is an export intent, not evidence of remote publication.
+- ru_id: RU-005
+  name: Batch summary and immutability
+  content: Return migrated,errors,summary. Preserve relative input order separately for successes and
+    failures; each error has zero-based index and code, with id when available. summary.input equals input
+    length, summary.migrated equals successes and summary.failed equals errors. Do not mutate assets or
+    taxonomy, including nested metadata. Source files remain unchanged even after failures. Repeating
+    identical records may produce repeated report successes but never duplicate output files.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for batch summary and immutability.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: migrate_asset_batch
+      signature: migrate_asset_batch(assets, taxonomy, source_root, destination_root) -> dict
+    inputs:
+      assets: Source descriptors, with actual bytes in source_root/folder/filename
+      taxonomy: Folder mapping to /content/dam path, taxonomy and optional dynamic_media intent
+      source_root: Read-only synthetic asset tree
+      destination_root: Local repository output tree
+    output:
+      type: dict
+      meaning: Migration report plus actual copied files and JSON sidecars
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: The local repository directory and JSON sidecars are benchmark reconstruction choices. dynamic_media
+    is an export intent, not evidence of remote publication.

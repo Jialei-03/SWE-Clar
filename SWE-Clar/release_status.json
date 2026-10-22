@@ -1,0 +1,7 @@
+{
+  "experiment_ready": true,
+  "source": "SWE-Clar task contracts and acceptance fixtures",
+  "qualification_scope": "Validate task contracts and build runtime images on the execution host. This flag does not verify a recipient Docker environment.",
+  "tasks": 100,
+  "requirement_units": 512
+}

@@ -1,0 +1,1173 @@
+diff --git a/server.py b/server.py
+index 4febe63717f9975ca12aedf67b78354c58b76b4e..094499c19d1966d638790b2d495f1642d7f78c88 100644
+--- a/server.py
++++ b/server.py
+@@ -1,39 +1,228 @@
+-import json,os,sqlite3
++"""Loopback HTTP/SQLite adapter for the lesson workflow."""
++
++import copy
++import json
++import os
++import sqlite3
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
+-from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
++
+ from solution import process_music_action
+ from studio_client import StudioClient
+-DB=os.environ['STUDIO_DB'];CONFIG=json.loads(Path(os.environ['STUDIO_CONFIG']).read_text())
+-SERVICE=StudioClient(CONFIG['provider_url'],CONFIG.get('provider_token'))
+-with sqlite3.connect(DB) as db:
+-    db.execute('CREATE TABLE IF NOT EXISTS studio(id INTEGER PRIMARY KEY CHECK(id=1),state TEXT NOT NULL)')
+-    db.execute('INSERT OR IGNORE INTO studio VALUES(1,?)',(json.dumps(CONFIG['initial_state']),))
++
++
++DB = os.environ["STUDIO_DB"]
++CONFIG = json.loads(Path(os.environ["STUDIO_CONFIG"]).read_text())
++SERVICE = StudioClient(CONFIG["provider_url"], CONFIG.get("provider_token"))
++
++
++# Runtime/configuration values must not become part of the workflow snapshot.
++# The normal configuration already keeps them outside initial_state; removing
++# these names also protects against an accidentally over-inclusive fixture.
++_RUNTIME_KEYS = {"sessions", "provider_url", "provider_token"}
++
++
++def _workflow_initial_state():
++    value = copy.deepcopy(CONFIG.get("initial_state", {}))
++    if not isinstance(value, dict):
++        return {}
++    for key in _RUNTIME_KEYS | {"result", "error"}:
++        value.pop(key, None)
++    return value
++
++
++def _persistable_state(value):
++    state = copy.deepcopy(value)
++    if isinstance(state, dict):
++        for key in _RUNTIME_KEYS | {"result", "error"}:
++            state.pop(key, None)
++    return state
++
++
++with sqlite3.connect(DB, timeout=30) as db:
++    db.execute(
++        "CREATE TABLE IF NOT EXISTS studio "
++        "(id INTEGER PRIMARY KEY CHECK(id=1), state TEXT NOT NULL)"
++    )
++    db.execute(
++        "INSERT OR IGNORE INTO studio(id,state) VALUES(1,?)",
++        (json.dumps(_workflow_initial_state(), separators=(",", ":")),),
++    )
++
++
+ class Handler(BaseHTTPRequestHandler):
+-    def log_message(self,*a):pass
+-    def reply(self,status,body):
+-        data=json.dumps(body).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
++    def log_message(self, *_args):
++        # Authorization headers and provider URLs should never be written to
++        # the process log by this local component.
++        return
++
++    def reply(self, status, body):
++        data = json.dumps(body, separators=(",", ":")).encode("utf-8")
++        self.send_response(status)
++        self.send_header("Content-Type", "application/json")
++        self.send_header("Content-Length", str(len(data)))
++        self.end_headers()
++        try:
++            self.wfile.write(data)
++        except (BrokenPipeError, ConnectionResetError):
++            pass
++
++    @staticmethod
++    def _authenticated_user(authorization):
++        if not isinstance(authorization, str) or not authorization.startswith("Bearer "):
++            return None
++        token = authorization[len("Bearer ") :]
++        if not token or not isinstance(CONFIG.get("sessions"), dict):
++            return None
++        try:
++            user = CONFIG["sessions"].get(token)
++        except (TypeError, ValueError):
++            return None
++        # Session values are user identifiers, not user objects.  Keeping this
++        # check strict avoids treating arbitrary config data as a session.
++        return user if isinstance(user, (str, int)) and not isinstance(user, bool) else None
++
++    def _read_action(self):
++        raw_length = self.headers.get("Content-Length")
++        try:
++            length = int(raw_length) if raw_length is not None else 0
++        except (TypeError, ValueError):
++            raise ValueError("invalid request")
++        if length < 0:
++            raise ValueError("invalid request")
++        raw = self.rfile.read(length)
++        action = json.loads(raw.decode("utf-8"))
++        if not isinstance(action, dict):
++            raise ValueError("invalid request")
++        return action
++
+     def do_POST(self):
+-        if self.path!='/actions':return self.reply(404,{'error':{'code':'not_found'}})
+-        authorization=self.headers.get('Authorization','')
+-        user=CONFIG['sessions'].get(authorization[7:]) if authorization.startswith('Bearer ') else None
+-        if user is None:return self.reply(401,{'error':{'code':'unauthenticated'}})
++        if self.path != "/actions":
++            self.reply(404, {"error": {"code": "not_found"}})
++            return
++
++        user_id = self._authenticated_user(self.headers.get("Authorization"))
++        if user_id is None:
++            # Consume a declared body so a client which reuses the connection
++            # cannot have the rejected request's bytes parsed as a new
++            # request.  Nothing from it is interpreted or returned.
++            try:
++                length = int(self.headers.get("Content-Length", "0"))
++                if length > 0:
++                    self.rfile.read(length)
++            except (TypeError, ValueError):
++                pass
++            self.reply(401, {"error": {"code": "unauthenticated"}})
++            return
++
++        try:
++            action = self._read_action()
++        except Exception:
++            self.reply(400, {"error": {"code": "invalid_request"}})
++            return
++
++        # The authenticated session, rather than caller-supplied fields, owns
++        # both actor and viewer identity.
++        action["actor_id"] = user_id
++        action["viewer_id"] = user_id
++
++        connection = None
++        response_status = 500
++        response_body = {"error": {"code": "internal_error"}}
++        transaction_open = False
+         try:
+-            action=json.loads(self.rfile.read(int(self.headers.get('Content-Length',0))))
+-            if not isinstance(action,dict):raise ValueError('invalid action')
+-        except Exception:return self.reply(400,{'error':{'code':'invalid_request'}})
+-        action['actor_id']=user;action['viewer_id']=user
+-        with sqlite3.connect(DB,timeout=15) as db:
+-            db.execute('BEGIN IMMEDIATE');state=json.loads(db.execute('SELECT state FROM studio WHERE id=1').fetchone()[0])
+-            if action.get('type')=='purchase_package':
+-                actor=state['users'].get(user,{});student=action.get('student_id')
+-                if not (actor.get('role')=='admin' or user==student or (actor.get('role')=='parent' and student in actor.get('student_ids',[]))):return self.reply(403,{'error':{'code':'payment_denied'}})
+-            try:result=process_music_action(state,action,SERVICE)
+-            except Exception:return self.reply(400,{'error':{'code':'invalid_request'}})
+-            if 'error' in result:return self.reply(400,{'error':result['error']})
+-            db.execute('UPDATE studio SET state=? WHERE id=1',(json.dumps(result),))
+-            response={'result':result.get('result',{})}
+-        self.reply(200,response)
+-class Server(ThreadingHTTPServer):request_queue_size=32
+-if __name__=='__main__':
+-    server=Server(('127.0.0.1',int(os.environ.get('PORT',0))),Handler)
+-    print(json.dumps({'port':server.server_port}),flush=True);server.serve_forever()
++            # BEGIN IMMEDIATE serializes the complete read/check/provider/
++            # commit sequence.  Thus two requests cannot both observe an open
++            # slot or spend the same event before either commits.
++            connection = sqlite3.connect(DB, timeout=30)
++            connection.execute("PRAGMA busy_timeout=30000")
++            connection.execute("BEGIN IMMEDIATE")
++            transaction_open = True
++            row = connection.execute(
++                "SELECT state FROM studio WHERE id=1"
++            ).fetchone()
++            if row is None:
++                raise RuntimeError("missing state")
++            state = json.loads(row[0])
++            if not isinstance(state, dict):
++                raise RuntimeError("invalid stored state")
++
++            # A config token pointing at a user not present in the private
++            # state is not a valid session.  The response remains a bare auth
++            # error and does not reveal the state contents.
++            users = state.get("users")
++            try:
++                known_user = isinstance(users, dict) and user_id in users
++            except TypeError:
++                known_user = False
++            if not known_user:
++                connection.rollback()
++                transaction_open = False
++                response_status = 401
++                response_body = {"error": {"code": "unauthenticated"}}
++            else:
++                try:
++                    next_state = process_music_action(state, action, SERVICE)
++                except Exception:
++                    # Business/provider failures are normally converted by the
++                    # workflow.  This fallback still never returns exception
++                    # text or a private state snapshot.
++                    next_state = {"error": {"code": "invalid_request"}}
++                if not isinstance(next_state, dict) or "error" in next_state:
++                    error = (
++                        next_state.get("error")
++                        if isinstance(next_state, dict)
++                        else None
++                    )
++                    if not isinstance(error, dict):
++                        error = {"code": "invalid_request"}
++                    connection.rollback()
++                    transaction_open = False
++                    response_status = 400
++                    response_body = {"error": error}
++                else:
++                    result = next_state.get("result", {})
++                    stored = _persistable_state(next_state)
++                    connection.execute(
++                        "UPDATE studio SET state=? WHERE id=1",
++                        (json.dumps(stored, separators=(",", ":")),),
++                    )
++                    connection.commit()
++                    transaction_open = False
++                    response_status = 200
++                    # Only this scoped result crosses the HTTP boundary.
++                    response_body = {
++                        "result": result if isinstance(result, dict) else {}
++                    }
++        except sqlite3.OperationalError:
++            if connection is not None and transaction_open:
++                connection.rollback()
++                transaction_open = False
++            response_status = 503
++            response_body = {"error": {"code": "storage_unavailable"}}
++        except Exception:
++            if connection is not None and transaction_open:
++                connection.rollback()
++                transaction_open = False
++            response_status = 500
++            response_body = {"error": {"code": "internal_error"}}
++        finally:
++            if connection is not None:
++                if transaction_open:
++                    try:
++                        connection.rollback()
++                    except Exception:
++                        pass
++                connection.close()
++
++        self.reply(response_status, response_body)
++
++
++class Server(ThreadingHTTPServer):
++    request_queue_size = 32
++
++
++if __name__ == "__main__":
++    server = Server(("127.0.0.1", int(os.environ.get("PORT", 0))), Handler)
++    print(json.dumps({"port": server.server_port}), flush=True)
++    server.serve_forever()
+diff --git a/solution.py b/solution.py
+index 02b78d311e17bb862f9b3dfbb53e96cb7ea23fb6..4617d78e2f161c91fadb9438e507ea3a155c9375 100644
+--- a/solution.py
++++ b/solution.py
+@@ -1,10 +1,25 @@
+-"""Music-studio starter with incomplete payment and meeting workflows."""
++"""Immutable workflow rules for the lesson scheduling backend.
++
++The function in this module deliberately knows nothing about HTTP, SQLite, or
++provider credentials.  It receives a private state snapshot, performs the
++business checks, and returns a new snapshot.  Provider calls are made through
++the small ``StudioClient``-compatible object supplied by the caller; state is
++only changed after all provider acknowledgements needed for an operation have
++succeeded.
++"""
+ 
+ from copy import deepcopy
++from datetime import datetime
++import re
++from urllib.parse import urlsplit
+ 
+ 
++# These are the pieces of state which are owned by the workflow.  Missing
++# collections are useful for older initial-state files, while a wrong type is
++# an invalid state rather than something which should be silently replaced.
+ ROOT_TYPES = {
+     "users": dict,
++    "packages": dict,
+     "availability": dict,
+     "bookings": dict,
+     "credits": dict,
+@@ -14,8 +29,24 @@ ROOT_TYPES = {
+     "audit": list,
+ }
+ 
++# An ISO timestamp used by this component must carry an explicit offset.  The
++# colonless form is accepted as well as the usual ISO ``+HH:MM`` form; both
++# are numeric timezone offsets.
++_OFFSET_SUFFIX = re.compile(r"(?:Z|[+-]\d{2}:?\d{2})$")
++
++
++class _WorkflowError(Exception):
++    """An expected business/provider validation failure."""
++
++
++class _ProviderError(Exception):
++    """A provider call or provider acknowledgement failed."""
++
+ 
+ def _fail(out, code):
++    """Return an error snapshot without exposing exception/provider details."""
++
++    out.pop("result", None)
+     out["error"] = {"code": code}
+     return out
+ 
+@@ -24,119 +55,638 @@ def _text(value):
+     return isinstance(value, str) and bool(value.strip())
+ 
+ 
+-def _user(out, user_id, role=None):
+-    value = out["users"].get(user_id)
+-    return value if isinstance(value, dict) and (role is None or value.get("role") == role) else None
++def _safe_get(mapping, key, default=None):
++    """dict.get which also handles unhashable JSON values."""
+ 
++    if not isinstance(mapping, dict):
++        return default
++    try:
++        return mapping.get(key, default)
++    except (TypeError, ValueError):
++        return default
+ 
+-def _can_view(out, viewer_id, student_id, booking):
+-    viewer = _user(out, viewer_id)
+-    if viewer is None or not isinstance(booking, dict):
++
++def _user(state, user_id, role=None):
++    value = _safe_get(state.get("users"), user_id)
++    if not isinstance(value, dict):
++        return None
++    if role is not None and value.get("role") != role:
++        return None
++    return value
++
++
++def _is_admin(user):
++    return isinstance(user, dict) and user.get("role") in {"admin", "administrator"}
++
++
++def _linked_parent_of(actor, student_id):
++    """Whether an actor is a parent explicitly linked to ``student_id``."""
++
++    if not isinstance(actor, dict) or actor.get("role") != "parent":
+         return False
+-    if viewer.get("role") == "admin" or (viewer_id == student_id and viewer.get("role") == "student"):
++    children = actor.get("student_ids")
++    return isinstance(children, list) and student_id in children
++
++
++def _may_act_for_student(actor, actor_id, student_id):
++    """Return the student/parent booking and payment authorization rule."""
++
++    if not isinstance(actor, dict):
++        return False
++    return (actor.get("role") == "student" and actor_id == student_id) or _linked_parent_of(
++        actor, student_id
++    )
++
++
++def _positive_int(value):
++    return isinstance(value, int) and not isinstance(value, bool) and value > 0
++
++
++def _nonnegative_int(value):
++    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
++
++
++def _parse_timestamp(value):
++    """Parse an explicitly zoned ISO timestamp or raise ``_WorkflowError``."""
++
++    if not isinstance(value, str):
++        raise _WorkflowError("invalid timestamp")
++    value = value.strip()
++    if not _OFFSET_SUFFIX.search(value):
++        raise _WorkflowError("timestamp needs an offset")
++
++    # datetime.fromisoformat supports the numeric forms.  Replacing Z avoids
++    # relying on the Python version's support for the UTC designator.
++    iso_value = value[:-1] + "+00:00" if value.endswith("Z") else value
++    try:
++        parsed = datetime.fromisoformat(iso_value)
++    except (TypeError, ValueError, OverflowError):
++        raise _WorkflowError("invalid timestamp")
++    if parsed.tzinfo is None or parsed.utcoffset() is None:
++        raise _WorkflowError("timestamp needs an offset")
++    return parsed
++
++
++def _parse_slot(value):
++    """Return ``(canonical_slot, start, end)`` for a slot string."""
++
++    if not isinstance(value, str) or not value.strip():
++        raise _WorkflowError("invalid slot")
++    pieces = value.strip().split("/")
++    if len(pieces) != 2:
++        raise _WorkflowError("invalid slot")
++    start_text, end_text = pieces[0].strip(), pieces[1].strip()
++    if not start_text or not end_text:
++        raise _WorkflowError("invalid slot")
++    start = _parse_timestamp(start_text)
++    end = _parse_timestamp(end_text)
++    if not start < end:
++        raise _WorkflowError("slot is not increasing")
++    return f"{start_text}/{end_text}", start, end
++
++
++def _overlap(first_start, first_end, second_start, second_end):
++    # Intervals are half-open.  In particular, end == other_start is safe.
++    return first_start < second_end and second_start < first_end
++
++
++def _normalise_slots(slots):
++    """Validate and canonicalise an availability list.
++
++    Availability entries are trimmed at both timestamp boundaries.  Duplicate
++    entries are harmless and are collapsed; two distinct overlapping entries
++    are rejected rather than creating ambiguous open intervals.
++    """
++
++    if not isinstance(slots, list):
++        raise _WorkflowError("invalid availability")
++    parsed = []
++    seen = set()
++    for raw_slot in slots:
++        canonical, start, end = _parse_slot(raw_slot)
++        if canonical in seen:
++            continue
++        for _, other_start, other_end in parsed:
++            if _overlap(start, end, other_start, other_end):
++                raise _WorkflowError("overlapping availability")
++        seen.add(canonical)
++        parsed.append((canonical, start, end))
++    return [item[0] for item in parsed], parsed
++
++
++def _normalised_configured_slot(available, requested):
++    """Find a requested slot among configured slots after trimming.
++
++    Initial state is trusted only enough to be read.  Invalid configured
++    entries do not become a way around timestamp validation; they simply make
++    the requested booking invalid.
++    """
++
++    if not isinstance(available, list):
++        raise _WorkflowError("no availability")
++    requested_canonical, requested_start, requested_end = _parse_slot(requested)
++    for configured in available:
++        try:
++            canonical, start, end = _parse_slot(configured)
++        except _WorkflowError:
++            continue
++        if canonical == requested_canonical:
++            return canonical, requested_start, requested_end
++    raise _WorkflowError("slot is not configured")
++
++
++def _booking_lookup(bookings, raw_booking_id):
++    """Return a canonical id and row, allowing outer-id trimming."""
++
++    if not _text(raw_booking_id) or not isinstance(bookings, dict):
++        return None, None
++    wanted = raw_booking_id.strip()
++    try:
++        exact = bookings.get(wanted)
++    except (TypeError, ValueError):
++        exact = None
++    if isinstance(exact, dict):
++        return wanted, exact
++    # State created by this implementation uses the trimmed key.  The loop
++    # also makes older hand-written state with a padded key unambiguous.
++    for key, value in bookings.items():
++        if isinstance(key, str) and key.strip() == wanted and isinstance(value, dict):
++            return key, value
++    return wanted, None
++
++
++def _booking_id_exists(bookings, booking_id):
++    if not isinstance(bookings, dict):
+         return True
+-    children = viewer.get("student_ids")
+-    if viewer.get("role") == "parent" and isinstance(children, list) and student_id in children:
++    for key in bookings:
++        if isinstance(key, str) and key.strip() == booking_id:
++            return True
++    return False
++
++
++def _can_view(state, viewer_id, student_id, booking):
++    viewer = _user(state, viewer_id)
++    if viewer is None or not isinstance(booking, dict):
++        return False
++    role = viewer.get("role")
++    if _is_admin(viewer):
+         return True
+-    return viewer.get("role") == "instructor" and booking.get("instructor_id") == viewer_id
++    if role == "student":
++        return viewer_id == student_id
++    if role == "parent":
++        children = viewer.get("student_ids")
++        return isinstance(children, list) and student_id in children
++    if role == "instructor":
++        return booking.get("instructor_id") == viewer_id
++    return False
++
++
++def _valid_join_url(value):
++    if not isinstance(value, str) or not value.strip():
++        return False
++    candidate = value.strip()
++    try:
++        parts = urlsplit(candidate)
++    except (TypeError, ValueError):
++        return False
++    return parts.scheme.lower() in {"http", "https"} and bool(parts.netloc)
++
++
++def _provider_service(service):
++    if service is None:
++        raise _ProviderError("provider unavailable")
++    return service
++
++
++def _meeting_link(service, booking_id, student_id, instructor_id, slot):
++    try:
++        response = _provider_service(service).meeting(
++            booking_id, student_id, instructor_id, slot
++        )
++    except Exception as exc:
++        raise _ProviderError("meeting failed") from exc
++
++    # StudioClient returns the already validated URL.  A small dict response
++    # is also accepted for test doubles and validates the response contract at
++    # this workflow boundary.
++    if isinstance(response, str):
++        link = response
++    elif isinstance(response, dict):
++        if response.get("booking_id") != booking_id:
++            raise _ProviderError("meeting id mismatch")
++        link = response.get("join_url")
++    else:
++        raise _ProviderError("invalid meeting response")
++    if not _valid_join_url(link):
++        raise _ProviderError("invalid meeting link")
++    return link.strip()
++
++
++def _email_ack(service, event_id, payload):
++    try:
++        response = _provider_service(service).email(event_id, deepcopy(payload))
++    except Exception as exc:
++        raise _ProviderError("email failed") from exc
++    if not isinstance(response, dict):
++        raise _ProviderError("invalid email response")
++    if response.get("accepted") is not True or response.get("event_id") != event_id:
++        raise _ProviderError("email acknowledgement mismatch")
++    return response
++
++
++def _payment_receipt(service, event_id):
++    try:
++        response = _provider_service(service).payment(event_id)
++    except Exception as exc:
++        raise _ProviderError("payment lookup failed") from exc
++    if not isinstance(response, dict):
++        raise _ProviderError("invalid payment receipt")
++    return response
++
++
++def _payment_record_matches(record, event_id, student_id, package_id, credits):
++    if not isinstance(record, dict):
++        return False
++    # payment_event_id is the historical field name in the supplied state
++    # shape.  event_id is accepted for states written by another adapter, but
++    # no receipt fields are copied into either representation.
++    recorded_event = record.get("payment_event_id", record.get("event_id", event_id))
++    recorded_credits = record.get("credits")
++    return (
++        recorded_event == event_id
++        and record.get("student_id") == student_id
++        and record.get("package_id") == package_id
++        and isinstance(recorded_credits, int)
++        and not isinstance(recorded_credits, bool)
++        and recorded_credits == credits
++    )
++
++
++def _base_state_copy(state):
++    if not isinstance(state, dict):
++        return None
++    try:
++        out = deepcopy(state)
++    except Exception:
++        return None
++    # result/error are transport-like fields, not business state.  Removing
++    # stale copies also prevents a previous direct invocation from affecting a
++    # later action.
++    out.pop("result", None)
++    out.pop("error", None)
++    return out
+ 
+ 
+ def process_music_action(state: dict, action: dict, service=None) -> dict:
+-    out = deepcopy(state) if isinstance(state, dict) else {}
+-    request = deepcopy(action) if isinstance(action, dict) else {}
++    """Apply one workflow action to an immutable state snapshot.
++
++    On success the returned dictionary contains the next private state and a
++    temporary ``result`` member.  On failure it contains the unchanged copied
++    state and an ``error`` member.  The HTTP adapter removes those temporary
++    members before persisting or replying.
++    """
++
++    out = _base_state_copy(state)
++    if out is None:
++        return {"error": {"code": "invalid_state"}}
++    try:
++        request = deepcopy(action) if isinstance(action, dict) else {}
++    except Exception:
++        request = {}
++
+     for name, shape in ROOT_TYPES.items():
+-        out.setdefault(name, shape())
+-    if any(not isinstance(out[name], shape) for name, shape in ROOT_TYPES.items()):
+-        return _fail(out, "invalid_state")
++        if name not in out:
++            out[name] = shape()
++        elif not isinstance(out[name], shape):
++            return _fail(out, "invalid_state")
+ 
+     kind = request.get("type")
++
+     if kind == "set_availability":
+-        actor_id, instructor_id = request.get("actor_id"), request.get("instructor_id")
+-        actor, instructor, slots = _user(out, actor_id), _user(out, instructor_id, "instructor"), request.get("slots")
+-        if actor is None or instructor is None or not (actor.get("role") == "admin" or actor_id == instructor_id) or not isinstance(slots, list) or any(not _text(slot) for slot in slots):
++        actor_id = request.get("actor_id")
++        instructor_id = request.get("instructor_id")
++        actor = _user(out, actor_id)
++        instructor = _user(out, instructor_id, "instructor")
++        if instructor is None or actor is None:
++            return _fail(out, "availability_denied")
++        if not (_is_admin(actor) or actor_id == instructor_id):
+             return _fail(out, "availability_denied")
+-        out["availability"][instructor_id] = list(dict.fromkeys(slot.strip() for slot in slots))
+-        out["result"] = {"slots": deepcopy(out["availability"][instructor_id])}
++        try:
++            normalised, parsed = _normalise_slots(request.get("slots"))
++        except _WorkflowError:
++            return _fail(out, "invalid_availability")
++        # ``parsed`` is intentionally computed above even though the canonical
++        # list is what is persisted: it ensures every timestamp has been
++        # validated before changing anything.
++        del parsed
++        out["availability"][instructor_id] = normalised
++        out["result"] = {"slots": deepcopy(normalised)}
+ 
+     elif kind == "purchase_package":
++        actor_id = request.get("actor_id")
+         student_id = request.get("student_id")
++        actor = _user(out, actor_id)
++        student = _user(out, student_id, "student")
++        if actor is None or student is None:
++            return _fail(out, "payment_denied")
++        if not (_is_admin(actor) or _may_act_for_student(actor, actor_id, student_id)):
++            # This check intentionally occurs before looking up the receipt.
++            return _fail(out, "payment_denied")
++
+         event_id = request.get("payment_event_id")
+-        amount = request.get("credits")
+-        if _user(out, student_id, "student") is None or not _text(event_id) or not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0 or request.get("paid") is not True:
++        if not _text(event_id):
+             return _fail(out, "payment_denied")
+-        balance = out["credits"].get(student_id, 0)
+-        if not isinstance(balance, int) or isinstance(balance, bool) or balance < 0:
++        event_id = event_id.strip()
++
++        balance = _safe_get(out["credits"], student_id, 0)
++        if not _nonnegative_int(balance):
+             return _fail(out, "invalid_credit_balance")
+-        row = {"payment_event_id": event_id.strip(), "student_id": student_id, "credits": amount, "paid": True}
+-        previous = out["processed_payments"].get(row["payment_event_id"])
+-        if previous is not None and previous != row:
+-            return _fail(out, "payment_conflict")
+-        if previous is None:
+-            out["processed_payments"][row["payment_event_id"]] = deepcopy(row)
+-            out["credits"][student_id] = balance + amount
+-            out["ledger"].append({"event_id": row["payment_event_id"], "student_id": student_id, "delta": amount, "reason": "package_purchase"})
+-        out["result"] = {"balance": out["credits"].get(student_id, balance), "duplicate": previous is not None}
++        try:
++            receipt = _payment_receipt(service, event_id)
++        except _ProviderError:
++            return _fail(out, "payment_failed")
++
++        if (
++            receipt.get("event_id") != event_id
++            or receipt.get("student_id") != student_id
++            or receipt.get("paid") is not True
++        ):
++            return _fail(out, "payment_denied")
++        package_id = receipt.get("package_id")
++        if not _text(package_id):
++            return _fail(out, "payment_denied")
++        package_id = package_id.strip()
++        if "package_id" in request and request.get("package_id") is not None:
++            requested_package = request.get("package_id")
++            if not _text(requested_package) or requested_package.strip() != package_id:
++                return _fail(out, "payment_conflict")
++        package_credits = _safe_get(out["packages"], package_id)
++        if not _positive_int(package_credits):
++            return _fail(out, "unknown_package")
++
++        has_previous = event_id in out["processed_payments"]
++        previous = _safe_get(out["processed_payments"], event_id)
++        if has_previous:
++            # A replay is still provider-checked above.  It is idempotent only
++            # when all verified identity and derived-credit fields agree.
++            if not _payment_record_matches(
++                previous, event_id, student_id, package_id, package_credits
++            ):
++                return _fail(out, "payment_conflict")
++            out["result"] = {
++                "balance": balance,
++                "duplicate": True,
++                "credits": package_credits,
++            }
++        else:
++            record = {
++                "event_id": event_id,
++                "student_id": student_id,
++                "package_id": package_id,
++                "credits": package_credits,
++            }
++            out["processed_payments"][event_id] = record
++            out["credits"][student_id] = balance + package_credits
++            out["ledger"].append(
++                {
++                    "event_id": event_id,
++                    "student_id": student_id,
++                    "delta": package_credits,
++                    "reason": "package_purchase",
++                    "package_id": package_id,
++                }
++            )
++            out["result"] = {
++                "balance": balance + package_credits,
++                "duplicate": False,
++                "credits": package_credits,
++            }
+ 
+     elif kind == "book":
+-        actor_id, student_id = request.get("actor_id"), request.get("student_id")
+-        actor, student = _user(out, actor_id), _user(out, student_id, "student")
+-        parent_children = actor.get("student_ids") if isinstance(actor, dict) else None
+-        allowed = actor is not None and (
+-            (actor_id == student_id and actor.get("role") == "student")
+-            or (actor.get("role") == "parent" and isinstance(parent_children, list) and student_id in parent_children)
+-        )
+-        instructor_id, slot, booking_id = request.get("instructor_id"), request.get("slot"), request.get("booking_id")
+-        available = out["availability"].get(instructor_id)
+-        balance = out["credits"].get(student_id, 0)
+-        occupied = any(isinstance(booking, dict) and booking.get("instructor_id") == instructor_id and booking.get("slot") == slot and booking.get("status") != "cancelled" for booking in out["bookings"].values())
+-        if not allowed or student is None or _user(out, instructor_id, "instructor") is None or not isinstance(available, list) or not _text(slot) or slot not in available or not _text(booking_id) or booking_id.strip() in out["bookings"] or occupied or not isinstance(balance, int) or isinstance(balance, bool) or balance < 1:
++        actor_id = request.get("actor_id")
++        student_id = request.get("student_id")
++        actor = _user(out, actor_id)
++        student = _user(out, student_id, "student")
++        allowed = _may_act_for_student(actor, actor_id, student_id)
++        instructor_id = request.get("instructor_id")
++        instructor = _user(out, instructor_id, "instructor")
++        if not allowed or student is None or instructor is None:
+             return _fail(out, "booking_denied")
+-        bid = booking_id.strip()
+-        link = f"zoom://lesson/{bid}"
+-        out["bookings"][bid] = {"student_id": student_id, "instructor_id": instructor_id, "slot": slot, "status": "booked", "meeting_link": link, "credit_deducted": False}
+-        out["emails"].append({"kind": "booking_confirmation", "booking_id": bid, "student_id": student_id, "meeting_link": link})
+-        out["result"] = {"booking_id": bid, "meeting_link": link}
+ 
+-    elif kind == "complete":
+         booking_id = request.get("booking_id")
+-        booking = out["bookings"].get(booking_id)
+-        actor = _user(out, request.get("actor_id"))
+-        if not isinstance(booking, dict) or actor is None or not (actor.get("role") == "admin" or request.get("actor_id") == booking.get("instructor_id")) or booking.get("status") not in {"booked", "completed"}:
++        if not _text(booking_id):
++            return _fail(out, "booking_denied")
++        booking_id = booking_id.strip()
++        if _booking_id_exists(out["bookings"], booking_id):
++            return _fail(out, "booking_conflict")
++
++        try:
++            available_slot, slot_start, slot_end = _normalised_configured_slot(
++                _safe_get(out["availability"], instructor_id), request.get("slot")
++            )
++        except _WorkflowError:
++            return _fail(out, "booking_denied")
++
++        balance = _safe_get(out["credits"], student_id, 0)
++        if not _nonnegative_int(balance) or balance < 1:
++            return _fail(out, "booking_denied")
++
++        # Every non-cancelled booking occupies its interval, including a
++        # completed lesson.  Invalid existing intervals are treated as a
++        # conservative conflict rather than being silently ignored.
++        for existing in out["bookings"].values():
++            if not isinstance(existing, dict):
++                return _fail(out, "invalid_state")
++            if existing.get("status") == "cancelled":
++                continue
++            if existing.get("instructor_id") != instructor_id:
++                continue
++            try:
++                _, existing_start, existing_end = _parse_slot(existing.get("slot"))
++            except _WorkflowError:
++                return _fail(out, "invalid_state")
++            if _overlap(slot_start, slot_end, existing_start, existing_end):
++                return _fail(out, "booking_conflict")
++
++        # All authorization, availability, credit, and overlap checks happen
++        # before either provider side effect.
++        try:
++            link = _meeting_link(
++                service, booking_id, student_id, instructor_id, available_slot
++            )
++            confirmation_id = f"confirmation:{booking_id}"
++            confirmation_payload = {
++                "event_id": confirmation_id,
++                "kind": "booking_confirmation",
++                "booking_id": booking_id,
++                "student_id": student_id,
++                "meeting_link": link,
++            }
++            _email_ack(service, confirmation_id, confirmation_payload)
++        except _ProviderError:
++            return _fail(out, "booking_provider_failed")
++
++        out["bookings"][booking_id] = {
++            "student_id": student_id,
++            "instructor_id": instructor_id,
++            "slot": available_slot,
++            "status": "booked",
++            "meeting_link": link,
++            "credit_deducted": False,
++        }
++        out["emails"].append(
++            {
++                "event_id": confirmation_id,
++                "kind": "booking_confirmation",
++                "booking_id": booking_id,
++                "student_id": student_id,
++                "meeting_link": link,
++            }
++        )
++        out["result"] = {"booking_id": booking_id, "meeting_link": link}
++
++    elif kind == "complete":
++        booking_key, booking = _booking_lookup(
++            out["bookings"], request.get("booking_id")
++        )
++        actor_id = request.get("actor_id")
++        actor = _user(out, actor_id)
++        if (
++            booking is None
++            or actor is None
++            or not (
++                _is_admin(actor)
++                or (
++                    actor.get("role") == "instructor"
++                    and actor_id == booking.get("instructor_id")
++                )
++            )
++            or booking.get("status") not in {"booked", "completed"}
++        ):
+             return _fail(out, "completion_denied")
+-        if booking.get("credit_deducted") is not True:
+-            student_id = booking.get("student_id")
+-            balance = out["credits"].get(student_id, 0)
+-            threshold = out.get("low_credit_threshold", 1)
+-            if not isinstance(balance, int) or isinstance(balance, bool) or balance < 1:
++
++        student_id = booking.get("student_id")
++        # A completed row is an idempotent read for an authorized viewer.  It
++        # deliberately does not validate threshold or contact the provider.
++        if booking.get("status") == "completed":
++            balance = _safe_get(out["credits"], student_id, 0)
++            if not _nonnegative_int(balance):
++                return _fail(out, "invalid_credit_balance")
++            out["result"] = {
++                "status": "completed",
++                "balance": balance,
++                "duplicate": True,
++            }
++        elif booking.get("credit_deducted") is True:
++            # A crash-safe state may have recorded the debit before the final
++            # status write.  Never debit it a second time; the flag means the
++            # provider acknowledgement and ledger work already happened.
++            balance = _safe_get(out["credits"], student_id, 0)
++            if not _nonnegative_int(balance):
++                return _fail(out, "invalid_credit_balance")
++            booking["status"] = "completed"
++            out["result"] = {
++                "status": "completed",
++                "balance": balance,
++                "duplicate": True,
++            }
++        else:
++            balance = _safe_get(out["credits"], student_id, 0)
++            if not _nonnegative_int(balance) or balance < 1:
+                 return _fail(out, "no_credit")
+-            if not isinstance(threshold, int) or isinstance(threshold, bool) or threshold < 0:
++            threshold = out.get("low_credit_threshold", 1)
++            if not _nonnegative_int(threshold):
+                 return _fail(out, "invalid_threshold")
+-            out["credits"][student_id] = balance - 1
++            new_balance = balance - 1
++            completion_id = f"complete:{booking_key}"
++
++            if new_balance <= threshold:
++                low_event_id = f"low_credit:{booking_key}"
++                low_payload = {
++                    "event_id": low_event_id,
++                    "kind": "low_credit",
++                    "student_id": student_id,
++                    "balance": new_balance,
++                    "booking_id": booking_key,
++                }
++                try:
++                    _email_ack(service, low_event_id, low_payload)
++                except _ProviderError:
++                    # Nothing below this point has been changed, so a retry
++                    # can safely use the same deterministic idempotency key.
++                    return _fail(out, "completion_provider_failed")
++
++                out["emails"].append(
++                    {
++                        "event_id": low_event_id,
++                        "kind": "low_credit",
++                        "student_id": student_id,
++                        "balance": new_balance,
++                        "booking_id": booking_key,
++                    }
++                )
++
++            out["credits"][student_id] = new_balance
+             booking["credit_deducted"] = True
+-            out["ledger"].append({"event_id": f"complete:{booking_id}", "student_id": student_id, "delta": -1, "reason": "lesson_completed"})
+-            if out["credits"][student_id] <= threshold:
+-                out["emails"].append({"kind": "low_credit", "student_id": student_id, "balance": out["credits"][student_id], "booking_id": booking_id})
+-        booking["status"] = "completed"
+-        out["result"] = {"status": "completed", "balance": out["credits"].get(booking.get("student_id"), 0)}
++            booking["status"] = "completed"
++            out["ledger"].append(
++                {
++                    "event_id": completion_id,
++                    "student_id": student_id,
++                    "delta": -1,
++                    "reason": "lesson_completed",
++                }
++            )
++            out["result"] = {
++                "status": "completed",
++                "balance": new_balance,
++                "duplicate": False,
++            }
+ 
+     elif kind == "portal":
+-        booking_id, student_id = request.get("booking_id"), request.get("student_id")
+-        booking = out["bookings"].get(booking_id)
++        booking_key, booking = _booking_lookup(
++            out["bookings"], request.get("booking_id")
++        )
++        student_id = request.get("student_id")
+         viewer_id = request.get("viewer_id")
+-        if not isinstance(booking, dict) or booking.get("student_id") != student_id or not _can_view(out, viewer_id, student_id, booking):
++        if (
++            booking is None
++            or booking.get("student_id") != student_id
++            or not _can_view(out, viewer_id, student_id, booking)
++        ):
+             return _fail(out, "portal_denied")
++        balance = _safe_get(out["credits"], student_id, 0)
++        if not _nonnegative_int(balance):
++            return _fail(out, "invalid_credit_balance")
+         viewer = _user(out, viewer_id)
+-        if viewer.get("role") in {"admin", "instructor"}:
+-            out["audit"].append({"viewer_id": viewer_id, "student_id": student_id, "booking_id": booking_id})
+-        out["result"] = {"booking_id": booking_id, "status": booking.get("status"), "meeting_link": booking.get("meeting_link"), "credit_balance": out["credits"].get(student_id, 0)}
++        if viewer is not None and (_is_admin(viewer) or viewer.get("role") == "instructor"):
++            out["audit"].append(
++                {
++                    "viewer_id": viewer_id,
++                    "student_id": student_id,
++                    "booking_id": booking_key,
++                }
++            )
++        out["result"] = {
++            "booking_id": booking_key,
++            "status": booking.get("status"),
++            "meeting_link": booking.get("meeting_link"),
++            "credit_balance": balance,
++        }
+ 
+     elif kind == "cancel":
+-        booking = out["bookings"].get(request.get("booking_id"))
++        booking_key, booking = _booking_lookup(
++            out["bookings"], request.get("booking_id")
++        )
+         actor_id = request.get("actor_id")
+-        if not isinstance(booking, dict) or booking.get("status") != "booked" or not _can_view(out, actor_id, booking.get("student_id"), booking):
++        if (
++            booking is None
++            or booking.get("status") != "booked"
++            or not _can_view(out, actor_id, booking.get("student_id"), booking)
++        ):
+             return _fail(out, "cancel_denied")
+         booking["status"] = "cancelled"
+-        out["result"] = {"status": "cancelled"}
++        out["result"] = {"booking_id": booking_key, "status": "cancelled"}
+ 
+     else:
+         return _fail(out, "unknown_action")
+diff --git a/studio_client.py b/studio_client.py
+index ede8bf9cc107d6f51e4eff7028862705bec4064c..35467bedc081af9b2a2ef28a49a426b8690e41e4 100644
+--- a/studio_client.py
++++ b/studio_client.py
+@@ -1,17 +1,117 @@
++"""HTTP adapter for the normalized local studio provider protocol."""
++
+ import json
+-from urllib.parse import quote,urlsplit
+-from urllib.request import Request,urlopen
++from urllib.parse import quote, urlsplit
++from urllib.request import Request, urlopen
++
++
+ class StudioClient:
+-    def __init__(self,base_url,token=None):self.base=base_url.rstrip('/');self.token=token
+-    def request(self,method,path,body=None,key=None):
+-        headers={'Content-Type':'application/json'}
+-        if self.token:headers['Authorization']='Bearer '+self.token
+-        if key:headers['Idempotency-Key']=key
+-        with urlopen(Request(self.base+path,data=json.dumps(body).encode() if body is not None else None,method=method,headers=headers),timeout=3) as response:
+-            if not 200<=response.status<300:raise ValueError('provider failed')
+-            return json.loads(response.read())
+-    def payment(self,event_id):
+-        if not isinstance(event_id,str) or not event_id.strip():raise ValueError('invalid event')
+-        return self.request('GET','/payments/'+quote(event_id,safe=''))
+-    def meeting(self,bid,student,instructor,slot):raise NotImplementedError('Create meeting through provider')
+-    def email(self,event_id,payload):raise NotImplementedError('Submit notification')
++    """Small provider client used by the workflow.
++
++    ``base_url`` and the optional provider token are runtime configuration.  No
++    value from this object is copied into workflow state.
++    """
++
++    def __init__(self, base_url, token=None):
++        if not isinstance(base_url, str) or not base_url.strip():
++            raise ValueError("provider URL is required")
++        self.base = base_url.rstrip("/")
++        self.token = token
++
++    @staticmethod
++    def _valid_join_url(value):
++        if not isinstance(value, str) or not value.strip():
++            return False
++        try:
++            parts = urlsplit(value.strip())
++        except (TypeError, ValueError):
++            return False
++        return parts.scheme.lower() in {"http", "https"} and bool(parts.netloc)
++
++    def _headers(self, key):
++        """Build per-request auth and idempotency headers without state leakage."""
++
++        headers = {"Content-Type": "application/json"}
++        if self.token is not None and self.token != "":
++            headers["Authorization"] = "Bearer " + str(self.token)
++        if key is not None:
++            headers["Idempotency-Key"] = str(key)
++        return headers
++
++    @staticmethod
++    def _decode_json(raw):
++        try:
++            return json.loads(raw.decode("utf-8"))
++        except (UnicodeDecodeError, TypeError, ValueError) as exc:
++            raise ValueError("invalid provider response") from exc
++
++    def request(self, method, path, body=None, key=None):
++        if not isinstance(method, str) or not isinstance(path, str):
++            raise ValueError("invalid provider request")
++        data = None if body is None else json.dumps(body).encode("utf-8")
++        request = Request(
++            self.base + path,
++            data=data,
++            method=method,
++            headers=self._headers(key),
++        )
++        try:
++            with urlopen(request, timeout=3) as response:
++                if not 200 <= response.status < 300:
++                    raise ValueError("provider failed")
++                raw = response.read()
++        except Exception as exc:
++            # Do not let HTTP error bodies (which may contain provider data)
++            # become workflow/API error details.
++            if isinstance(exc, ValueError) and str(exc) == "provider failed":
++                raise
++            raise ValueError("provider failed") from exc
++        return self._decode_json(raw)
++
++    def payment(self, event_id):
++        if not isinstance(event_id, str) or not event_id.strip():
++            raise ValueError("invalid payment event")
++        encoded = quote(event_id.strip(), safe="")
++        return self.request("GET", "/payments/" + encoded)
++
++    def meeting(self, booking_id, student_id, instructor_id, slot):
++        if not isinstance(booking_id, str) or not booking_id.strip():
++            raise ValueError("invalid booking")
++        payload = {
++            "booking_id": booking_id,
++            "student_id": student_id,
++            "instructor_id": instructor_id,
++            "slot": slot,
++        }
++        response = self.request(
++            "POST",
++            "/meetings",
++            payload,
++            key="meeting:" + booking_id,
++        )
++        if not isinstance(response, dict):
++            raise ValueError("invalid meeting response")
++        if response.get("booking_id") != booking_id:
++            raise ValueError("meeting id mismatch")
++        join_url = response.get("join_url")
++        if not self._valid_join_url(join_url):
++            raise ValueError("invalid meeting URL")
++        return join_url.strip()
++
++    def email(self, event_id, payload):
++        if not isinstance(event_id, str) or not event_id.strip():
++            raise ValueError("invalid email event")
++        if not isinstance(payload, dict):
++            raise ValueError("invalid email payload")
++        body = dict(payload)
++        if body.get("event_id") not in (None, event_id):
++            raise ValueError("email event mismatch")
++        # The method argument is authoritative, while retaining the exact
++        # normalized payload required by the provider protocol.
++        body["event_id"] = event_id
++        response = self.request("POST", "/emails", body, key=event_id)
++        if not isinstance(response, dict):
++            raise ValueError("invalid email response")
++        if response.get("accepted") is not True or response.get("event_id") != event_id:
++            raise ValueError("email acknowledgement mismatch")
++        return response

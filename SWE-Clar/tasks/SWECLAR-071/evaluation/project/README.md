@@ -1,0 +1,27 @@
+# Local pizzeria backend component
+
+Implement process_pizzeria_action(state,action) in solution.py, preserving the supplied transactional SQLite CLI. This is a bounded catalogue/cart/order/reward/reservation backend for a web application. It does not build the full restaurant website, perform payments/delivery, connect a POS system or host anything externally. All products, customers, zones and supplied events are synthetic.
+
+Use prepared python-web (Python3.12.3 and standard-library SQLite); no dependency installation/account needed. In /workspace run `python cli.py --db pizzeria.sqlite init` with one JSON state on stdin. `show` prints stored state; `act` reads one JSON action, prints the new entire state, and persists successful changes. Each invocation is a separate process. Init cannot overwrite existing state. Rejections return nonempty error.code and do not replace stored state. Run `python /public_tests/test_public.py`. Limits:2 CPU,2048 MiB,256 processes,256 MiB workspace; no external network.
+
+State contains products,customers,carts,coupons,zones,orders,reservations mappings and admins (trusted actor IDs). Missing optional collections mean empty. Return whole chainable state with result as current summary, or error, preserving both inputs and business collections on failure. Additional metadata and alternate error wording are allowed. Numeric monetary values must be finite and cannot be booleans.
+
+Visible catalogue/cart contract: products are keyed by ID with names.de,names.en,price,active. Active products need both nonempty names and nonnegative prices. catalog(language) supports de/en and returns result.products entries with product_id,name,price. Order is free. set_cart uses known customer_id and items containing product_id and positive integer quantity. Only active valid products are allowed; recompute subtotal from configured prices, ignoring supplied totals. Store carts[customer_id] with items/subtotal; return result.subtotal. Duplicate product lines may be combined or preserved equivalently. Empty cart may clear items.
+
+Actions:
+
+- catalog: language.
+- set_cart: customer_id,items.
+- checkout: customer_id,order_id,mode,optional zone_id,coupon_code,redeem_points.
+- mark_paid: order_id,payment_event_id.
+- reserve: reservation_id,slot,party_size.
+- advance_order: actor_id,order_id,status.
+
+Customer points are integers. Coupons expose active and percent; zones expose enabled and minimum. Created orders expose customer_id,mode,subtotal,total,coupon_code,redeemed_points,status,paid; result identifies order_id. Reservations expose slot/party_size. Internal payment-event association format is free. Fulfillment and payment are separate state fields. Actor IDs and payment events come from trusted upstream context; this CLI is not network authentication or settlement.
+
+Ask the client about delivery limits and modes, coupon/points pricing, payment replay and points timing, reservation conflicts and admin transitions. These exact policies are reconstructed benchmark conventions within the source-supported component scope. No original restaurant identity, design, contact data or customer code is included.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

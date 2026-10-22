@@ -1,0 +1,496 @@
+schema_version: 1
+task_id: SWECLAR-020
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent attendance confirmation, collection authorization and parent inbox
+requirement_units:
+- ru_id: RU-001
+  name: Authenticated roster and durable records
+  content: 'Provide real account sessions and correct initial roster/attendance isolation. Active administrators
+    see all students, teachers see only students whose class is in their class_ids, parents see only their
+    student_ids. Filter students in fixture order. Teachers/administrators receive guardians linked to
+    at least one visible student, filtered guardian.student_ids to visible students, and only tags for
+    visible students; parents receive empty guardians/tags arrays. Staff receive all devices in fixture
+    order; parents receive no devices. Students never authenticate. Attendance reads share student scope
+    and return actual durable completions in completion order. Changes to tag/guardian activity are visible
+    after refresh and survive restart. Only active administrators can change these activity flags. Empty
+    scope is valid and reveals no other records. Private credentials/session tokens are excluded from
+    ordinary response objects, page text and persisted browser storage. Logout/401/late-response behavior
+    follows public contract.
+
+
+    This is existing baseline functionality and a regression obligation, including actual authenticated
+    role-specific browser rendering. It does not require implementing any hidden confirmation policy to
+    pass.
+
+
+    Public delivery and interface contract:
+
+
+    Use the prepared `python-web` Linux AMD64 environment: Python 3.12, SQLite, Chromium 140 and Playwright
+    1.55. No downloads or accounts are needed. The benchmark prepares synthetic read-only `/workspace/dev_runtime/accounts.json`
+    and a separate-UID HTTP reader simulator at `http://127.0.0.1:8081` before candidate budget. Candidate
+    tools and browser run as UID1000 without capabilities; simulator UID2000 cannot read private tests.
+    Candidate can use documented simulator HTTP endpoints but cannot modify its code or storage. Hidden
+    evaluation uses the same service with fresh state. The framework supplies a loopback network, 2 CPUs,
+    2048 MiB memory, 256 PIDs, 512 MiB workspace and 1024 MiB temporary storage; each evaluation has 300
+    seconds.
+
+
+    Work in `/workspace`. Build: `python -m compileall -q server.py store.py reader.py`. Start: `python
+    server.py --host 0.0.0.0 --port 8080 --db /workspace/data/attendance.sqlite3 --fixture /workspace/dev_runtime/accounts.json
+    --reader http://127.0.0.1:8081`. Visible regressions: `python /public_tests/test_public.py`, using
+    disposable copies, reader namespaces and databases. Stop the server, remove `/workspace/data`, and
+    restart to reset application state; ordinary server restart preserves it. An application reset does
+    not need to reset the reader; newly created reading IDs are unique. Environment preflight is independent
+    of candidate code. A prepared sample reading can be generated with the documented simulator HTTP interface;
+    candidate never needs to install hardware drivers.
+
+
+    The supplied project provides account login, scoped student roster, tag resolution and deliberate
+    reading previews/pending scans. Complete confirmation authorization, collection checks, sequence/replay
+    behavior and parent inbox delivery. All delivery interfaces below are public. Confirmation, collection,
+    sequencing and delivery policies are clarifiable with the client. Internal database schema, ID generation,
+    locking, code organization and unrelated presentation are unconstrained. Extra response metadata is
+    allowed; unused request fields are ignored. Use real HTTP communication with the reader, real persistent
+    application storage, and actual browser interactions.
+
+
+    ### Prepared fixtures and reader protocol
+
+
+    The fixture contains `users`, `students`, `tags`, `devices`, and `guardians`. User fields: unique
+    string `id`, `username`, `password`, `role` (`teacher`, `administrator`, `parent`), boolean `active`,
+    `class_ids` array and `student_ids` array. Student: unique `id`, literal display `name`, `class_id`.
+    Tag: unique `uid`, `student_id`, `active`. Device: unique `id`, `name`, `active`. Guardian: unique
+    `id`, `name`, `student_ids`, `active`. Fixture IDs are nonempty strings, not guaranteed to follow
+    a particular spelling. Account credentials are synthetic. Fixture arrays have stable ordering and
+    references are valid. A user may belong to multiple classes/students; guardians need not have a user
+    account. Multiple active tags may map to one student.
+
+
+    Reader simulator public HTTP:
+
+
+    - `GET /health` gives `{ok:true}`.
+
+    - `POST /readings` with `{uid,device_id,interaction,at}` creates an immutable synthetic reading, 201
+    `{reading}`. `uid` and `device_id` are nonempty strings up to100 characters; `interaction` is `tap`
+    or `proximity`; `at` is a non-boolean JSON integer in0..2000000000 representing UTC Unix seconds.
+    The simulator accepts unknown/inactive tags/devices so applications can test these cases. Missing/bad
+    fields give400 `{error:{code:"invalid_request"}}`.
+
+    - `GET /readings/{id}` gives200 `{reading}` or404 `{error:{code:"not_found"}}`. Reading fields are
+    unique opaque string `id`, `uid`, `device_id`, `interaction`, `at`.
+
+    - Responses allow CORS for loopback browser development. Reading IDs are URL-encoded by callers. Simulator
+    storage is private, and only the HTTP response is the application input. Simulator state and probe
+    logs are separately reset before each attempt, not between application restarts.
+
+
+    Application must fetch the selected reading from its configured reader URL rather than trust a submitted
+    UID/time/interaction. Unknown reading gives404 `not_found`; connection failure or invalid reader response
+    gives502 `reader_unavailable`, with no database changes. Do not accept request-supplied reader URLs.
+    A reading is processed at most once into a pending scan, as described below; fetching it again is
+    allowed. Tests may inspect actual simulator requests to distinguish protocol use from fabricated state.
+
+
+    ### Application HTTP contract
+
+
+    JSON objects use literal text, not HTML. UTF-8 JSON bodies are at most65536 bytes, must be objects
+    and cannot contain non-finite numbers. Invalid/missing field types give400 `invalid_request`. Unknown/inaccessible
+    resources give404 `not_found`; absent/invalid bearer token gives401 `unauthenticated`. Business errors
+    are `{error:{code}}` with statuses defined in the RUs. IDs in paths are URL-encoded. Undocumented
+    HTTP paths give404. Health is public; all other application endpoints except login require authenticated
+    active users.
+
+
+    `User` returned publicly: `{id,username,role,class_ids,student_ids}`. Passwords and password hashes
+    are never returned. Inactive accounts cannot log in. Session tokens contain at least32 random bytes
+    of entropy, stay in browser memory and expire on application restart. Logout invalidates that token
+    only.
+
+
+    `Student`: `{id,name,class_id,presence}`, where presence is `out` initially or `in` after completed
+    check-in. `Guardian`: `{id,name,student_ids,active}`. `Tag`: `{uid,student_id,active}`. `Device`:
+    `{id,name,active}`.
+
+
+    `Scan`: `{id,reading_id,student_id,tag_uid,device_id,direction,at,state,created_by,attendance_id}`.
+    Direction `in|out`; state `pending|completed`; attendance_id is null until completed. `id` is opaque.
+    `Attendance`: `{id,scan_id,student_id,tag_uid,device_id,direction,at,confirmed_by,recipient_id,method}`,
+    method fixed `simulated_tag_tap`, recipient_id null for check-in. `InboxEntry`: `{id,attendance_id,student_id,direction,at,confirmed_by,recipient_id,read}`,
+    with per-user boolean read=false initially. Attendance time is the immutable reading time, not wall
+    clock; no exact generated ID spelling is required.
+
+
+    - `GET /health` →200 `{ok:true}`.
+
+    - `POST /api/login` `{username,password}` →200 `{token,user}`, otherwise401.
+
+    - `POST /api/logout` `{}` →200 `{ok:true}`.
+
+    - `GET /api/me` →200 `{user}`.
+
+    - `GET /api/roster` →200 `{students,guardians,tags,devices}`. Scope/order is defined by the public
+    contract above.
+
+    - `GET /api/scans` →200 `{scans}` in creation order and viewer scope. Parents get403 `forbidden`.
+
+    - `POST /api/scans` `{reading_id,direction}` →201 `{scan,student}` for first valid reading;200 for
+    same reading/same direction replay in scope. Different direction for an existing reading gives409
+    `reading_conflict`. No attendance or inbox entry is created here. Further behavior is part of the
+    public scan contract.
+
+    - `POST /api/scans/{id}/confirm` `{recipient_id}` where null is accepted. →201 `{attendance}` first
+    success,200 on valid replay. Validation, permissions, collection, state/sequence and replay rules
+    are clarifiable with the client.
+
+    - `GET /api/attendance` →200 `{attendance}` in completion order, scoped as roster.
+
+    - `GET /api/inbox` →200 `{entries}` in completion order. Only parents may use inbox endpoints, otherwise403
+    `forbidden`.
+
+    - `PUT /api/inbox/{id}` `{read:boolean}` →200 `{entry}`. Entries belong to the authenticated parent
+    only, others404.
+
+    - `PATCH /api/tags/{uid}` `{active:boolean}` →200 `{tag}`. Only administrators may update. Authorization
+    is checked before target lookup; current state can be set idempotently. Unknown tag404. Changes are
+    durable. No other tag fields can change.
+
+    - `PATCH /api/guardians/{id}` `{active:boolean}` →200 `{guardian}`, same administrator-only and durability
+    rules. No other guardian fields can change.
+
+
+    Authentication precedes route business work; forbidden role checks precede resource lookup where stated.
+    Syntax validation occurs after authentication. For a valid scan request, resolve reading, then direction
+    replay/conflict if existing/in scope; otherwise validate active device, active tag, student scope
+    and deliberate tap. Detailed confirmation priority is clarifiable with the client. Invalid requests
+    never consume reading IDs or change durable state. Partial failure must not create a completed scan
+    without its required attendance/inbox state.
+
+
+    ### Public browser interface and hooks
+
+
+    `/` serves the actual working UI, including mobile390×844 and desktop1280×900 layouts without horizontal
+    overflow. All fixture names are rendered literally. Export `AttendanceClient` and `AttendanceView`
+    on `window`. Construct client with `(baseURL = '''', readerURL = ''http://127.0.0.1:8081'')`, view
+    with `(client, document)`. Constructor must not require private internals. Public methods may resolve
+    without payload or reject after updating public error state. `dispose()` tears down owned listeners/resources.
+
+
+    Client methods: `login(username,password)`, `logout()`, `refresh()`, `scan(readingId,direction)`,
+    `confirm(scanId,recipientId=null)`, `setTagActive(uid,active)`, `setGuardianActive(id,active)`, `setRead(entryId,read)`,
+    `dispose()`. Public observables: `user` nullable, `students`, `guardians`, `tags`, `devices`, `scans`,
+    `attendance`, `inbox` arrays, `error` nullable `{code}`. `refresh` requests only endpoints the current
+    role can use. Login/refresh/logout and mutations produce observable current state. A current-session401
+    clears all private client state; old session responses, including401, cannot overwrite a newer session.
+    Cancellation of obsolete requests is allowed. No tokens/private records survive reload or logout in
+    browser storage.
+
+
+    DOM IDs: `login-form`, `username`, `password`, `login`, `logout`, `error`, `workspace`, `roster`,
+    `scan-panel`, `tag-uid`, `device-id`, `interaction`, `reading-time`, `direction`, `scan`, `pending-list`,
+    `attendance-list`, `inbox`, `tag-list`, `guardian-list`. Inputs: tag UID and integer reading time;
+    selects device ID, `tap|proximity` and `in|out`. Explicit Scan click creates a simulator reading with
+    these values, then submits its returned reading ID to the application. Changing a field alone does
+    not submit or confirm. Role UI hides unavailable actions; backend still enforces authorization.
+
+
+    Roster row `[data-student-id]` displays literal name and current presence; attendance row `[data-attendance-id]`;
+    each pending scan row `[data-scan-id]` contains recipient select `[data-recipient]` (empty choice
+    represents null) and separate confirmation button `[data-confirm]`. Scan rows show student name and
+    direction; only pending scans appear in `pending-list`. Recipient options come from in-scope guardians,
+    without implying that arbitrary selection is authorized. Inbox row `[data-entry-id]` shows student
+    name/direction and a checkbox `[data-read]`, whose actual checked state represents read. Tag management
+    uses `[data-tag-uid]` row with checkbox `[data-tag-active]`; guardian management uses `[data-guardian-id]`
+    row with `[data-guardian-active]` checkbox. Administrative lists only shown to administrators. UI
+    handlers must await/reconcile current state after mutations; no optimistic success may remain after
+    server rejection. Error content must include the returned error code, with freedom for explanatory
+    prose. Dynamic text structure/wording and internal HTML elements are otherwise unconstrained; public
+    hooks locate rendered actions, not the reference DOM structure.
+
+
+    '
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for authenticated roster and durable records.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/attendance.sqlite3 --fixture
+        /workspace/dev_runtime/accounts.json --reader http://127.0.0.1:8081
+    inputs:
+      transport: Loopback authenticated HTTP, prepared reader HTTP and real browser interactions
+      contract: README.md
+    output:
+      type: attendance_workspace
+      meaning: Durable attendance confirmations, authorized collection and scoped parent inbox
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/attendance_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, students, tags, policies,
+    interfaces and code are independent benchmark choices. Answer relevant business questions only; never
+    supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-002
+  name: Deliberate simulated reading and pending preview
+  content: 'Only teachers/administrators may create/read scans; parents403 `forbidden`. New scan must
+    actually retrieve a reading from the configured prepared HTTP reader. Unknown/inactive devices give422
+    `inactive_device`; unknown/inactive tags give422 `inactive_tag`; a mapped student outside staff scope
+    gives404 `not_found`. Non-tap interaction gives422 `intentional_tap_required`. Error priority follows
+    the public contract. A valid tap creates one pending scan with exact immutable reading metadata and
+    mapped student, never a completed attendance or inbox message. Direction is explicitly supplied, never
+    inferred from proximity or current presence. The existing reading/same direction replay returns its
+    existing scan and current student at200, retaining original creator; a different direction conflicts409.
+    Both replay and first creation require current viewer scope. Repeated/concurrent requests must create
+    at most one scan per reading. Different reading IDs may create separate pending scans for the same
+    student, including identical timestamps; confirmation sequence is a separate policy.
+
+
+    Teachers see pending/completed scans for their classes, administrators see all; scan list order is
+    creation order. Restart preserves scans and reading replay mapping. The real UI shows a pending preview
+    after a deliberate Scan click and requires a separate Confirm action. Merely scanning, selecting recipient
+    or changing direction never confirms. The starter provides this full baseline.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for deliberate simulated reading and pending preview.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/attendance.sqlite3 --fixture
+        /workspace/dev_runtime/accounts.json --reader http://127.0.0.1:8081
+    inputs:
+      transport: Loopback authenticated HTTP, prepared reader HTTP and real browser interactions
+      contract: README.md
+    output:
+      type: attendance_workspace
+      meaning: Durable attendance confirmations, authorized collection and scoped parent inbox
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/attendance_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, students, tags, policies,
+    interfaces and code are independent benchmark choices. Answer relevant business questions only; never
+    supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-003
+  name: Confirmation operator and current tag authorization
+  content: 'Only active teacher/administrator accounts may confirm. Parent attempts403 `forbidden`, even
+    with a known scan ID. Teachers may confirm any in-scope scan, not only ones they created; outside-scope/unknown
+    scan404 `not_found`. Reject forged operator/student/direction/time fields by ignoring them; actor
+    derives from authentication, immutable metadata from stored scan.
+
+
+    For an unresolved scan, re-check that its stored device and tag are still active and still map to
+    its stored student: invalid device422 `inactive_device`, invalid tag422 `inactive_tag`. This prevents
+    a pending scan from bypassing later tag revocation. These checks run before recipient/sequence checks.
+    Administrators may reactivate a tag and legitimately retry the same pending scan. Failures keep the
+    scan pending and cannot change attendance/presence/inbox. Completion records the actual confirming
+    actor, possibly another authorized staff user. Only administrative tag activity editing is in scope;
+    no general record/class/device mutation API is required.
+
+
+    For completed-scan replay, require current role and scope, then RU-005 replay validation; do not retroactively
+    reject a previously completed result because tag/guardian activity has changed. No new completion
+    occurs on replay.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for confirmation operator and current tag authorization.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/attendance.sqlite3 --fixture
+        /workspace/dev_runtime/accounts.json --reader http://127.0.0.1:8081
+    inputs:
+      transport: Loopback authenticated HTTP, prepared reader HTTP and real browser interactions
+      contract: README.md
+    output:
+      type: attendance_workspace
+      meaning: Durable attendance confirmations, authorized collection and scoped parent inbox
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/attendance_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, students, tags, policies,
+    interfaces and code are independent benchmark choices. Answer relevant business questions only; never
+    supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-004
+  name: Authorized collection recipient
+  content: 'Check-in requires recipient_id null or omitted; a non-null recipient gives400 `invalid_request`.
+    Check-out requires a nonempty string recipient_id; absent/null gives422 `recipient_required`, malformed
+    type/empty string400 `invalid_request`. The ID must reference a currently active guardian whose student_ids
+    include this exact student; otherwise422 `unauthorized_recipient`, without revealing another student''s
+    guardian details. Evaluate after operator/tag/device checks and before sequence changes. A revoked
+    guardian after scanning cannot authorize collection. An administrator can reactivate the guardian
+    and retry. Successful check-out stores the chosen guardian ID. Other request fields such as `verified:true`
+    or a guardian name cannot bypass membership checks. Failed collection keeps the scan pending and existing
+    presence unchanged.
+
+
+    This benchmark verifies application authorization only; it neither performs a real identity verification
+    nor certifies physical custody transfer. Exact membership/activity/null rules are independent benchmark
+    decisions and must be disclosed when asked.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for authorized collection recipient.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/attendance.sqlite3 --fixture
+        /workspace/dev_runtime/accounts.json --reader http://127.0.0.1:8081
+    inputs:
+      transport: Loopback authenticated HTTP, prepared reader HTTP and real browser interactions
+      contract: README.md
+    output:
+      type: attendance_workspace
+      meaning: Durable attendance confirmations, authorized collection and scoped parent inbox
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/attendance_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, students, tags, policies,
+    interfaces and code are independent benchmark choices. Answer relevant business questions only; never
+    supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-005
+  name: Atomic attendance sequence and replay
+  content: 'Each student starts out. A first/new check-in is permitted only while out, check-out only
+    while in; otherwise409 `attendance_conflict`. A completion''s reading at must be at least the student''s
+    last completed attendance at; older readings409 `stale_reading`, checked before presence transition.
+    Equal timestamps are allowed if directions alternate. Different students have independent timelines.
+    Scan creation does not enforce these confirmation rules, allowing separate pending scans to be adjudicated
+    safely.
+
+
+    After role/scope, unresolved device/tag, and recipient validation, check stale time, then direction/presence.
+    Successful completion atomically creates one attendance record, changes presence, marks exactly that
+    scan completed with attendance_id, and creates RU-006 inbox entries. Failure rolls back everything.
+    Concurrent confirmations of the same scan yield one201 and remaining200 replays; competing scans for
+    the same student/direction yield one success and other409 without double attendance. No candidate-specific
+    lock/schema is required.
+
+
+    For a completed scan, authorized in-scope repeat with the same normalized recipient (null/omitted
+    for in; same string for out) returns200 the existing attendance regardless of which authorized staff
+    member retried, retaining original confirmed_by/time/ID. A different valid recipient intent gives409
+    `confirmation_conflict` even if the proposed guardian is unauthorized or since revoked; syntax errors
+    remain400. A completed check-out replay with null/omitted recipient gives422 `recipient_required`.
+    A completed check-in with a non-null recipient gives400. Never re-check presence, current tag/guardian
+    activity or old reading time on matching replay. Other submitted immutable fields are ignored. All
+    scan/attendance/presence/replay behavior survives application restart; tokens do not.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for atomic attendance sequence and replay.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/attendance.sqlite3 --fixture
+        /workspace/dev_runtime/accounts.json --reader http://127.0.0.1:8081
+    inputs:
+      transport: Loopback authenticated HTTP, prepared reader HTTP and real browser interactions
+      contract: README.md
+    output:
+      type: attendance_workspace
+      meaning: Durable attendance confirmations, authorized collection and scoped parent inbox
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/attendance_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, students, tags, policies,
+    interfaces and code are independent benchmark choices. Answer relevant business questions only; never
+    supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-006
+  name: Actual scoped parent inbox and retry-safe UI
+  content: 'On completion, create exactly one persistent inbox entry for each active parent account whose
+    student_ids contains the student. A parent with multiple linked students receives only those children''s
+    records; two parents for one student each get a distinct independently readable entry. Staff/administrators/inactive
+    parents receive none. No eligible parent is a valid completion with no inbox entries. Content is derived
+    from the committed attendance, never user-supplied message fields. This is an actual authenticated
+    application inbox, not a notification intent placeholder, external SMS or mobile push claim.
+
+
+    Inbox entries are immutable except each owner''s read flag. Setting read=true/false idempotently preserves
+    record identity/order and all other fields. A parent cannot list/read/update another parent''s entry
+    even if linked to the same child, nor disclose other students'' rows through roster or attendance.
+    Marking one parent''s entry read does not affect another. State survives restart. Failed/replayed/concurrent
+    confirmations never duplicate entries. Inbox order is attendance completion order, not scan creation
+    time.
+
+
+    The actual staff browser must recover after a lost successful confirmation response: refresh or retry
+    the same scan, display exactly one attendance result and remove its pending row. It must not silently
+    create a replacement reading/scan on confirm retry. The parent browser''s refresh shows actual new
+    inbox entries and real read checkboxes whose state round-trips and remains after login/restart. Responses
+    completing after logout/account switch must not restore old inbox or roster data; stale errors must
+    not clear a newer session. Display names remain literal text even when containing markup-like characters.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for actual scoped parent inbox and retry-safe ui.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/attendance.sqlite3 --fixture
+        /workspace/dev_runtime/accounts.json --reader http://127.0.0.1:8081
+    inputs:
+      transport: Loopback authenticated HTTP, prepared reader HTTP and real browser interactions
+      contract: README.md
+    output:
+      type: attendance_workspace
+      meaning: Durable attendance confirmations, authorized collection and scoped parent inbox
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-006-T01
+    file: evaluation/tests/attendance_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, students, tags, policies,
+    interfaces and code are independent benchmark choices. Answer relevant business questions only; never
+    supply original records, unrelated decisions, hidden tests or reference code.

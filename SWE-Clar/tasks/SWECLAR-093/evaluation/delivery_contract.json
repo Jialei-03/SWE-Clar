@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-093",
+  "public": {
+    "readme": "# Realtime mobile notifications and cart\n\nRepair this Flutter mobile UI and Node.js realtime backend. The Flutter project contains a notification inbox, channel controls, product list and cart. HttpShopApi uses actual HTTP and WebSocket connections. Start the backend with SHOP_CONFIG pointing to an external synthetic JSON fixture (users,sessions,products) and run `node server/server.cjs`; it prints its loopback port. Products use integer price_cents. Configure Flutter with API_BASE and ACCESS_TOKEN via dart-define.\n\nThe backend supports GET /catalog, /inbox and /cart; POST /actions; and an authenticated WebSocket at /events. Actions are subscribe/unsubscribe(channel), publish(id,channel,title), add/remove(product_id,quantity). Bearer sessions determine the user; caller user IDs are not trusted. The initial project already loads records over HTTP but its push display and cart behavior need repair. Clarify delivery, replay, validation and pricing requirements as needed.\n\nUse Flutter 3.47.2/Dart 3.13.2 and Node.js with ws 8.19.0. This independently reconstructed Flutter and realtime-service component uses a normalized Node backend instead of the private Laravel/Vue services. It does not claim OS push delivery, Android/iOS device testing, the original screens or production persistence. All identities, products and messages are synthetic.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "dart",
+          "file": "lib/controller.dart",
+          "function": "ShopController",
+          "signature": "ShopController(ShopApi api)"
+        },
+        "inputs": {
+          "api": "HttpShopApi(base,token)",
+          "actions": "load/channel/change and realtime stream events"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "Actual HTTP/WebSocket effects and rendered Flutter inbox/cart state."
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "dart",
+        "file": "lib/controller.dart",
+        "function": "ShopController",
+        "signature": "ShopController(ShopApi api)"
+      },
+      "inputs": {
+        "api": "HttpShopApi(base,token)",
+        "actions": "load/channel/change and realtime stream events"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Actual HTTP/WebSocket effects and rendered Flutter inbox/cart state."
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "dart",
+        "file": "lib/controller.dart",
+        "function": "ShopController",
+        "signature": "ShopController(ShopApi api)"
+      },
+      "inputs": {
+        "api": "HttpShopApi(base,token)",
+        "actions": "load/channel/change and realtime stream events"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Actual HTTP/WebSocket effects and rendered Flutter inbox/cart state."
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "dart",
+        "file": "lib/controller.dart",
+        "function": "ShopController",
+        "signature": "ShopController(ShopApi api)"
+      },
+      "inputs": {
+        "api": "HttpShopApi(base,token)",
+        "actions": "load/channel/change and realtime stream events"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Actual HTTP/WebSocket effects and rendered Flutter inbox/cart state."
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "dart",
+        "file": "lib/controller.dart",
+        "function": "ShopController",
+        "signature": "ShopController(ShopApi api)"
+      },
+      "inputs": {
+        "api": "HttpShopApi(base,token)",
+        "actions": "load/channel/change and realtime stream events"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Actual HTTP/WebSocket effects and rendered Flutter inbox/cart state."
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "dart",
+        "file": "lib/controller.dart",
+        "function": "ShopController",
+        "signature": "ShopController(ShopApi api)"
+      },
+      "inputs": {
+        "api": "HttpShopApi(base,token)",
+        "actions": "load/channel/change and realtime stream events"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Actual HTTP/WebSocket effects and rendered Flutter inbox/cart state."
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "d78a113ec617d0617db4d3fd56712bed03b882e32b340212b654c00ceef5345d",
+  "test_sources_sha256": {
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/flutter_contract.py": "a17fd51cd539ec833acb1c6b098c615091567b51e0d2d1bfebb3cc9a10ac1dcd",
+    "evaluation/tests/official_verifier.py": "d34be47307a48ec7de8a2f85066069fb1cfaa0420bb44181b89f1a3dce5a4a4c",
+    "evaluation/tests/source_test.sh": "ca1e4b6f0f2b029e8e379c8dacf320916a3ca088d18a1ae896e38b1b72040598",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "fe31fbaa00bcb7c9163fdd117e1fc2d615bc95d2880acecda87cc096ad7c7c77"
+  },
+  "public_environment_sha256": "9577f466c9a1fb8fab2a4b33a0d631bbdc8b5314e339b7cd7bcb32c8ace0dba4",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

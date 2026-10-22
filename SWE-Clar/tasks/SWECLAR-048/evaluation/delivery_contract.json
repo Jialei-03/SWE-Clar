@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-048",
+  "public": {
+    "readme": "# Capture desk\n\nComplete this independently reconstructed multi-source video viewer. It has real framed RGB capture over loopback TCP, image transformation/PNG output, a browser canvas preview, device selection, output resolution settings and a virtual-controller input adapter. Finish the preferred-source policy, control behavior and failure presentation after clarification. Preserve working capture and resolution regressions. A changing state label cannot replace actual decoded frames or display-input switching.\n\nThis synthetic capture/display exercise uses benchmark-owned loopback interfaces. It does not claim compatibility with physical capture devices or proprietary applications. All source names, pixels, protocols and exact policies are invented benchmark materials. No original camera footage, customer application, hardware identifier, SDK, account or attachment is needed.\n\n## Prepared execution\n\nThe benchmark provides Python 3.12, its standard library, SQLite, and Playwright/Chromium in a fixed Linux AMD64 image. No additional image library or download is needed. From `/workspace`, run `python server.py --port 8000 --db /tmp/capture.sqlite`, then visit `http://127.0.0.1:8000`. The default command starts an independent synthetic source thread for development. The manager can instead supply `--camera-port <prepared TCP port>` to use its own source fixture. Port `0` chooses a free HTTP port, printed as a JSON line.\n\nPublic tests: `python -I /public_tests/test_public.py`. The benchmark prepares and checks networking, HTTP, browser and storage before the attempt. CPU/memory limits are 2 CPUs, 2 GiB RAM and 256 processes; workspace allowance 512 MiB; evaluation limit 240 seconds. Fresh database paths reset saved settings; reconnecting/restarting the source is managed by the benchmark fixture. Preserve command-line arguments and HTTP/UI hooks; internal structure may change.\n\n## Running pipeline and public interfaces\n\n`synthetic_source.py` supplies moving RGB patterns for two preview devices and a separate auxiliary display input. `wire.py` handles framed requests/responses; `pixels.py` performs image operations; `control.py` holds application policy; `server.py` supplies HTTP/SQLite; `viewer.js` displays actual PNG frames and handles browser/virtual-controller events. The auxiliary input is a second real frame stream, not a CSS label on the preview image.\n\n`GET /api/state` returns `{devices,selected,resolution,zoom,display_input,kiosk,last_action}`. A device is `{id,name,preferred}`. Before discovery: no devices/selection, resolution `640x480`, zoom 1, display input `preview`, kiosk false, last_action null. Discovery runs on startup and through `POST /api/scan` with `{}`. The preferred-source and rescan policy is available through clarification.\n\n`POST /api/control` accepts one JSON event, returning updated state:\n\n| Event type | Fields |\n|---|---|\n| `device` | `id` from current discovery |\n| `resolution` | `value`: `640x480`, `1280x720` or `1920x1080` |\n| `display` | `value`: `preview` or `auxiliary` |\n| `key` | `key`: a keyboard code string |\n| `controller` | `button`: an integer button ID |\n\nChanging resolution must change the actual image/canvas dimensions, not only the reported setting. Reject any other resolution. `GET /api/frame` captures a new frame from the currently chosen display input and returns an actual PNG with `X-Frame-Sequence` (source sequence) and `X-Display-Input` headers. Preview requires a selected source; no selection returns HTTP 409 with `error:no_device`. Source/protocol failures return HTTP 502; invalid control events return HTTP 400, both with `{error:<code>}`. Unknown HTTP routes return 404. Images are uncached. The precise zoom, keyboard/controller effects, source-error recovery and persistent settings are client policies.\n\nKeyboard codes and virtual button inputs enter the same control API. Real DOM keyboard events are supported; for the prepared virtual controller, dispatch `new CustomEvent('controller-input',{detail:{button:0}})` on `window`, or use the provided controller buttons. This explicit input adapter does not pretend to discover physical gamepads. The browser must apply successful display state and continue requesting frames; failed frames must follow the client's presentation policy. Do not solve capture failures by installing a driver or changing dependencies.\n\n## Source wire format\n\nEach TCP connection carries one request and response. Requests are a four-byte unsigned big-endian JSON byte length, then UTF-8 JSON (2\u20134096 bytes). Requests are `{op:\"list\"}`, `{op:\"frame\",input:\"preview\",device_id:<id>}`, or `{op:\"frame\",input:\"auxiliary\"}`. The peer may fragment any part; receive complete fields/payloads. A per-operation source timeout of 1.5 seconds is available in the scaffold. Do not retry against a public network or customer service.\n\nA list response starts with ASCII `LST1`, a four-byte big-endian payload length (2\u201365536), then a JSON list of at most 32 devices. Each record has exactly `id,name,preferred`. IDs are unique ASCII letters/digits/underscore/hyphen, 1\u201340 characters; names 1\u201380 characters; preferred is boolean. A frame response starts with ASCII `FRM1`, then big-endian fields: sequence `uint32`, width `uint16`, height `uint16`, payload length `uint32`, then packed row-major 8-bit RGB with no padding. Width 8\u2013320, height 8\u2013240, payload length exactly `width*height*3`. Sequence is source metadata, not a timestamp invented by the viewer. Invalid lengths, magic, dimensions or incomplete payloads are source failures.\n\nFor output, enlarge/stretch the current centered crop to the requested dimensions using nearest-neighbor samples. At zoom `z`, crop dimensions are `floor(source_width/z),floor(source_height/z)`; origin is `floor((source_size-crop_size)/2)` per axis. Output pixel `(x,y)` samples source `(left+floor(x*crop_width/output_width),top+floor(y*crop_height/output_height))`. This public image geometry prevents codec/interpolation choices from becoming an accidental hidden requirement. The client specifies allowed zoom levels and control transitions.\n\n## UI hooks\n\nPreserve `#scan`, `#device`, `#resolution`, `#display-input`, `#controller`, `[data-button]`, `#controls`, `#monitor`, `#video` and `#status`. The canvas reflects decoded image dimensions. Kiosk mode uses the application layout and requires no privileged browser-fullscreen request. Display source names and errors as text. The manager can test both actual DOM input and HTTP events without supplying hidden tests or original history to the coding agent.",
+    "interfaces": [
+      {
+        "type": "api",
+        "entry": {
+          "command": "python server.py --port 0 --db <isolated database> --camera-port <prepared source>",
+          "protocol": "HTTP/JSON, actual PNG frames and browser controls from README"
+        },
+        "inputs": "Synthetic RGB streams, device catalogs and DOM/API events",
+        "output": "Decoded image pixels, source interactions and persisted/runtime control behavior",
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "api",
+      "entry": {
+        "command": "python server.py --port 0 --db <isolated database> --camera-port <prepared source>",
+        "protocol": "HTTP/JSON, actual PNG frames and browser controls from README"
+      },
+      "inputs": "Synthetic RGB streams, device catalogs and DOM/API events",
+      "output": "Decoded image pixels, source interactions and persisted/runtime control behavior",
+      "operations": []
+    },
+    "RU-002": {
+      "type": "api",
+      "entry": {
+        "command": "python server.py --port 0 --db <isolated database> --camera-port <prepared source>",
+        "protocol": "HTTP/JSON, actual PNG frames and browser controls from README"
+      },
+      "inputs": "Synthetic RGB streams, device catalogs and DOM/API events",
+      "output": "Decoded image pixels, source interactions and persisted/runtime control behavior",
+      "operations": []
+    },
+    "RU-003": {
+      "type": "api",
+      "entry": {
+        "command": "python server.py --port 0 --db <isolated database> --camera-port <prepared source>",
+        "protocol": "HTTP/JSON, actual PNG frames and browser controls from README"
+      },
+      "inputs": "Synthetic RGB streams, device catalogs and DOM/API events",
+      "output": "Decoded image pixels, source interactions and persisted/runtime control behavior",
+      "operations": []
+    },
+    "RU-004": {
+      "type": "api",
+      "entry": {
+        "command": "python server.py --port 0 --db <isolated database> --camera-port <prepared source>",
+        "protocol": "HTTP/JSON, actual PNG frames and browser controls from README"
+      },
+      "inputs": "Synthetic RGB streams, device catalogs and DOM/API events",
+      "output": "Decoded image pixels, source interactions and persisted/runtime control behavior",
+      "operations": []
+    },
+    "RU-005": {
+      "type": "api",
+      "entry": {
+        "command": "python server.py --port 0 --db <isolated database> --camera-port <prepared source>",
+        "protocol": "HTTP/JSON, actual PNG frames and browser controls from README"
+      },
+      "inputs": "Synthetic RGB streams, device catalogs and DOM/API events",
+      "output": "Decoded image pixels, source interactions and persisted/runtime control behavior",
+      "operations": []
+    }
+  },
+  "requirements_sha256": "0f562319e1c863113c5e29d2b9ba1167d1028f5e88ff82fa0585a7aaec8cdabe",
+  "test_sources_sha256": {
+    "evaluation/tests/camera_contract.py": "c232ac4c82d639169df0e67e438696c8812a2bf6216ea72fd9c955d09722a1ae",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "3653319c5d602f1757ed05e03e131eb30772ccd6b830eadc70b5e449c22f6507",
+    "evaluation/tests/source_test.sh": "226a35d3f351881b19e4d5cccdb0ae1118f8db8b0934f47ca74ed8aa7a5e683b",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

@@ -1,0 +1,229 @@
+schema_version: 1
+task_id: SWECLAR-089
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Persistent lesson scheduling HTTP backend with verified payment and acknowledged meeting/email
+  providers
+requirement_units:
+- ru_id: RU-001
+  name: Studio workflow entry point
+  content: Complete the supplied HTTP/SQLite backend and StudioClient adapter. process_music_action(state,action,service=None)
+    is an internal immutable workflow function; POST /actions authenticates a synthetic Bearer session
+    from STUDIO_CONFIG, overrides caller actor_id/viewer_id with the authenticated user and returns only
+    {result} or {error}. Persist successful state changes in STUDIO_DB across restart. Serialize concurrent
+    actions so booking/payment checks and commits cannot race. Unknown/invalid sessions get HTTP 401 without
+    data. The server owns SQLite/config/session credentials; source code must execute as ordinary user.
+    Config sessions map opaque synthetic tokens to known user IDs; tokens/provider credentials never enter
+    persisted workflow state. Invalid actions preserve business state. Result/error wording and extra
+    nonsecret metadata are unconstrained. This is a local HTTP component; no live payment, video room
+    or email delivery is claimed.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for studio workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_music_action
+      signature: process_music_action(state,action,service=None) -> dict
+    inputs:
+      state: Private backend state; not returned by HTTP API
+      action: Supported workflow action
+      service: StudioClient(base_url,token=None)
+    output:
+      type: dict
+      meaning: Internal next state; HTTP adapter returns scoped result/error and persists successful state
+        changes.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Reconstructed backend component with real local HTTP/SQLite behavior. Normalized provider protocol
+    and timezone interval representation are benchmark choices. No original service account, wireframe,
+    family/student identity or customer code is included.
+- ru_id: RU-002
+  name: Role-scoped availability and booking
+  content: An assigned instructor or administrator may set availability; a student or linked parent may
+    book an open interval for that student with a positive credit balance. Slots are start/end ISO timestamps
+    with explicit timezone offsets and start before end. Reject active overlapping intervals for the same
+    instructor even if slot strings differ; adjacent half-open intervals are allowed. Reject duplicate
+    booking IDs. Cancellation by an authorized viewer frees the interval without deducting a credit. Validate
+    permissions and availability before provider side effects. Availability is a list of trimmed start/end
+    strings separated by '/', each timestamp explicit Z or numeric timezone offset. Compare instants for
+    overlap; overlap uses start<other_end and other_start<end, including completed bookings (cancelled
+    excluded). Booking slot must match one configured string after trim, IDs nonempty/unique. Credits
+    are nonnegative integers excluding bool; book requires >=1 but debits only on completion. Admins can
+    set availability/cancel/view/complete; booking is student or linked parent only. Cancellation permits
+    booked status only.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for role-scoped availability and booking.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_music_action
+      signature: process_music_action(state,action,service=None) -> dict
+    inputs:
+      state: Private backend state; not returned by HTTP API
+      action: Supported workflow action
+      service: StudioClient(base_url,token=None)
+    output:
+      type: dict
+      meaning: Internal next state; HTTP adapter returns scoped result/error and persists successful state
+        changes.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Reconstructed backend component with real local HTTP/SQLite behavior. Normalized provider protocol
+    and timezone interval representation are benchmark choices. No original service account, wireframe,
+    family/student identity or customer code is included.
+- ru_id: RU-003
+  name: Idempotent package and credit ledger
+  content: purchase_package must GET provider_url/payments/<URL-encoded payment_event_id> with the configured
+    provider Bearer credential. Require a paid receipt with matching event_id and student_id and a known
+    package_id in the server-side packages catalog; derive the credit amount from that catalog, never
+    caller paid/credits/card fields. Exact receipt replay adds credits once; conflicting reuse of an event
+    ID is rejected. Persist the purchase ledger reason and retain no raw card fields or provider credentials
+    in workflow state/API output. The API allows the student, linked parent or admin to request this check.
+    Catalog maps package_id to positive integer credit amount; record verified event_id,student_id,package_id
+    and derived credits only, not arbitrary receipt fields. Receipt replays still query provider so changed
+    package identity is a conflict even if its amount matches. Provider errors/unknown package/mismatched
+    or unpaid receipt reject with no state change. Authorization precedes receipt lookup.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for idempotent package and credit ledger.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_music_action
+      signature: process_music_action(state,action,service=None) -> dict
+    inputs:
+      state: Private backend state; not returned by HTTP API
+      action: Supported workflow action
+      service: StudioClient(base_url,token=None)
+    output:
+      type: dict
+      meaning: Internal next state; HTTP adapter returns scoped result/error and persists successful state
+        changes.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Reconstructed backend component with real local HTTP/SQLite behavior. Normalized provider protocol
+    and timezone interval representation are benchmark choices. No original service account, wireframe,
+    family/student identity or customer code is included.
+- ru_id: RU-004
+  name: Completion deduction and low-credit email
+  content: An assigned instructor or administrator may complete a booked lesson. Deduct exactly one credit
+    once and record a lesson_completed ledger reason. At or below low_credit_threshold (default 1), POST
+    an email notification to provider_url/emails with event_id=low_credit:<booking_id>, corresponding
+    kind/student_id/balance/booking_id and the same Idempotency-Key. Require accepted=true and matching
+    event_id before committing local completion. Failure preserves local credit/lesson state; retry reuses
+    the provider idempotency key. Repeated completion does not send another notification or debit. Completion
+    is idempotent for an already completed booking; an authorized repeat returns current completion status/balance
+    with no provider call. Require integer balance>=1 and nonnegative integer threshold. Notification
+    payload kind=low_credit and event_id as specified. A provider may accept remotely then return failure;
+    local retry must reuse the key rather than assuming delivery failed. Commit credit,booking,ledger
+    only after all required acknowledgements.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for completion deduction and low-credit email.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_music_action
+      signature: process_music_action(state,action,service=None) -> dict
+    inputs:
+      state: Private backend state; not returned by HTTP API
+      action: Supported workflow action
+      service: StudioClient(base_url,token=None)
+    output:
+      type: dict
+      meaning: Internal next state; HTTP adapter returns scoped result/error and persists successful state
+        changes.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Reconstructed backend component with real local HTTP/SQLite behavior. Normalized provider protocol
+    and timezone interval representation are benchmark choices. No original service account, wireframe,
+    family/student identity or customer code is included.
+- ru_id: RU-005
+  name: Meeting delivery and privacy audit
+  content: Before committing a booking, POST {booking_id,student_id,instructor_id,slot} to provider_url/meetings
+    with Idempotency-Key=meeting:<booking_id>. Require matching booking_id and a valid HTTP(S) join_url
+    from the provider. Then POST {event_id,kind,booking_id,student_id,meeting_link} to provider_url/emails
+    using event_id/Idempotency-Key=confirmation:<booking_id>, kind=booking_confirmation and a matching
+    accepted acknowledgement. Failure commits no local booking; retries reuse keys and the synthetic provider
+    deduplicates deliveries. portal exposes only the selected booking status/link/credit balance to the
+    student, linked parent, assigned instructor or admin; audit instructor/admin views. API responses
+    must not expose other users, ledger, sessions, provider tokens or internal state. StudioClient meeting
+    returns validated join URL; email returns successful acknowledgement or raises. Provider metadata
+    beyond required fields is allowed. Confirmation payload includes event_id=confirmation:<booking_id>.
+    portal request includes booking_id,student_id; require matching selected student; return booking_id,status,meeting_link,credit_balance,
+    with optional nonsecret metadata. No user maps, ledgers, sessions or credentials in API results. HTTP
+    errors indicate failure semantics; exact non-auth status codes/messages are not fixed.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for meeting delivery and privacy audit.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_music_action
+      signature: process_music_action(state,action,service=None) -> dict
+    inputs:
+      state: Private backend state; not returned by HTTP API
+      action: Supported workflow action
+      service: StudioClient(base_url,token=None)
+    output:
+      type: dict
+      meaning: Internal next state; HTTP adapter returns scoped result/error and persists successful state
+        changes.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Reconstructed backend component with real local HTTP/SQLite behavior. Normalized provider protocol
+    and timezone interval representation are benchmark choices. No original service account, wireframe,
+    family/student identity or customer code is included.
