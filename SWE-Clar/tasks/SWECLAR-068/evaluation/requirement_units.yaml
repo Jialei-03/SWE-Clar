@@ -49,7 +49,7 @@ requirement_units:
 - ru_id: RU-002
   name: Independent trigger controls
   content: Config.triggers is an object mapping signal name to its independent enabled boolean, while
-    context.trigger_states maps the same names to the current firing boolean. Active_signals contains,
+    context.trigger_states maps the same names to the current firing boolean. active_signals contains,
     in context.trigger_states order, exactly the names whose configured and current values are both true.
   requirement_category: core
   source_visibility: visible

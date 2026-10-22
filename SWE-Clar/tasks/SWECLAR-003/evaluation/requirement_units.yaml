@@ -121,13 +121,7 @@ requirement_units:
     file: evaluation/tests/campaign_contract.py
 - ru_id: RU-004
   name: Consent and local legal navigation
-  content: When consent_decision is explicitly accept or decline, it overrides the stored value on each
-    page load and is saved as the current decision. With omitted/null input, restore only a stored accept/decline
-    decision; otherwise start with no decision and show the panel. Accept and Decline controls set the
-    corresponding persistent value and hide the panel. Reload preserves a valid stored decision when input
-    is null; different site IDs are isolated. Invalid stored strings are ignored. Render the three supplied
-    legal destinations as usable footer anchors to actual local sections, with synthetic explanatory content.
-    The legal destinations must not use #accept or #decline; these IDs belong exclusively to the consent controls. These are local demonstration preferences, not a claim of regulatory compliance.
+  content: "When consent_decision is explicitly accept or decline, it overrides the stored value on each page load and is saved as the current decision. With omitted/null input, restore only a stored accept/decline decision; otherwise start with no decision and show the panel. Accept and Decline controls set the corresponding persistent value and hide the panel. Reload preserves a valid stored decision when input is null; different site IDs are isolated. Invalid stored strings are ignored. Render the three supplied legal destinations as usable footer anchors to actual local sections, with synthetic explanatory content. The legal destinations must not use #accept or #decline; these IDs belong exclusively to the consent controls. These are local demonstration preferences, not a claim of regulatory compliance."
   requirement_category: refinement
   source_visibility: hidden
   benchmark_visibility: hidden

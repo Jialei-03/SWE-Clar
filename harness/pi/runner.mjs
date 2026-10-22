@@ -160,7 +160,7 @@ function registerModel(input, authStorage) {
     process.env.SWECLAR_PI_MODEL_API_KEY || config.api_key || '';
   if (config.builtin_provider === true) {
     if (runtimeKey) authStorage.setRuntimeApiKey(provider, runtimeKey);
-    // Pi's bundled catalog can lag the ChatGPT Codex catalog.  Register only
+    // Pi's bundled catalog can lag the provider's model catalog.  Register only
     // the selected missing model (for example GPT-5.6) against Pi's built-in
     // OAuth provider; the credential remains in AuthStorage and never enters
     // the model definition or process environment.
@@ -458,7 +458,7 @@ async function main(input) {
   let nativeTools = [];
   if (runtimeBacked) {
     const operations = dockerFileOperations(input, IMAGE_MIME);
-    nativeTools = (auditSession || clarificationSession) ? [createReadToolDefinition(cwd, { operations: operations.read })] : [
+    nativeTools = (auditSession || clarificationSession || sessionKind === 'private_review') ? [createReadToolDefinition(cwd, { operations: operations.read })] : [
       createReadToolDefinition(cwd, { operations: operations.read }),
       createBashToolDefinition(cwd, { operations: dockerBashOperations(input) }),
       createEditToolDefinition(cwd, { operations: operations.edit }),

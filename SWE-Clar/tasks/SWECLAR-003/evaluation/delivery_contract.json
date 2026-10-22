@@ -111,7 +111,7 @@
       "operations": []
     }
   },
-  "requirements_sha256": "318b26abe5e2af3866ca4c62ea6d2adcd7845cea8e5ea75cf9949ea25b2805a8",
+  "requirements_sha256": "1f0c3319237dce6f586cef6f6a85263f8ba2ee434e582753658bf5cf81bd53be",
   "test_sources_sha256": {
     "evaluation/tests/campaign_contract.py": "8186e0d8fdef14b7242378d1f498e4624586bd6a66fc4ec2cab7c80139f250ac",
     "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",

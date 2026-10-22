@@ -115,7 +115,9 @@ def run(args):
         raise ValueError('candidate.api_key_env must name your credential environment variable')
     profile['api_key'] = os.environ[key_env]
     role_configs = {r: RoleConfig.from_profile(config[r]) for r in ('client', 'supervisor', 'judge')}
-    root = args.output
+    root = args.output.resolve()
+    if root.is_relative_to(dataset.resolve()) or dataset.resolve().is_relative_to(root):
+        raise ValueError('Output must be separate from the dataset')
     root.mkdir(parents=True, exist_ok=False)
     started = time.time()
     previous = None
