@@ -1,0 +1,4 @@
+window.directoryMeasurements={};
+window.directoryReadiness=function(values){const limits={LCP:2500,INP:200,CLS:0.1},failed=[],missing=[];for(const [name,limit] of Object.entries(limits)){const value=values[name];if(typeof value!=='number'||!Number.isFinite(value)||value<0)missing.push(name);else if(value>limit)failed.push(name);}return {ready:!failed.length&&!missing.length,failed,missing};};
+function observed(metric){window.directoryMeasurements[metric.name]=metric.value;const result=window.directoryReadiness(window.directoryMeasurements);document.querySelector('#vitals-status').textContent=result.missing.length?'Still waiting for: '+result.missing.join(', '):result.failed.length?'Lab thresholds exceeded: '+result.failed.join(', '):'Observed lab values meet the example thresholds.';}
+webVitals.onLCP(observed,{reportAllChanges:true});webVitals.onINP(observed,{reportAllChanges:true});webVitals.onCLS(observed,{reportAllChanges:true});

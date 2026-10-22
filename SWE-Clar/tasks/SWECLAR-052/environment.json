@@ -1,0 +1,28 @@
+{
+  "profile": "python-web",
+  "image": "sha256:4047459f390e30653d64d76723097236c183356e2172b55cda6f0701f0629f7a",
+  "workdir": "/workspace",
+  "public_test": "python /public_tests/smoke.py",
+  "start": "Service is started before budget by task_preflight; standalone checkout: python local_service.py",
+  "port": 8090,
+  "health": "GET http://127.0.0.1:8090/health",
+  "cpu": 2,
+  "memory_mib": 2048,
+  "network": "local only",
+  "dependencies": "Python 3.12.3 standard library only; no third-party packages required",
+  "reset": "fresh candidate workspace and restart service",
+  "assets": [],
+  "task_preflight": [
+    "python",
+    "/public_tests/preflight.py"
+  ],
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "network": "none except loopback",
+    "workspace_mb": 256,
+    "evaluation_wall_seconds": 180
+  },
+  "platform": "linux/amd64"
+}

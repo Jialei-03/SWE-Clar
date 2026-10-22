@@ -1,0 +1,193 @@
+schema_version: 1
+task_id: SWECLAR-079
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Native ComfyUI portrait API graph construction and real offline integration; no subjective
+  identity-quality score
+requirement_units:
+- ru_id: RU-001
+  name: Native API workflow
+  content: 'Return a fresh JSON-compatible object with prompt holding a native ComfyUI API graph: arbitrary
+    string node IDs map to class_type and inputs. Links use native [node_id, output_index] values. Do
+    not mutate configuration. The graph must validate and execute in the provided real local ComfyUI runtime;
+    descriptive flags, invented nodes and fixed IDs are not substitutes.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the required behavior for native api workflow.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: build_portrait_workflow
+      signature: 'build_portrait_workflow(config: dict) -> dict'
+    inputs:
+      arguments:
+      - config
+    output:
+      type: dict
+      meaning: Native ComfyUI prompt wrapper, or a structured nonempty error; extra metadata and arbitrary
+        node IDs are allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Source supports a local two-image portrait workflow. API config/schema, crop/edit rectangles,
+    exact output sizes, low-resolution integration and GPU-hint threshold are explicit reconstruction
+    conventions. Real conditioning execution does not establish subjective identity quality.
+- ru_id: RU-002
+  name: Local images and prompts
+  content: Use the configured local template_asset and face_asset, plus positive prompt and negative_prompt
+    text. Both image branches and both text conditionings must reach sampling or its conditioning path.
+    Reject absent local image assets with a nonempty error code and no runnable prompt. No network image,
+    model or account dependency is allowed.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the required behavior for local images and prompts.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: build_portrait_workflow
+      signature: 'build_portrait_workflow(config: dict) -> dict'
+    inputs:
+      arguments:
+      - config
+    output:
+      type: dict
+      meaning: Native ComfyUI prompt wrapper, or a structured nonempty error; extra metadata and arbitrary
+        node IDs are allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Source supports a local two-image portrait workflow. API config/schema, crop/edit rectangles,
+    exact output sizes, low-resolution integration and GPU-hint threshold are explicit reconstruction
+    conventions. Real conditioning execution does not establish subjective identity quality.
+- ru_id: RU-003
+  name: Template and face conditioning
+  content: Use the prepared Canny ControlNet preset to condition sampling from the template image. Crop
+    the face source using face_crop and pass that crop through the provided Plus-Face IPAdapter and CLIP
+    Vision model to the actual sampler MODEL. Both ControlNet and identity conditioning must have positive
+    strength and act during sampling. These are real conditioning paths, not a subjective guarantee of
+    likeness or pose accuracy. The provided preset contains Canny, not an invented depth node/fallback
+    vocabulary.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the required behavior for template and face conditioning.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: build_portrait_workflow
+      signature: 'build_portrait_workflow(config: dict) -> dict'
+    inputs:
+      arguments:
+      - config
+    output:
+      type: dict
+      meaning: Native ComfyUI prompt wrapper, or a structured nonempty error; extra metadata and arbitrary
+        node IDs are allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Source supports a local two-image portrait workflow. API config/schema, crop/edit rectangles,
+    exact output sizes, low-resolution integration and GPU-hint threshold are explicit reconstruction
+    conventions. Real conditioning execution does not establish subjective identity quality.
+- ru_id: RU-004
+  name: Image output and exterior preservation
+  content: 'Save exactly one image at width/height of 1024x1536 or1536x2048. sample_width/sample_height
+    describe lower-resolution diffusion, separately from the final output resize; do not claim native
+    high-resolution generation. Composite the generated image through edit_box over the template resized
+    with nearest-exact sampling: pixels outside that rectangle retain the template background and wings.
+    Generated pixels inside must actually contribute. Subjective facial fidelity and seam quality are
+    outside scoring. Reject unsupported output dimensions with a nonempty error code and no runnable prompt.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the required behavior for image output and exterior preservation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: build_portrait_workflow
+      signature: 'build_portrait_workflow(config: dict) -> dict'
+    inputs:
+      arguments:
+      - config
+    output:
+      type: dict
+      meaning: Native ComfyUI prompt wrapper, or a structured nonempty error; extra metadata and arbitrary
+        node IDs are allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Source supports a local two-image portrait workflow. API config/schema, crop/edit rectangles,
+    exact output sizes, low-resolution integration and GPU-hint threshold are explicit reconstruction
+    conventions. Real conditioning execution does not establish subjective identity quality.
+- ru_id: RU-005
+  name: Prepared local execution and decode
+  content: Use only real classes from available_nodes and model names from available_models. Reject missing
+    required nodes/models with a nonempty error code and no runnable prompt. Select real VAEDecodeTiled
+    below the synthetic vram_gb hint of24, otherwise VAEDecode; connect the sampled latent and checkpoint
+    VAE. The prepared CPU integration uses pinned pretrained models and short-step sampling. This GPU
+    hint convention does not imply the container has24GiB; the real execution budget is documented separately.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the required behavior for prepared local execution and decode.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: build_portrait_workflow
+      signature: 'build_portrait_workflow(config: dict) -> dict'
+    inputs:
+      arguments:
+      - config
+    output:
+      type: dict
+      meaning: Native ComfyUI prompt wrapper, or a structured nonempty error; extra metadata and arbitrary
+        node IDs are allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Source supports a local two-image portrait workflow. API config/schema, crop/edit rectangles,
+    exact output sizes, low-resolution integration and GPU-hint threshold are explicit reconstruction
+    conventions. Real conditioning execution does not establish subjective identity quality.

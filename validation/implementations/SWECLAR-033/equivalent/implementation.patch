@@ -1,0 +1,998 @@
+diff --git a/feed_parser.py b/feed_parser.py
+index d12919316ac5808da0fc06d11ca9294182016cae..a64f2b145bbecc223c5c7e8d9e72be4fff438e81 100644
+--- a/feed_parser.py
++++ b/feed_parser.py
+@@ -1,2 +1,602 @@
+-def parse_feed(text, kind, base_url):
+-    raise NotImplementedError("Parse the raw feed document")
++"""Parsers for the exhibition feed formats supported by the component.
++
++The public entry point in :mod:`solution` deliberately deals in raw feed
++text.  This module keeps the format-specific work here and raises typed
++errors so that a caller can distinguish a bad document from a bad exhibition
++inside an otherwise well-formed document.
++"""
++
++from __future__ import annotations
++
++import json
++import re
++import xml.etree.ElementTree as ET
++from datetime import date, datetime, timedelta
++from html.parser import HTMLParser
++from typing import Any, Dict, Iterable, List, Optional, Tuple
++from urllib.parse import urljoin
++
++
++class FeedParseError(ValueError):
++    """Base class for errors found while parsing a feed."""
++
++    code = "invalid_feed"
++
++
++class InvalidFeedError(FeedParseError):
++    """The document is not a valid document of the requested feed type."""
++
++    code = "invalid_feed"
++
++
++class InvalidExhibitionError(FeedParseError):
++    """A feed item is present but does not describe an exhibition."""
++
++    code = "invalid_exhibition"
++
++
++class UnsupportedFeedError(FeedParseError):
++    """The source's feed type is intentionally handled manually."""
++
++    code = "manual_entry_required"
++
++
++# Feed type values are the four documented short names.  Matching is
++# case-insensitive, while arbitrary/manual values remain unsupported.
++_FEED_TYPE_ALIASES = {
++    "json": "json",
++    "rss": "rss",
++    "ics": "ics",
++    "html": "html",
++}
++
++
++def normalise_feed_type(kind: Any) -> Optional[str]:
++    """Return the internal feed type name, or ``None`` for manual feeds."""
++
++    if not isinstance(kind, str):
++        return None
++    return _FEED_TYPE_ALIASES.get(kind.strip().lower())
++
++
++def is_supported_feed_type(kind: Any) -> bool:
++    return normalise_feed_type(kind) is not None
++
++
++def _as_text(value: Any, field: str) -> str:
++    if not isinstance(value, str):
++        raise InvalidExhibitionError("missing or invalid " + field)
++    value = value.strip()
++    if not value:
++        raise InvalidExhibitionError("missing " + field)
++    return value
++
++
++def _title_text(value: Any) -> str:
++    return _as_text(value, "title")
++
++
++def _parse_date(value: Any, field: str, *, allow_datetime: bool = False) -> date:
++    """Parse a feed date and turn date errors into invalid_exhibition."""
++
++    raw = _as_text(value, field)
++    try:
++        if allow_datetime:
++            # HTML datetime attributes commonly use a full ISO timestamp.
++            # ``date.fromisoformat`` intentionally handles date-only values
++            # first, then ``datetime`` handles the timestamp variants.
++            try:
++                return date.fromisoformat(raw)
++            except ValueError:
++                timestamp = raw
++                if timestamp.endswith(("Z", "z")):
++                    timestamp = timestamp[:-1] + "+00:00"
++                return datetime.fromisoformat(timestamp).date()
++        return date.fromisoformat(raw)
++    except (TypeError, ValueError, OverflowError):
++        raise InvalidExhibitionError("invalid " + field)
++
++
++def _parse_ics_date(value: Any, field: str) -> date:
++    raw = _as_text(value, field)
++    # VALUE=DATE is the format required by the public wire contract.
++    if not re.fullmatch(r"\d{8}", raw):
++        raise InvalidExhibitionError("invalid " + field)
++    try:
++        return date(int(raw[0:4]), int(raw[4:6]), int(raw[6:8]))
++    except ValueError:
++        raise InvalidExhibitionError("invalid " + field)
++
++
++def _resolve_url(value: Any, base_url: str, field: str = "url") -> str:
++    raw = _as_text(value, field)
++    # Only surrounding whitespace is normalised.  In particular, urljoin
++    # preserves path case, query strings and fragments.
++    return urljoin(base_url.strip(), raw)
++
++
++def _optional_image(value: Any, base_url: str) -> Optional[str]:
++    if value is None:
++        return None
++    if not isinstance(value, str):
++        raise InvalidExhibitionError("invalid image")
++    raw = value.strip()
++    if not raw:
++        return None
++    return urljoin(base_url.strip(), raw)
++
++
++def _make_record(
++    *,
++    title: Any,
++    start_date: Any,
++    end_date: Any,
++    url: Any,
++    image: Any,
++    base_url: str,
++    html_dates: bool = False,
++) -> Dict[str, str]:
++    """Validate and normalise the common exhibition fields."""
++
++    title_value = _title_text(title)
++    start_value = _parse_date(start_date, "start_date", allow_datetime=html_dates)
++    end_value = _parse_date(end_date, "end_date", allow_datetime=html_dates)
++    if end_value < start_value:
++        raise InvalidExhibitionError("invalid date range")
++
++    record: Dict[str, str] = {
++        "title": title_value,
++        "start_date": start_value.isoformat(),
++        "end_date": end_value.isoformat(),
++        "url": _resolve_url(url, base_url),
++    }
++    image_value = _optional_image(image, base_url)
++    if image_value is not None:
++        record["image"] = image_value
++    return record
++
++
++def _element_text(element: Optional[ET.Element]) -> Optional[str]:
++    if element is None:
++        return None
++    return "".join(element.itertext())
++
++
++def _local_name(tag: Any) -> str:
++    # ElementTree represents namespaced tags as ``{uri}name``.
++    if not isinstance(tag, str):
++        return ""
++    return tag.rsplit("}", 1)[-1].lower()
++
++
++def _child(element: ET.Element, name: str) -> Optional[ET.Element]:
++    wanted = name.lower()
++    for child in list(element):
++        if _local_name(child.tag) == wanted:
++            return child
++    return None
++
++
++def _parse_json(text: str, base_url: str) -> List[Dict[str, str]]:
++    try:
++        document = json.loads(text)
++    except (TypeError, ValueError, json.JSONDecodeError):
++        raise InvalidFeedError("malformed JSON feed")
++
++    if not isinstance(document, list):
++        raise InvalidFeedError("JSON feed must be an array")
++
++    records: List[Dict[str, str]] = []
++    for item in document:
++        if not isinstance(item, dict):
++            raise InvalidExhibitionError("invalid exhibition item")
++        records.append(
++            _make_record(
++                title=item.get("title"),
++                start_date=item.get("start_date"),
++                end_date=item.get("end_date"),
++                url=item.get("url"),
++                image=item.get("image"),
++                base_url=base_url,
++            )
++        )
++    return records
++
++
++def _parse_rss(text: str, base_url: str) -> List[Dict[str, str]]:
++    try:
++        root = ET.fromstring(text.lstrip("\ufeff"))
++    except (ET.ParseError, TypeError, ValueError):
++        raise InvalidFeedError("malformed RSS feed")
++
++    if _local_name(root.tag) != "rss":
++        raise InvalidFeedError("RSS root is missing")
++    channel = _child(root, "channel")
++    if channel is None:
++        raise InvalidFeedError("RSS channel is missing")
++
++    records: List[Dict[str, str]] = []
++    for item in [child for child in list(channel) if _local_name(child.tag) == "item"]:
++        image_element = _child(item, "image")
++        records.append(
++            _make_record(
++                title=_element_text(_child(item, "title")),
++                start_date=_element_text(_child(item, "start_date")),
++                end_date=_element_text(_child(item, "end_date")),
++                url=_element_text(_child(item, "link")),
++                image=_element_text(image_element),
++                base_url=base_url,
++            )
++        )
++    return records
++
++
++def _unfold_ics(text: str) -> List[str]:
++    # RFC 5545 continuation lines start with a space or tab and are joined
++    # without that first whitespace character.
++    normalised = text.replace("\r\n", "\n").replace("\r", "\n")
++    lines = normalised.split("\n")
++    if lines and lines[0].startswith("\ufeff"):
++        lines[0] = lines[0].lstrip("\ufeff")
++
++    unfolded: List[str] = []
++    for line in lines:
++        if line.startswith((" ", "\t")):
++            if not unfolded:
++                raise InvalidFeedError("invalid ICS continuation")
++            unfolded[-1] += line[1:]
++        else:
++            unfolded.append(line)
++    return unfolded
++
++
++def _decode_ical_text(value: str) -> str:
++    # Decode the text escapes used by SUMMARY, URL and IMAGE values.  A
++    # small scanner avoids ordering problems between ``\\`` and ``\\,``.
++    result: List[str] = []
++    index = 0
++    escapes = {"n": "\n", "N": "\n", "r": "\r", "R": "\r", ",": ",", ";": ";", "\\": "\\"}
++    while index < len(value):
++        character = value[index]
++        if character == "\\" and index + 1 < len(value):
++            following = value[index + 1]
++            result.append(escapes.get(following, following))
++            index += 2
++        else:
++            result.append(character)
++            index += 1
++    return "".join(result)
++
++
++def _ics_params(left_hand_side: str) -> Tuple[str, Dict[str, str]]:
++    parts = left_hand_side.split(";")
++    name = parts[0].strip().upper()
++    params: Dict[str, str] = {}
++    for part in parts[1:]:
++        if "=" not in part:
++            # A property parameter without an equals sign is not a usable
++            # iCalendar property, but treating it as malformed is clearer
++            # than silently accepting a different wire format.
++            raise InvalidFeedError("malformed ICS property")
++        key, value = part.split("=", 1)
++        params[key.strip().upper()] = value.strip().strip('"')
++    if not name:
++        raise InvalidFeedError("malformed ICS property")
++    return name, params
++
++
++def _first_ics_property(
++    properties: Dict[str, List[Tuple[Dict[str, str], str]]], name: str
++) -> Optional[Tuple[Dict[str, str], str]]:
++    values = properties.get(name)
++    return values[0] if values else None
++
++
++def _ics_event_record(
++    properties: Dict[str, List[Tuple[Dict[str, str], str]]], base_url: str
++) -> Dict[str, str]:
++    summary_property = _first_ics_property(properties, "SUMMARY")
++    url_property = _first_ics_property(properties, "URL")
++    start_property = _first_ics_property(properties, "DTSTART")
++    end_property = _first_ics_property(properties, "DTEND")
++    if not all((summary_property, url_property, start_property, end_property)):
++        raise InvalidExhibitionError("ICS event is missing a required field")
++
++    assert summary_property is not None
++    assert url_property is not None
++    assert start_property is not None
++    assert end_property is not None
++    start_params, start_raw = start_property
++    end_params, end_raw = end_property
++    # A date-only value is required by the documented format.  Accepting a
++    # missing VALUE parameter for an 8-digit value is harmless for common ICS
++    # producers, but never accept a date-time value as an all-day date.
++    if start_params.get("VALUE", "DATE").upper() != "DATE":
++        raise InvalidExhibitionError("DTSTART must be a date")
++    if end_params.get("VALUE", "DATE").upper() != "DATE":
++        raise InvalidExhibitionError("DTEND must be a date")
++
++    start_value = _parse_ics_date(start_raw, "start_date")
++    exclusive_end = _parse_ics_date(end_raw, "end_date")
++    end_value = exclusive_end - timedelta(days=1)
++    if end_value < start_value:
++        raise InvalidExhibitionError("invalid date range")
++
++    summary = _decode_ical_text(summary_property[1]).strip()
++    if not summary:
++        raise InvalidExhibitionError("missing title")
++    url = _decode_ical_text(url_property[1])
++    image_property = _first_ics_property(properties, "IMAGE")
++    image = _decode_ical_text(image_property[1]) if image_property else None
++
++    record: Dict[str, str] = {
++        "title": summary,
++        "start_date": start_value.isoformat(),
++        "end_date": end_value.isoformat(),
++        "url": _resolve_url(url, base_url),
++    }
++    image_value = _optional_image(image, base_url)
++    if image_value is not None:
++        record["image"] = image_value
++    return record
++
++
++def _parse_ics(text: str, base_url: str) -> List[Dict[str, str]]:
++    lines = _unfold_ics(text)
++    if not lines:
++        raise InvalidFeedError("empty ICS feed")
++
++    stack: List[str] = []
++    calendar_seen = False
++    calendar_ended = False
++    current_properties: Optional[Dict[str, List[Tuple[Dict[str, str], str]]]] = None
++    records: List[Dict[str, str]] = []
++
++    for line in lines:
++        if line == "":
++            # A final newline produces an empty split item and is normal.
++            continue
++        if ":" not in line:
++            raise InvalidFeedError("malformed ICS line")
++        left, raw_value = line.split(":", 1)
++        try:
++            name, params = _ics_params(left)
++        except InvalidFeedError:
++            raise
++
++        if name == "BEGIN":
++            component = raw_value.strip().upper()
++            if not component:
++                raise InvalidFeedError("empty ICS component")
++            if not stack:
++                if component != "VCALENDAR" or calendar_seen:
++                    raise InvalidFeedError("ICS calendar is missing")
++                calendar_seen = True
++            elif component == "VCALENDAR":
++                raise InvalidFeedError("nested ICS calendar")
++            if component == "VEVENT":
++                if not stack or stack[-1] != "VCALENDAR":
++                    raise InvalidFeedError("VEVENT outside VCALENDAR")
++                if current_properties is not None:
++                    raise InvalidFeedError("nested VEVENT")
++                current_properties = {}
++            stack.append(component)
++            continue
++
++        if name == "END":
++            component = raw_value.strip().upper()
++            if not stack or stack[-1] != component:
++                raise InvalidFeedError("unbalanced ICS component")
++            stack.pop()
++            if component == "VEVENT":
++                if current_properties is None:
++                    raise InvalidFeedError("empty VEVENT")
++                records.append(_ics_event_record(current_properties, base_url))
++                current_properties = None
++            elif component == "VCALENDAR":
++                calendar_ended = True
++            continue
++
++        # Properties of nested non-VEVENT components are ignored.  Only
++        # direct VEVENT properties describe an exhibition.
++        if current_properties is not None and stack and stack[-1] == "VEVENT":
++            # Keep the wire value here; SUMMARY/URL/IMAGE are decoded exactly
++            # once when the completed event is validated.
++            current_properties.setdefault(name, []).append((params, raw_value))
++
++    if not calendar_seen or not calendar_ended or stack or current_properties is not None:
++        raise InvalidFeedError("incomplete ICS calendar")
++    return records
++
++
++class _HTMLFeedParser(HTMLParser):
++    """Collect the deliberately small HTML feed vocabulary."""
++
++    def __init__(self) -> None:
++        super().__init__(convert_charrefs=True)
++        self.articles: List[Dict[str, Any]] = []
++        self.current: Optional[Dict[str, Any]] = None
++        self.saw_article_markup = False
++        self._h2_depth = 0
++        self._details_depth = 0
++        self._start_time_depth = 0
++        self._end_time_depth = 0
++
++    @staticmethod
++    def _attributes(attributes: Iterable[Tuple[str, Optional[str]]]) -> Dict[str, str]:
++        return {key.lower(): (value if value is not None else "") for key, value in attributes}
++
++    @staticmethod
++    def _has_class(attributes: Dict[str, str], class_name: str) -> bool:
++        return class_name in attributes.get("class", "").split()
++
++    def handle_starttag(self, tag: str, attributes: List[Tuple[str, Optional[str]]]) -> None:
++        tag = tag.lower()
++        attrs = self._attributes(attributes)
++        if tag == "article":
++            self.saw_article_markup = True
++            if self._has_class(attrs, "exhibition"):
++                # The documented structure does not nest exhibition
++                # articles.  Finalise a previous one defensively if a broken
++                # page does so.
++                if self.current is not None:
++                    self.articles.append(self.current)
++                self.current = {
++                    "title_parts": [],
++                    "url": None,
++                    "start_date": None,
++                    "end_date": None,
++                    "image": None,
++                }
++                self._h2_depth = 0
++                self._details_depth = 0
++                self._start_time_depth = 0
++                self._end_time_depth = 0
++            return
++
++        if self.current is None:
++            return
++        if tag == "h2":
++            self._h2_depth += 1
++        elif tag == "a" and self._has_class(attrs, "details"):
++            self._details_depth += 1
++            if self.current["url"] is None:
++                self.current["url"] = attrs.get("href")
++        elif tag == "time":
++            field = attrs.get("data-field", "").lower()
++            if field == "start_date":
++                self._start_time_depth += 1
++                if self.current["start_date"] is None:
++                    self.current["start_date"] = attrs.get("datetime")
++            elif field == "end_date":
++                self._end_time_depth += 1
++                if self.current["end_date"] is None:
++                    self.current["end_date"] = attrs.get("datetime")
++        elif tag == "img" and self.current["image"] is None:
++            self.current["image"] = attrs.get("src")
++
++    def handle_endtag(self, tag: str) -> None:
++        tag = tag.lower()
++        if tag == "article":
++            if self.current is not None:
++                self.articles.append(self.current)
++                self.current = None
++            return
++        if self.current is None:
++            return
++        if tag == "h2" and self._h2_depth:
++            self._h2_depth -= 1
++        elif tag == "a" and self._details_depth:
++            self._details_depth -= 1
++        elif tag == "time":
++            # The exact field is not available on an end tag.  In the
++            # documented markup times are not nested; decrement whichever
++            # target is active.
++            if self._start_time_depth:
++                self._start_time_depth -= 1
++            elif self._end_time_depth:
++                self._end_time_depth -= 1
++
++    def handle_data(self, data: str) -> None:
++        if self.current is not None and self._h2_depth:
++            self.current["title_parts"].append(data)
++
++    def finish(self) -> None:
++        if self.current is not None:
++            self.articles.append(self.current)
++            self.current = None
++
++
++def _normalise_html_title(parts: Iterable[str]) -> str:
++    # HTML indentation/newlines are presentation whitespace, not part of the
++    # title.  Keep all non-whitespace characters and normalise runs between
++    # words to one space.
++    return " ".join("".join(parts).split())
++
++
++def _parse_html(text: str, base_url: str) -> List[Dict[str, str]]:
++    parser = _HTMLFeedParser()
++    try:
++        parser.feed(text)
++        parser.close()
++        parser.finish()
++    except (TypeError, ValueError):
++        raise InvalidFeedError("malformed HTML feed")
++
++    if not parser.articles:
++        # A complete HTML page can legitimately contain no exhibitions, but a
++        # non-HTML blob is a malformed feed rather than an empty one.
++        stripped = text.strip()
++        if not stripped:
++            raise InvalidFeedError("empty HTML feed")
++        lowered = stripped.lower()
++        if parser.saw_article_markup or not re.search(r"<(?:html|!doctype|body)(?:\s|>)", lowered):
++            raise InvalidFeedError("HTML contains no exhibition feed")
++        return []
++
++    records: List[Dict[str, str]] = []
++    for item in parser.articles:
++        title = _normalise_html_title(item["title_parts"])
++        records.append(
++            _make_record(
++                title=title,
++                start_date=item["start_date"],
++                end_date=item["end_date"],
++                url=item["url"],
++                image=item["image"],
++                base_url=base_url,
++                html_dates=True,
++            )
++        )
++    return records
++
++
++def parse_feed(text: Any, kind: Any, base_url: str) -> List[Dict[str, str]]:
++    """Parse raw source text into validated, URL-resolved exhibition rows.
++
++    The returned rows contain only feed-provided display fields.  The caller
++    adds source metadata and computed status after the whole batch has parsed
++    successfully.
++    """
++
++    feed_kind = normalise_feed_type(kind)
++    if feed_kind is None:
++        raise UnsupportedFeedError("manual feed")
++    if not isinstance(base_url, str):
++        raise InvalidFeedError("invalid source URL")
++    if isinstance(text, bytes):
++        try:
++            text = text.decode("utf-8-sig")
++        except UnicodeDecodeError:
++            raise InvalidFeedError("feed is not UTF-8")
++    if not isinstance(text, str):
++        raise InvalidFeedError("feed text is not a string")
++    # The supplied HTTP reader removes a UTF-8 BOM, but adapters are allowed
++    # to return decoded text directly.
++    text = text.lstrip("\ufeff")
++
++    # Dispatch through one table so every supported wire format receives the
++    # same input normalisation above.  Keeping the lookup local also prevents
++    # a mutable module-level registry from becoming part of the public API.
++    parser_for_kind = {
++        "json": _parse_json,
++        "rss": _parse_rss,
++        "ics": _parse_ics,
++        "html": _parse_html,
++    }.get(feed_kind)
++    if parser_for_kind is None:
++        # normalise_feed_type currently makes this unreachable, but keeping a
++        # typed fallback makes future aliases safe.
++        raise UnsupportedFeedError("manual feed")
++    return parser_for_kind(text, base_url)
++
++
++__all__ = [
++    "FeedParseError",
++    "InvalidFeedError",
++    "InvalidExhibitionError",
++    "UnsupportedFeedError",
++    "is_supported_feed_type",
++    "normalise_feed_type",
++    "parse_feed",
++]
+diff --git a/solution.py b/solution.py
+index 7dacffb2a744a6a4b469f1194421e03fe0fecfcd..18b05038932815e56e93f8babc93140d7d63f913 100644
+--- a/solution.py
++++ b/solution.py
+@@ -1,14 +1,372 @@
++"""State transition entry point for the exhibition ingestion component."""
++
++from __future__ import annotations
++
+ from copy import deepcopy
++from datetime import date, timedelta
++import hashlib
++from typing import Any, Dict, Iterable, List, Optional, Tuple
++
+ from fetcher import fetch_text as default_fetch_text
+-from feed_parser import parse_feed
+-
+-def process_exhibition_action(state, action, fetch_text=None):
+-    out=deepcopy(state); out.setdefault("sources",{}); out.setdefault("exhibitions",{})
+-    if action.get("type")=="add_source":
+-        source=action.get("source",{})
+-        if not all(source.get(k) for k in ["source_id","museum","city","url","feed_type"]):
+-            out["error"]={"code":"invalid_source"}; return out
+-        row={k:deepcopy(source.get(k)) for k in ["source_id","museum","city","url","feed_type","last_fetch"]}
+-        out["sources"][row["source_id"]]=row; out["result"]=deepcopy(row)
+-        return out
+-    raise NotImplementedError("Complete synchronization and view actions")
++from feed_parser import (
++    InvalidExhibitionError,
++    InvalidFeedError,
++    UnsupportedFeedError,
++    is_supported_feed_type,
++    parse_feed,
++)
++
++
++def _copy_state(state: Any) -> Dict[str, Any]:
++    """Make the state transition independent of every input object."""
++
++    copied = deepcopy(state)
++    if not isinstance(copied, dict):
++        # The documented input is a dictionary.  Returning a useful state for
++        # an invalid caller is preferable to mutating or raising half-way
++        # through a transition.
++        copied = {}
++    if not isinstance(copied.get("sources"), dict):
++        copied["sources"] = {}
++    if not isinstance(copied.get("exhibitions"), dict):
++        copied["exhibitions"] = {}
++    return copied
++
++
++def _set_result(state: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
++    state.pop("error", None)
++    state["result"] = result
++    return state
++
++
++def _set_error(state: Dict[str, Any], code: str) -> Dict[str, Any]:
++    state.pop("result", None)
++    state["error"] = {"code": code}
++    return state
++
++
++def _nonempty_text(value: Any) -> bool:
++    return isinstance(value, str) and bool(value.strip())
++
++
++def _valid_source(source: Any) -> bool:
++    if not isinstance(source, dict):
++        return False
++    required = ("source_id", "museum", "city", "url", "feed_type")
++    return all(_nonempty_text(source.get(field)) for field in required)
++
++
++def _parse_current_date(value: Any) -> Optional[date]:
++    if not isinstance(value, str) or not value.strip():
++        return None
++    try:
++        return date.fromisoformat(value.strip())
++    except (TypeError, ValueError, OverflowError):
++        return None
++
++
++def _record_date(value: Any) -> Optional[date]:
++    if not isinstance(value, str):
++        return None
++    try:
++        return date.fromisoformat(value)
++    except (TypeError, ValueError, OverflowError):
++        return None
++
++
++def _status_for(start: date, end: date, current: date) -> str:
++    if current < start:
++        return "upcoming"
++    if current > end:
++        return "closed"
++    if end <= current + timedelta(days=7):
++        return "closing_soon"
++    return "ongoing"
++
++
++def _stable_exhibition_id(source_id: Any, url: str) -> str:
++    # Hashing the source identity together with the canonical URL gives a
++    # stable JSON key without imposing URL characters on a dictionary key.
++    material = (str(source_id) + "\x00" + url).encode("utf-8")
++    return hashlib.sha256(material).hexdigest()
++
++
++def _same_exhibition(record: Any, source_id: Any, url: str) -> bool:
++    return (
++        isinstance(record, dict)
++        and record.get("source_id") == source_id
++        and record.get("url") == url
++    )
++
++
++def _existing_key(
++    exhibitions: Dict[Any, Any], source_id: Any, url: str, stable_id: str
++) -> Optional[Any]:
++    """Find an existing row before falling back to its stable key."""
++
++    if stable_id in exhibitions and _same_exhibition(exhibitions[stable_id], source_id, url):
++        return stable_id
++    for key, record in exhibitions.items():
++        if _same_exhibition(record, source_id, url):
++            return key
++    return None
++
++
++def _display_record(
++    source: Dict[str, Any], source_id: Any, feed_record: Dict[str, Any], current: date
++) -> Dict[str, Any]:
++    start = _record_date(feed_record.get("start_date"))
++    end = _record_date(feed_record.get("end_date"))
++    # parse_feed validates these.  Keep a defensive check here so a manually
++    # supplied state or a future parser cannot produce a half-built record.
++    if start is None or end is None or end < start:
++        raise InvalidExhibitionError("invalid date range")
++
++    record: Dict[str, Any] = {
++        "source_id": deepcopy(source_id),
++        "title": deepcopy(feed_record["title"]),
++        "museum": deepcopy(source["museum"]),
++        "city": deepcopy(source["city"]),
++        "start_date": start.isoformat(),
++        "end_date": end.isoformat(),
++        "url": deepcopy(feed_record["url"]),
++        "status": _status_for(start, end, current),
++    }
++    if "image" in feed_record:
++        record["image"] = deepcopy(feed_record["image"])
++    return record
++
++
++def _process_add_source(out: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
++    source = action.get("source")
++    if not _valid_source(source):
++        return _set_error(out, "invalid_source")
++
++    # Registration is intentionally limited to the documented source fields;
++    # it does not copy arbitrary action data into the persistent source map.
++    row: Dict[str, Any] = {
++        "source_id": deepcopy(source["source_id"]),
++        "museum": deepcopy(source["museum"]),
++        "city": deepcopy(source["city"]),
++        "url": deepcopy(source["url"]),
++        "feed_type": deepcopy(source["feed_type"]),
++        "last_fetch": deepcopy(source.get("last_fetch")),
++    }
++    out["sources"][source["source_id"]] = row
++    return _set_result(out, deepcopy(row))
++
++
++def _prepare_sync_rows(
++    source: Dict[str, Any],
++    source_id: Any,
++    feed_records: Iterable[Dict[str, Any]],
++    current: date,
++) -> List[Tuple[str, Dict[str, Any]]]:
++    """Validate and decorate a feed batch without writing to state.
++
++    The URL-to-position map is deliberately local to this batch.  It gives
++    duplicate URLs the same "last item wins" behavior as an upsert while
++    keeping the result count equal to the number of distinct exhibitions.
++    Most importantly, callers can discard this list on the first validation
++    error and leave both existing rows and ``last_fetch`` untouched.
++    """
++
++    prepared: List[Tuple[str, Dict[str, Any]]] = []
++    positions: Dict[str, int] = {}
++    for feed_record in feed_records:
++        url = feed_record.get("url")
++        if not isinstance(url, str) or not url:
++            raise InvalidExhibitionError("missing url")
++
++        display = _display_record(source, source_id, feed_record, current)
++        stable_id = _stable_exhibition_id(source_id, url)
++        position = positions.get(url)
++        if position is None:
++            positions[url] = len(prepared)
++            prepared.append((stable_id, display))
++        else:
++            # Keep the first stable key but let the final complete item supply
++            # the display values for a duplicated URL.
++            old_id, _old_display = prepared[position]
++            prepared[position] = (old_id, display)
++    return prepared
++
++
++def _upsert_sync_rows(
++    out: Dict[str, Any], source_id: Any, prepared: Iterable[Tuple[str, Dict[str, Any]]]
++) -> None:
++    """Commit an already validated batch, preserving existing row keys."""
++
++    existing_by_url: Dict[str, Any] = {}
++    for key, record in out["exhibitions"].items():
++        if isinstance(record, dict) and record.get("source_id") == source_id:
++            record_url = record.get("url")
++            if isinstance(record_url, str):
++                existing_by_url.setdefault(record_url, key)
++
++    for stable_id, record in prepared:
++        url = record["url"]
++        key = existing_by_url.get(url)
++        if key is None:
++            key = _existing_key(out["exhibitions"], source_id, url, stable_id)
++        if key is None:
++            key = stable_id
++        out["exhibitions"][key] = record
++        existing_by_url[url] = key
++
++
++def _process_sync(out: Dict[str, Any], action: Dict[str, Any], fetch_text: Any) -> Dict[str, Any]:
++    source_id = action.get("source_id")
++    try:
++        source = out["sources"].get(source_id)
++    except (TypeError, ValueError):
++        source = None
++    if not isinstance(source, dict):
++        return _set_error(out, "source_not_found")
++
++    current_value = action.get("current_date")
++    current = _parse_current_date(current_value)
++    if current is None:
++        return _set_error(out, "invalid_date")
++
++    # Manual/unsupported feeds are deliberately resolved before transport.
++    # In particular, an adapter must not be called for a manual source.
++    if not is_supported_feed_type(source.get("feed_type")):
++        return _set_result(
++            out,
++            {
++                "updated": 0,
++                "manual_entry_required": True,
++            },
++        )
++
++    source_url = source.get("url")
++    if not isinstance(source_url, str) or not source_url.strip():
++        return _set_error(out, "invalid_source")
++    source_url = source_url.strip()
++
++    reader = fetch_text if fetch_text is not None else default_fetch_text
++    try:
++        raw_text = reader(source_url)
++    except Exception:
++        # Transport and adapter failures must not partially update either the
++        # source's fetch marker or any exhibition row.
++        return _set_error(out, "fetch_failed")
++
++    try:
++        feed_records = parse_feed(raw_text, source.get("feed_type"), source_url)
++        # Preparation is a pure phase: no source or exhibition record is
++        # touched until every item in the complete batch is valid.
++        prepared = _prepare_sync_rows(source, source_id, feed_records, current)
++    except InvalidExhibitionError:
++        return _set_error(out, "invalid_exhibition")
++    except InvalidFeedError:
++        return _set_error(out, "invalid_feed")
++    except UnsupportedFeedError:
++        # This should have been handled before fetching, but keep the branch
++        # atomic if a future parser changes its type classification.
++        return _set_result(out, {"updated": 0, "manual_entry_required": True})
++    except Exception:
++        # A parser bug or an unexpected document shape is still a bad feed
++        # from the state transition's perspective, never a partial sync.
++        return _set_error(out, "invalid_feed")
++
++    _upsert_sync_rows(out, source_id, prepared)
++
++    last_fetch = action.get("fetched_at") if "fetched_at" in action else current_value
++    if last_fetch is None:
++        # Treat an explicitly null optional value like an omitted value; this
++        # keeps the state useful for JSON callers while preserving all actual
++        # supplied timestamp strings verbatim.
++        last_fetch = current_value
++    out["sources"][source_id]["last_fetch"] = deepcopy(last_fetch)
++    return _set_result(out, {"updated": len(prepared)})
++
++
++def _sorted_records(records: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
++    return sorted(
++        (deepcopy(record) for record in records),
++        key=lambda record: (
++            record.get("start_date", ""),
++            record.get("title", ""),
++            record.get("url", ""),
++        ),
++    )
++
++
++def _process_city_views(out: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
++    current = _parse_current_date(action.get("current_date"))
++    if current is None:
++        return _set_error(out, "invalid_date")
++
++    requested_city = action.get("city")
++    if not isinstance(requested_city, str) or not requested_city.strip():
++        empty: Dict[str, Any] = {
++            "timeline": [],
++            "calendar": [],
++            "gallery": [],
++            "museums": [],
++            "closing_soon": [],
++        }
++        return _set_result(out, empty)
++
++    city_key = requested_city.strip().casefold()
++    matching: List[Dict[str, Any]] = []
++    museums = set()
++    for key, record in out["exhibitions"].items():
++        if not isinstance(record, dict):
++            continue
++        start = _record_date(record.get("start_date"))
++        end = _record_date(record.get("end_date"))
++        if start is None or end is None or end < start:
++            # State produced by supported syncs cannot take this path.  A
++            # malformed manually supplied row is not allowed to break a view.
++            continue
++        # Status is a derived field shared by all views, so refresh it for
++        # every valid record before selecting the requested city.
++        record["status"] = _status_for(start, end, current)
++        out["exhibitions"][key] = record
++        city = record.get("city")
++        if not isinstance(city, str) or city.strip().casefold() != city_key:
++            continue
++        matching.append(record)
++        museum = record.get("museum")
++        if isinstance(museum, str):
++            museums.add(museum)
++
++    ordered = _sorted_records(matching)
++    closing_soon = [
++        deepcopy(record) for record in ordered if record.get("status") == "closing_soon"
++    ]
++    result: Dict[str, Any] = {
++        "timeline": deepcopy(ordered),
++        "calendar": deepcopy(ordered),
++        "gallery": deepcopy(ordered),
++        "museums": sorted(museums),
++        "closing_soon": closing_soon,
++    }
++    return _set_result(out, result)
++
++
++def process_exhibition_action(state: dict, action: dict, fetch_text=None) -> dict:
++    """Apply one registration, synchronization, or city-view action.
++
++    Every branch starts with a deep copy, so neither the supplied state nor
++    the action (including nested source data) is changed by this function.
++    """
++
++    out = _copy_state(state)
++    if not isinstance(action, dict):
++        return _set_error(out, "invalid_action")
++
++    action_type = action.get("type")
++    if action_type == "add_source":
++        return _process_add_source(out, action)
++    if action_type == "sync":
++        return _process_sync(out, action, fetch_text)
++    if action_type == "city_views":
++        return _process_city_views(out, action)
++    return _set_error(out, "invalid_action")
++
++
++__all__ = ["process_exhibition_action"]

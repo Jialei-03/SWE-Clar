@@ -1,0 +1,12 @@
+{
+  "pages": {
+    "demo-page-a": "<!doctype html><html><head><title>Synthetic catalog</title></head><body><main><h1>Sample catalog</h1><p>Starter bundle: 12 items.</p><p>Fresh materials &amp; reusable packaging.</p></main></body></html>",
+    "demo-page-b": "<!doctype html><html><head><title>Synthetic service page</title></head><body><main><h1>Example service</h1><p>Available Monday through Thursday.</p><p>Demo text for local monitoring.</p></main></body></html>"
+  },
+  "receipts": [
+    {"id":"demo-full-a","account_id":"account-a","sequence":1,"plan":"full","status":"active"},
+    {"id":"demo-cancel-a","account_id":"account-a","sequence":2,"plan":"full","status":"cancelled"},
+    {"id":"demo-renew-a","account_id":"account-a","sequence":3,"plan":"full","status":"active"},
+    {"id":"demo-full-b","account_id":"account-b","sequence":1,"plan":"full","status":"active"}
+  ]
+}

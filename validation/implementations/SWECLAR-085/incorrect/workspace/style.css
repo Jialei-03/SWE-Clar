@@ -1,0 +1,31 @@
+body {
+  font: 16px system-ui;
+  background: #edf1f6;
+  color: #172336;
+  margin: 2rem;
+}
+main {
+  max-width: 760px;
+  margin: auto;
+}
+section {
+  background: white;
+  padding: 1rem;
+  margin: 1rem 0;
+  border-radius: 8px;
+}
+button, input {
+  padding: .6rem;
+  margin: .3rem;
+}
+button.playing {
+  background: #245aa4;
+  color: white;
+}
+audio {
+  display: block;
+  width: 100%;
+}
+#error {
+  color: #a11;
+}

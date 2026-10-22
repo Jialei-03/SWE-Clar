@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Market workspace</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<header><p class="eyebrow">Synthetic marketplace</p><h1>Market workspace</h1><p>Browse items, ask questions and agree on an offer.</p></header>
+<main>
+<section aria-label="Account" class="panel">
+  <form id="login-form">
+    <label>Username<input id="username" autocomplete="off" required></label>
+    <label>Password<input id="password" type="password" autocomplete="off" required></label>
+    <button id="login" type="submit">Sign in</button>
+  </form>
+  <div class="account-line"><span id="signed-in">Signed out</span><button id="logout" type="button" disabled>Sign out</button></div>
+</section>
+<p id="error" role="alert" aria-live="polite"></p>
+<section id="workspace" hidden>
+  <div class="section-heading"><h2>Catalog</h2><button id="refresh" type="button">Refresh</button></div>
+  <div id="catalog"></div>
+  <section id="listing-detail" class="panel" hidden>
+    <h2 id="listing-title"></h2><div class="summary"><strong id="listing-price"></strong><span id="listing-status"></span></div>
+    <div id="listing-labels"></div>
+    <div class="columns">
+      <section><h3>Questions</h3><ul id="questions"></ul><label>Your question<textarea id="question-text" maxlength="500" rows="3"></textarea></label><button id="ask" type="button">Ask question</button></section>
+      <section><h3>Buyer offer</h3><label>Offer amount (integer cents)<input id="offer-amount" type="number" min="1" max="10000000" step="1"></label><button id="place-offer" type="button">Place offer</button>
+      <h3>Seller price</h3><label>Asking price (integer cents)<input id="new-price" type="number" min="1" max="10000000" step="1"></label><button id="save-price" type="button">Save price</button></section>
+    </div>
+    <h3>Offers visible to your account</h3><ul id="offers"></ul>
+  </section>
+  <section class="panel"><h2>Agreements</h2><p>Local agreements record the agreed amount. No payment or delivery is performed.</p><ul id="agreements"></ul></section>
+</section>
+</main>
+<script type="module" src="/app.js"></script>
+</body></html>

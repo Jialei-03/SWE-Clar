@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Assistant conversation</title><link rel="stylesheet" href="style.css"></head><body>
+<header><strong>Conversation workspace</strong><nav><button data-page="main">Home</button><button data-page="clinic">Clinic</button></nav></header>
+<main><div id="error" role="alert"></div><section id="home"><h1>Pick up where you left off</h1><p>Open a saved conversation or start with the assistant.</p><div id="conversation-list"></div><a id="chat-cta">Chat with Assistant</a></section>
+<section id="clinic" hidden><h1>Clinic workspace</h1><p>Arrange a demonstration of the service.</p><div id="clinic-ctas"></div></section>
+<section id="chat" hidden><h1 id="chat-title">Conversation</h1><div id="transcript" role="log"></div><p id="pending-question"></p><button id="report-bug">Report bug</button><p id="acknowledgement" role="status"></p></section>
+<section id="tips" aria-label="Tips"></section><aside id="feedback" aria-live="polite"></aside></main><script src="data.js"></script><script src="app.js"></script></body></html>

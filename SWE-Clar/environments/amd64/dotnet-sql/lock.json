@@ -1,0 +1,73 @@
+{
+  "platform": "linux/amd64",
+  "base_profile": "python-web",
+  "source_profile": "dotnet-sql",
+  "wheels": [
+    {
+      "name": "PyMySQL",
+      "version": "1.1.1",
+      "filename": "PyMySQL-1.1.1-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/0c/94/e4181a1f6286f545507528c78016e00065ea913276888db2262507693ce5/PyMySQL-1.1.1-py3-none-any.whl",
+      "sha256": "4de15da4c61dc132f4fb9ab763063e693d521a80fd0e87943b9a453dd4c19d6c",
+      "bytes": 44972
+    },
+    {
+      "name": "cryptography",
+      "version": "44.0.2",
+      "filename": "cryptography-44.0.2-cp39-abi3-manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/78/2b/999b2a1e1ba2206f2d3bca267d68f350beb2b048a41ea827e08ce7260098/cryptography-44.0.2-cp39-abi3-manylinux_2_28_x86_64.whl",
+      "sha256": "b042d2a275c8cee83a4b7ae30c45a15e6a4baa65a179a0ec2d78ebb90e4f6699",
+      "bytes": 4193719
+    },
+    {
+      "name": "cffi",
+      "version": "1.17.1",
+      "filename": "cffi-1.17.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/b2/d5/da47df7004cb17e4955df6a43d14b3b4ae77737dff8bf7f8f333196717bf/cffi-1.17.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "b62ce867176a75d03a665bad002af8e6d54644fad99a3c70905c543130e39d93",
+      "bytes": 479424
+    },
+    {
+      "name": "pycparser",
+      "version": "2.22",
+      "filename": "pycparser-2.22-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/13/a3/a812df4e2dd5696d1f351d58b8fe16a405b234ad2886a0dab9183fb78109/pycparser-2.22-py3-none-any.whl",
+      "sha256": "c3702b6d3dd8c7abc1afa565d7e63d53a1d0bd86cdc24edd75470f4de499cfcc",
+      "bytes": 117552
+    }
+  ],
+  "archives": [],
+  "database_image": "mariadb@sha256:ec1794c8cd442f795b838f60379d7851acf8fef04cc39a8ecf74e7b1d6a3b6d7",
+  "sdk": {
+    "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/8.0.425/dotnet-sdk-8.0.425-linux-x64.tar.gz",
+    "sha512": "934b8060a7190e5909ad1fd0785db542f487b3bbf6cdd14826b02095fdd0d0394298b1634085eff302928fccc33f7c1a7253e9b87df555fc36fce819bcd2e798",
+    "sha256": "ec2c55738f3aa16c58b2c0c565ce10ad6fea83925574a6f08c920ba62a39712b",
+    "bytes": 216833108
+  },
+  "nuget": [
+    {
+      "name": "mysqlconnector",
+      "version": "2.5.0",
+      "url": "https://api.nuget.org/v3-flatcontainer/mysqlconnector/2.5.0/mysqlconnector.2.5.0.nupkg",
+      "sha256": "a11ab22c7d58d2a39c5f142dd52cd12b95b77e7b5b2ca13733bd76d8d9732f4e",
+      "remote_sha256_verified": true,
+      "bytes": 3773946
+    },
+    {
+      "name": "microsoft.extensions.logging.abstractions",
+      "version": "8.0.2",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.logging.abstractions/8.0.2/microsoft.extensions.logging.abstractions.8.0.2.nupkg",
+      "sha256": "707a5ef17d818186b90f3ba565fab6e2b83c3b62b92e6ab63a22e1a320158097",
+      "remote_sha256_verified": true,
+      "bytes": 801164
+    },
+    {
+      "name": "microsoft.extensions.dependencyinjection.abstractions",
+      "version": "8.0.2",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.dependencyinjection.abstractions/8.0.2/microsoft.extensions.dependencyinjection.abstractions.8.0.2.nupkg",
+      "sha256": "51f2df1100245f10da54f0bb7e813f277155117777d4fbbab902214e27372606",
+      "remote_sha256_verified": true,
+      "bytes": 278862
+    }
+  ]
+}

@@ -1,0 +1,1257 @@
+diff --git a/app.js b/app.js
+index 31d638e1d42186dd63fde04d07d28a046b179559..62b09dfd04a8ce0c913a5a390ca57eb60ea415c0 100644
+--- a/app.js
++++ b/app.js
+@@ -1,172 +1,526 @@
++const DIRECTIONS = new Set(['left', 'right', 'up', 'down']);
++
++function monotonicNow() {
++  // performance.now() is monotonic and is the only clock used for elapsed
++  // browser time.  The fallback is useful for small non-browser development
++  // harnesses and deliberately is not a wall-clock source.
++  return typeof performance !== 'undefined' && typeof performance.now === 'function'
++    ? performance.now() : 0;
++}
++
++function commandId() {
++  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
++    return crypto.randomUUID();
++  }
++  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
++    const bytes = new Uint8Array(16);
++    crypto.getRandomValues(bytes);
++    return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
++  }
++  // This path is only for a very small development harness without Web
++  // Crypto.  It still has the protocol's permitted characters and length.
++  return `command-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`.slice(0, 64);
++}
++
+ export class ArenaClient {
+   constructor() {
+-    this.state = null; this.playerId = null; this.token = null; this.roomId = null;
+-    this.error = null; this.busy = false; this.epoch = 0; this.listeners = new Set();
+-    this.anchor = 0; this.anchorTime = 0; this.lastRemaining = Infinity; this.localUntil = 0;
+-    this.intent = null; this.refreshing = null;
+-  }
+-  emit() { for (const listener of this.listeners) listener(); }
+-  player() { return this.state?.players.find(p => p.id === this.playerId); }
+-  serverTime() { return this.anchorTime + Math.max(0, performance.now() - this.anchor); }
+-  remaining() { return 0; } // Visible protection timing is unfinished.
++    this.state = null;
++    this.playerId = null;
++    this.token = null;
++    this.roomId = null;
++    this.error = null;
++    this.busy = false;
++
++    this.listeners = new Set();
++    this.epoch = 0;
++    this.lastSeq = 0;
++    this.anchorLocal = 0;
++    this.anchorServer = 0;
++    this.countdownGeneration = null;
++    this.remainingCap = 0;
++
++    // A failed command keeps this object so an explicit repeat of the same
++    // intent retries the exact original generation/payload/id.
++    this.intent = null;
++    this.refreshing = null;
++    this.needsRefresh = false;
++    this.disposed = false;
++  }
++
++  emit() {
++    for (const listener of [...this.listeners]) {
++      try {
++        listener();
++      } catch (_error) {
++        // A view listener must not prevent the controller from notifying the
++        // remaining listeners or completing a network operation.
++      }
++    }
++  }
++
++  player() {
++    return this.state?.players?.find(player => player.id === this.playerId) || null;
++  }
++
++  serverTime() {
++    if (!this.state || !Number.isFinite(this.anchorServer)) return 0;
++    return this.anchorServer + Math.max(0, monotonicNow() - this.anchorLocal);
++  }
++
++  rawRemaining(player, serverTime = this.serverTime()) {
++    if (!player || !player.alive || !Number.isFinite(player.protected_until_ms)) return 0;
++    return Math.max(0, Math.ceil((player.protected_until_ms - serverTime) / 1000));
++  }
++
++  remaining() {
++    const player = this.player();
++    if (!player || !player.alive) {
++      this.remainingCap = 0;
++      return 0;
++    }
++
++    // This also makes the method safe for ordinary development tests that
++    // replace state directly rather than going through acceptState.
++    if (this.countdownGeneration !== player.generation) {
++      this.countdownGeneration = player.generation;
++      this.remainingCap = this.rawRemaining(player);
++    }
++    const current = this.rawRemaining(player);
++    if (!Number.isFinite(this.remainingCap)) this.remainingCap = current;
++    this.remainingCap = Math.max(0, Math.min(this.remainingCap, current));
++    return this.remainingCap;
++  }
++
+   acceptState(state) {
+-    if (!this.token || state.room.id !== this.roomId) return false;
+-    this.state = state; this.anchor = performance.now(); this.anchorTime = state.server_now_ms;
+-    this.emit(); return true;
++    if (!this.token || !state || !state.room || !Array.isArray(state.players)) return false;
++    if (this.roomId !== null && state.room.id !== this.roomId) return false;
++    if (!Number.isSafeInteger(state.seq) || state.seq <= this.lastSeq) return false;
++    if (!Number.isFinite(state.server_now_ms)) return false;
++
++    const oldPlayer = this.player();
++    const oldGeneration = oldPlayer?.generation;
++    const incomingPlayer = state.players.find(player => player.id === this.playerId) || null;
++    const incomingGeneration = incomingPlayer?.generation;
++    const acceptedLocal = monotonicNow();
++    const priorServerTime = this.serverTime();
++
++    // Sequence acceptance, state replacement and the time anchor are one
++    // operation.  Older/duplicate responses return before touching any of it.
++    this.state = state;
++    this.roomId = state.room.id;
++    this.lastSeq = state.seq;
++    this.needsRefresh = false;
++
++    if (!incomingPlayer || !incomingPlayer.alive) {
++      this.countdownGeneration = incomingGeneration ?? null;
++      this.remainingCap = 0;
++    } else if (
++      oldGeneration === undefined ||
++      (Number.isFinite(oldGeneration) && Number.isFinite(incomingGeneration) && incomingGeneration > oldGeneration) ||
++      this.countdownGeneration !== incomingGeneration
++    ) {
++      // A genuinely newer generation starts a new six-second countdown.
++      this.anchorLocal = acceptedLocal;
++      this.anchorServer = state.server_now_ms;
++      this.countdownGeneration = incomingGeneration;
++      this.remainingCap = this.rawRemaining(incomingPlayer, state.server_now_ms);
++    } else {
++      // Re-anchoring a same-generation response can otherwise make a delayed
++      // countdown increase.  Preserve the smallest displayed value.
++      if (state.server_now_ms > priorServerTime) {
++        this.anchorLocal = acceptedLocal;
++        this.anchorServer = state.server_now_ms;
++      }
++      this.countdownGeneration = incomingGeneration;
++      this.remainingCap = Math.max(
++        0,
++        Math.min(this.remainingCap, this.rawRemaining(incomingPlayer, state.server_now_ms)),
++      );
++    }
++
++    this.emit();
++    return true;
+   }
++
+   async request(path, body, token = this.token) {
+     let response;
+     try {
+-      response = await fetch(path, {method: body === undefined ? 'GET' : 'POST',
+-        headers: {'Content-Type': 'application/json', ...(token ? {Authorization: `Bearer ${token}`} : {})},
+-        ...(body === undefined ? {} : {body: JSON.stringify(body)})});
+-    } catch { throw new Error('Connection failed. Retry the same action.'); }
+-    const data = await response.json();
++      response = await fetch(path, {
++        method: body === undefined ? 'GET' : 'POST',
++        headers: {
++          'Content-Type': 'application/json',
++          ...(token ? {Authorization: `Bearer ${token}`} : {}),
++        },
++        ...(body === undefined ? {} : {body: JSON.stringify(body)}),
++      });
++    } catch (_error) {
++      throw new Error('Connection failed. Retry the same action.');
++    }
++
++    let data;
++    try {
++      data = await response.json();
++    } catch (_error) {
++      const error = new Error('Invalid response from server. Retry the same action.');
++      error.status = response.status;
++      throw error;
++    }
+     if (!response.ok) {
+-      const error = new Error(`Request failed: ${data.error}`); error.status = response.status; throw error;
++      const error = new Error(`Request failed: ${data?.error || response.status}`);
++      error.status = response.status;
++      error.code = data?.error;
++      throw error;
+     }
+     return data;
+   }
++
+   clear() {
+-    this.epoch++; this.busy = false; this.state = null; this.playerId = null; this.token = null; this.roomId = null;
+-    this.intent = null; this.lastRemaining = Infinity; this.localUntil = 0; this.anchor = this.anchorTime = 0;
++    this.epoch += 1;
++    this.busy = false;
++    this.state = null;
++    this.playerId = null;
++    this.token = null;
++    this.roomId = null;
++    this.intent = null;
++    this.refreshing = null;
++    this.needsRefresh = false;
++    this.lastSeq = 0;
++    this.anchorLocal = 0;
++    this.anchorServer = 0;
++    this.countdownGeneration = null;
++    this.remainingCap = 0;
+   }
++
+   async join(roomId, label) {
+-    if (this.busy) return;
+-    this.clear(); this.busy = true; this.error = null; const epoch = this.epoch; this.emit();
++    if (this.busy || this.disposed) return false;
++    this.clear();
++    this.busy = true;
++    this.error = null;
++    const epoch = this.epoch;
++    this.emit();
+     try {
+       const data = await this.request('/api/join', {room_id: roomId, label}, null);
+-      if (epoch !== this.epoch) return;
+-      this.roomId = roomId; this.token = data.token; this.playerId = data.player_id;
+-      this.acceptState(data.state);
+-    } catch (error) { if (epoch === this.epoch) this.error = error.message; }
+-    finally { if (epoch === this.epoch) { this.busy = false; this.emit(); } }
++      if (epoch !== this.epoch || this.disposed) return false;
++      this.roomId = data.state?.room?.id ?? roomId;
++      this.token = data.token;
++      this.playerId = data.player_id;
++      if (!this.acceptState(data.state)) {
++        throw new Error('Invalid state from server.');
++      }
++      this.error = null;
++      return true;
++    } catch (error) {
++      if (epoch !== this.epoch || this.disposed) return false;
++      this.error = error.message;
++      return false;
++    } finally {
++      if (epoch === this.epoch && !this.disposed) {
++        this.busy = false;
++        this.emit();
++      }
++    }
+   }
++
+   async refresh(force = false) {
+-    if (this.refreshing) { await this.refreshing; if (!force) return; }
+-    if (!this.token) return;
+-    const epoch = this.epoch, token = this.token;
++    if (!this.token || this.disposed) return false;
++    if (this.refreshing) {
++      // A forced refresh is satisfied by the already in-flight authoritative
++      // request; starting a second poll would only add a race.
++      return await this.refreshing;
++    }
++
++    const epoch = this.epoch;
++    const token = this.token;
+     const pending = (async () => {
+       try {
+         const data = await this.request('/api/state', undefined, token);
+-        if (epoch === this.epoch) this.acceptState(data.state);
++        if (epoch !== this.epoch || this.disposed) return false;
++        const accepted = this.acceptState(data.state);
++        // If the response is older than a state already accepted, that
++        // existing state is authoritative enough to clear the refresh gate.
++        if (!accepted) this.needsRefresh = false;
++        return true;
+       } catch (error) {
+-        if (epoch !== this.epoch) return;
+-        if (error.status === 401) this.clear();
+-        this.error = error.message; this.emit();
++        if (epoch !== this.epoch || this.disposed) return false;
++        if (error.status === 401) {
++          this.clear();
++          this.error = error.message;
++          this.emit();
++          return false;
++        }
++        this.error = error.message;
++        this.emit();
++        return false;
+       }
+     })();
+     this.refreshing = pending;
+-    try { await pending; } finally { if (this.refreshing === pending) this.refreshing = null; }
++    try {
++      return await pending;
++    } finally {
++      if (this.refreshing === pending) this.refreshing = null;
++    }
+   }
++
+   async perform(operation, direction) {
+-    if (this.busy || !this.token || !this.player()) return;
+-    if (operation) { // Retry-intent reconciliation is unfinished.
+-      this.intent = {operation, direction, body: {generation: this.player().generation,
+-        command_id: crypto.randomUUID(), ...(operation === 'move' ? {direction} : {})}};
++    if (this.busy || !this.token || !this.player() || this.disposed) return false;
++    if (this.needsRefresh) return false;
++    if (operation === 'move' && !DIRECTIONS.has(direction)) return false;
++
++    const sameIntent = this.intent &&
++      this.intent.operation === operation &&
++      this.intent.direction === direction;
++    if (!sameIntent) {
++      const player = this.player();
++      this.intent = {
++        operation,
++        direction,
++        body: {
++          generation: player.generation,
++          command_id: commandId(),
++          ...(operation === 'move' ? {direction} : {}),
++        },
++      };
+     }
+-    const intent = this.intent, epoch = this.epoch;
+-    this.busy = true; this.error = null; this.emit();
++
++    const intent = this.intent;
++    const epoch = this.epoch;
++    this.busy = true;
++    this.error = null;
++    this.emit();
+     try {
+       const data = await this.request(`/api/${operation}`, intent.body);
+-      if (epoch !== this.epoch) return;
+-      this.acceptState(data.state); this.intent = null;
++      if (epoch !== this.epoch || this.disposed) return false;
++      this.acceptState(data.state);
++      this.intent = null;
++      this.error = null;
++      return true;
+     } catch (error) {
+-      if (epoch !== this.epoch) return;
++      if (epoch !== this.epoch || this.disposed) return false;
++      if (error.status === 401) {
++        this.clear();
++        this.error = error.message;
++        this.emit();
++        return false;
++      }
++      if (error.status === 409) {
++        // A conflict means the locally captured generation/intent is no
++        // longer usable.  Refresh before enabling another action.
++        this.intent = null;
++        this.needsRefresh = true;
++        const refreshed = await this.refresh(true);
++        if (epoch !== this.epoch || this.disposed) return false;
++        if (!refreshed) this.error = 'Could not refresh authoritative state. Retry.';
++        else this.error = error.message;
++        return false;
++      }
++      // Network failures and unexpected server failures retain the exact
++      // intent.  The next explicit repeat can safely replay its command id.
+       this.error = error.message;
+-      if (error.status === 401) this.clear();
+-      if (error.status === 409) { await this.refresh(true); this.intent = null; }
+-    } finally { if (epoch === this.epoch) { this.busy = false; this.emit(); } }
++      return false;
++    } finally {
++      if (epoch === this.epoch && !this.disposed) {
++        this.busy = false;
++        this.emit();
++      }
++    }
+   }
+-  move(direction) { return this.perform('move', direction); }
+-  respawn() { return this.perform('respawn'); }
++
++  move(direction) {
++    return this.perform('move', direction);
++  }
++
++  respawn() {
++    return this.perform('respawn');
++  }
++
+   async leave() {
+     const token = this.token;
+-    this.clear(); this.busy = false; this.error = null; const epoch = this.epoch; this.emit();
+-    if (token) { try { await this.request('/api/leave', {}, token); } catch (error) { if (epoch === this.epoch) { this.error = error.message; this.emit(); } } }
++    this.clear();
++    this.error = null;
++    const epoch = this.epoch;
++    this.emit();
++    if (!token || this.disposed) return true;
++    try {
++      await this.request('/api/leave', {}, token);
++      return true;
++    } catch (error) {
++      if (epoch !== this.epoch || this.disposed) return false;
++      // Room data remains cleared even if the transport failed; the old
++      // session is not reused by this controller.
++      this.error = error.message;
++      this.emit();
++      return false;
++    }
++  }
++
++  dispose() {
++    this.disposed = true;
++    this.clear();
++    this.listeners.clear();
+   }
+-  dispose() { this.clear(); this.listeners.clear(); }
+ }
+ 
+ export class ArenaView {
+   constructor(client, doc) {
+-    this.client = client; this.doc = doc; this.disposed = false;
+-    this.el = id => doc.getElementById(id); this.cleanups = [];
++    this.client = client;
++    this.doc = doc;
++    this.disposed = false;
++    this.el = id => doc.getElementById(id);
++    this.cleanups = [];
++
+     this.listen(this.el('join-form'), 'submit', event => {
+-      event.preventDefault(); client.join(this.el('room-select').value, this.el('player-label').value);
++      event.preventDefault();
++      client.join(this.el('room-select').value, this.el('player-label').value);
+     });
+     this.listen(this.el('leave'), 'click', () => client.leave());
+     this.listen(this.el('respawn'), 'click', () => client.respawn());
+-    for (const button of doc.querySelectorAll('[data-direction]')) this.listen(button, 'click', () => client.move(button.dataset.direction));
++    for (const button of doc.querySelectorAll('[data-direction]')) {
++      this.listen(button, 'click', () => client.move(button.dataset.direction));
++    }
+     this.listen(doc, 'keydown', event => {
+-      const direction = {ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down'}[event.key];
++      const direction = {
++        ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down',
++      }[event.key];
+       if (direction && client.token && !['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target.tagName)) {
+-        event.preventDefault(); client.move(direction);
++        event.preventDefault();
++        client.move(direction);
+       }
+     });
+-    this.update = () => this.renderState(); client.listeners.add(this.update);
++
++    this.update = () => this.renderState();
++    client.listeners.add(this.update);
++
+     client.request('/api/rooms', undefined, null).then(data => {
+       if (this.disposed) return;
+       this.el('room-select').replaceChildren(...data.rooms.map(room => {
+-        const option = doc.createElement('option'); option.value = room.id; option.textContent = room.label; return option;
++        const option = doc.createElement('option');
++        option.value = room.id;
++        option.textContent = room.label;
++        return option;
+       }));
+-    }).catch(error => { client.error = error.message; client.emit(); });
++    }).catch(error => {
++      if (this.disposed) return;
++      client.error = error.message;
++      client.emit();
++    });
++
+     this.poll = setInterval(() => client.refresh(), 150);
+     this.frame = () => {
+       if (this.disposed) return;
+-      this.renderFrame(); this.animation = requestAnimationFrame(this.frame);
++      this.renderFrame();
++      this.animation = requestAnimationFrame(this.frame);
+     };
+-    this.renderState(); this.animation = requestAnimationFrame(this.frame);
++    this.renderState();
++    this.animation = requestAnimationFrame(this.frame);
+   }
++
+   listen(target, name, callback) {
+-    target.addEventListener(name, callback); this.cleanups.push(() => target.removeEventListener(name, callback));
++    if (!target) return;
++    target.addEventListener(name, callback);
++    this.cleanups.push(() => target.removeEventListener(name, callback));
+   }
++
+   renderState() {
+-    const c = this.client, joined = Boolean(c.state), player = c.player();
+-    this.el('join-form').hidden = joined; this.el('game').hidden = !joined;
++    const c = this.client;
++    const joined = Boolean(c.state);
++    const player = c.player();
++    this.el('join-form').hidden = joined;
++    this.el('game').hidden = !joined;
+     this.el('join').disabled = c.busy;
+-    this.el('error').hidden = !c.error; this.el('error').textContent = c.error || '';
+-    this.el('room-title').textContent = c.state?.room.label || '';
+-    for (const button of this.doc.querySelectorAll('[data-direction]')) button.disabled = c.busy || !player?.alive;
+-    this.el('respawn').disabled = c.busy || !player || (player.alive && c.intent?.operation !== 'respawn');
++    this.el('leave').disabled = !joined;
++    this.el('error').hidden = !c.error;
++    this.el('error').textContent = c.error || '';
++    this.el('room-title').textContent = c.state?.room?.label || '';
++
++    for (const button of this.doc.querySelectorAll('[data-direction]')) {
++      button.disabled = c.busy || !player?.alive;
++    }
++    this.el('respawn').disabled = c.busy || !player || player.alive;
++
+     this.el('roster').replaceChildren(...(c.state?.players || []).map(p => {
+-      const row = this.doc.createElement('div'); row.dataset.playerId = p.id;
++      const row = this.doc.createElement('div');
++      row.dataset.playerId = p.id;
+       row.textContent = `${p.label}${p.id === c.playerId ? ' (you)' : ''} · Health ${p.hp}/3 · ${p.alive ? 'alive' : 'dead'}`;
+       return row;
+     }));
+     this.renderFrame();
+   }
++
+   renderFrame() {
+-    const c = this.client, seconds = c.state ? c.remaining() : 0;
++    const c = this.client;
++    const seconds = c.state ? c.remaining() : 0;
++    const local = c.player();
+     this.el('shield-remaining').textContent = String(seconds);
+-    this.el('shield-indicator').hidden = seconds <= 0;
+-    const canvas = this.el('arena'), ctx = canvas.getContext('2d');
+-    if (!c.state) { ctx.clearRect(0, 0, canvas.width, canvas.height); return; }
++    this.el('shield-indicator').hidden = !(seconds > 0 && local?.alive);
++
++    const canvas = this.el('arena');
++    const ctx = canvas.getContext('2d');
++    if (!c.state) {
++      ctx.clearRect(0, 0, canvas.width, canvas.height);
++      return;
++    }
++
+     const {room, players} = c.state;
+     if (canvas.width !== room.cols * 24) canvas.width = room.cols * 24;
+     if (canvas.height !== room.rows * 24) canvas.height = room.rows * 24;
+-    ctx.fillStyle = '#f8fbfc'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+-    ctx.strokeStyle = '#dce5e9'; ctx.lineWidth = 1;
+-    for (let x = 0; x <= room.cols; x++) { ctx.beginPath(); ctx.moveTo(x * 24, 0); ctx.lineTo(x * 24, canvas.height); ctx.stroke(); }
+-    for (let y = 0; y <= room.rows; y++) { ctx.beginPath(); ctx.moveTo(0, y * 24); ctx.lineTo(canvas.width, y * 24); ctx.stroke(); }
+-    ctx.fillStyle = '#526671'; for (const [x, y] of room.walls) ctx.fillRect(x * 24 + 1, y * 24 + 1, 22, 22);
++    const cell = 24;
++    ctx.fillStyle = '#f8fbfc';
++    ctx.fillRect(0, 0, canvas.width, canvas.height);
++
++    ctx.strokeStyle = '#d5e1e6';
++    ctx.lineWidth = 1;
++    for (let x = 0; x <= room.cols; x += 1) {
++      ctx.beginPath(); ctx.moveTo(x * cell + 0.5, 0); ctx.lineTo(x * cell + 0.5, canvas.height); ctx.stroke();
++    }
++    for (let y = 0; y <= room.rows; y += 1) {
++      ctx.beginPath(); ctx.moveTo(0, y * cell + 0.5); ctx.lineTo(canvas.width, y * cell + 0.5); ctx.stroke();
++    }
++
++    ctx.fillStyle = '#536a76';
++    for (const [x, y] of room.walls) {
++      ctx.fillRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2);
++    }
++
+     for (const p of players) {
+       if (!p.alive) continue;
+-      const x = (p.x + .5) * 24, y = (p.y + .5) * 24;
+-      const protectedNow = p.id === c.playerId ? seconds > 0 : c.serverTime() < p.protected_until_ms;
+-      if (protectedNow) { ctx.strokeStyle = '#188f76'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.stroke(); }
++      const x = (p.x + 0.5) * cell;
++      const y = (p.y + 0.5) * cell;
++      const protectedNow = p.id === c.playerId
++        ? seconds > 0
++        : c.serverTime() < p.protected_until_ms;
++
++      if (protectedNow) {
++        ctx.strokeStyle = '#0b8f78';
++        ctx.lineWidth = 3;
++        ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.stroke();
++      }
++
+       ctx.fillStyle = p.id === c.playerId ? '#175b94' : '#bb6325';
+-      ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+-      if (p.id === c.playerId) { ctx.fillStyle = 'white'; ctx.fillRect(x - 2, y - 2, 4, 4); }
++      ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill();
++      if (p.id === c.playerId) {
++        ctx.strokeStyle = '#102e48';
++        ctx.lineWidth = 2;
++        ctx.strokeRect(x - 9, y - 9, 18, 18);
++        ctx.fillStyle = '#ffffff';
++        ctx.fillRect(x - 2, y - 2, 4, 4);
++      }
+     }
+   }
++
+   dispose() {
+-    this.disposed = true; clearInterval(this.poll); cancelAnimationFrame(this.animation);
+-    this.client.listeners.delete(this.update); for (const cleanup of this.cleanups) cleanup();
++    this.disposed = true;
++    clearInterval(this.poll);
++    cancelAnimationFrame(this.animation);
++    this.client.listeners.delete(this.update);
++    for (const cleanup of this.cleanups) cleanup();
+   }
+ }
+ 
+ if (typeof document !== 'undefined' && document.getElementById('join-form')) {
+-  const client = new ArenaClient(); const view = new ArenaView(client, document);
+-  window.addEventListener('pagehide', () => { view.dispose(); client.dispose(); });
++  const client = new ArenaClient();
++  const view = new ArenaView(client, document);
++  window.addEventListener('pagehide', () => {
++    view.dispose();
++    client.dispose();
++  });
+ }
+diff --git a/arena.py b/arena.py
+index 55ef51408c4da98d470e284815d3b9f2cd3faed8..f6c575a427b2c245026e93cbd870aaaf9e2e09f2 100644
+--- a/arena.py
++++ b/arena.py
+@@ -1,4 +1,5 @@
+-"""Independent authoritative grid arena; no original game code or assets."""
++"""Authoritative in-memory grid arena for the local multiplayer service."""
++
+ import copy
+ import json
+ from pathlib import Path
+@@ -9,132 +10,308 @@ import time
+ 
+ 
+ class Conflict(Exception):
++    """An expected HTTP/business error."""
++
+     def __init__(self, status, code):
+-        self.status, self.code = status, code
++        super().__init__(code)
++        self.status = status
++        self.code = code
+ 
+ 
+ def reject(status, code):
+     raise Conflict(status, code)
+ 
+ 
++_COMMAND_ID = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
++_DIRECTIONS = {
++    "left": (-1, 0),
++    "right": (1, 0),
++    "up": (0, -1),
++    "down": (0, 1),
++}
++
++
+ class Arena:
++    """One ephemeral, process-local arena instance.
++
++    All player/session mutations and state snapshots use ``lock``.  The HTTP
++    server may dispatch requests on many threads, so the lock is also the
++    serialization point for commands and for process-local snapshot sequence
++    numbers.
++    """
++
++    PROTECTION_MS = 6000
++    MAX_HP = 3
++
+     def __init__(self, world, clock_file):
+-        self.rooms = {room['id']: copy.deepcopy(room) for room in world['rooms']}
++        self.rooms = {room["id"]: copy.deepcopy(room) for room in world["rooms"]}
+         self.clock_file = Path(clock_file)
+-        self.players = {}
+-        self.sessions = {}
++        self.players = {}       # player id -> authoritative player record
++        self.sessions = {}      # bearer token -> player id
++        # A command is keyed by actor, the generation supplied by the caller,
++        # and command id.  Move and respawn consequently share one namespace.
+         self.commands = {}
+         self.seq = 0
+         self.lock = threading.RLock()
+ 
+     def now(self):
+-        clock = json.loads(self.clock_file.read_text())
+-        if clock.get('mode') == 'realtime':
++        """Read the manager-owned transaction clock without modifying it."""
++        clock = json.loads(self.clock_file.read_text(encoding="utf-8"))
++        if clock.get("mode") == "realtime":
+             return time.time_ns() // 1_000_000
+-        value = clock['now_ms']
++        value = clock.get("now_ms")
+         if type(value) is not int or value < 0:
+-            raise ValueError('Invalid benchmark clock')
++            raise ValueError("Invalid benchmark clock")
+         return value
+ 
+     def catalog(self):
+-        return {'rooms': [{k: room[k] for k in ('id', 'label', 'cols', 'rows')} for room in self.rooms.values()]}
++        # Room definitions are immutable after construction, but copy the
++        # externally visible values so a caller cannot mutate the world.
++        with self.lock:
++            return {
++                "rooms": [
++                    {key: copy.deepcopy(room[key]) for key in ("id", "label", "cols", "rows")}
++                    for room in self.rooms.values()
++                ]
++            }
+ 
+     def actor(self, token):
+-        pid = self.sessions.get(token)
+-        if pid not in self.players:
+-            reject(401, 'unauthenticated')
+-        return self.players[pid]
++        """Return the session's player or raise the protocol 401 error."""
++        player_id = self.sessions.get(token)
++        if player_id is None or player_id not in self.players:
++            reject(401, "unauthenticated")
++        return self.players[player_id]
+ 
+     def free_spawn(self, room_id):
+-        occupied = {(p['x'], p['y']) for p in self.players.values() if p['room_id'] == room_id and p['alive']}
+-        for x, y in self.rooms[room_id]['spawn_points']:
++        """Select the first listed spawn point not occupied by a live player."""
++        occupied = {
++            (player["x"], player["y"])
++            for player in self.players.values()
++            if player["room_id"] == room_id and player["alive"]
++        }
++        for point in self.rooms[room_id]["spawn_points"]:
++            x, y = point
+             if (x, y) not in occupied:
+                 return x, y
+-        reject(409, 'conflict')
++        reject(409, "conflict")
+ 
+-    def spawn(self, player, now, position):
+-        player.update(x=position[0], y=position[1], hp=3, alive=True,
+-                      generation=player.get('generation', 0) + 1,
+-                      spawn_ms=now, protected_until_ms=now)
++    def _new_spawn(self, player, now, position, generation):
++        player.update(
++            x=position[0],
++            y=position[1],
++            hp=self.MAX_HP,
++            alive=True,
++            generation=generation,
++            spawn_ms=now,
++            protected_until_ms=now + self.PROTECTION_MS,
++        )
+ 
+     def snapshot(self, actor, now):
++        """Build an immutable-by-convention state while holding ``lock``."""
+         self.seq += 1
+-        room_id = actor['room_id']
+-        room = self.rooms[room_id]
+-        return {'room': {k: copy.deepcopy(room[k]) for k in ('id', 'label', 'cols', 'rows', 'walls')},
+-                'seq': self.seq, 'server_now_ms': now,
+-                'players': [{k: v for k, v in p.items() if k != 'room_id'}
+-                            for p in self.players.values() if p['room_id'] == room_id]}
++        room = self.rooms[actor["room_id"]]
++        visible_room = {
++            key: copy.deepcopy(room[key])
++            for key in ("id", "label", "cols", "rows", "walls")
++        }
++        visible_players = []
++        for player in self.players.values():
++            if player["room_id"] != actor["room_id"]:
++                continue
++            visible_players.append(
++                {
++                    key: copy.deepcopy(player[key])
++                    for key in (
++                        "id",
++                        "label",
++                        "x",
++                        "y",
++                        "hp",
++                        "alive",
++                        "generation",
++                        "spawn_ms",
++                        "protected_until_ms",
++                    )
++                }
++            )
++        return {
++            "room": visible_room,
++            "seq": self.seq,
++            "server_now_ms": now,
++            "players": visible_players,
++        }
+ 
+     def join(self, body):
+-        room_id, label = body.get('room_id'), body.get('label')
+-        if not isinstance(room_id, str) or not isinstance(label, str) or not 1 <= len(label.strip()) <= 40:
+-            reject(400, 'invalid_request')
++        room_id = body.get("room_id")
++        label = body.get("label")
++        if (
++            not isinstance(room_id, str)
++            or not isinstance(label, str)
++            or not 1 <= len(label.strip()) <= 40
++        ):
++            reject(400, "invalid_request")
++        try:
++            # JSON can spell an unpaired surrogate even though it is not a
++            # UTF-8 Unicode code point and cannot be rendered in a response.
++            label.encode("utf-8")
++        except UnicodeEncodeError:
++            reject(400, "invalid_request")
++
+         with self.lock:
+             if room_id not in self.rooms:
+-                reject(404, 'not_found')
++                reject(404, "not_found")
++            # Spawn selection and insertion are one critical section, so two
++            # simultaneous joins cannot receive the same point.
+             position = self.free_spawn(room_id)
+             now = self.now()
+-            player = {'id': 'player_' + secrets.token_hex(12), 'room_id': room_id, 'label': label.strip()}
+-            self.spawn(player, now, position)
++            player_id = "player_" + secrets.token_hex(16)
++            player = {
++                "id": player_id,
++                "room_id": room_id,
++                "label": label.strip(),
++            }
++            self._new_spawn(player, now, position, 1)
+             token = secrets.token_hex(32)
+-            self.players[player['id']] = player
+-            self.sessions[token] = player['id']
+-            return {'token': token, 'player_id': player['id'], 'state': self.snapshot(player, now)}
++            self.players[player_id] = player
++            self.sessions[token] = player_id
++            return {
++                "token": token,
++                "player_id": player_id,
++                "state": self.snapshot(player, now),
++            }
+ 
+     def state(self, token):
+         with self.lock:
+             actor = self.actor(token)
+-            return {'state': self.snapshot(actor, self.now())}
++            return {"state": self.snapshot(actor, self.now())}
+ 
+     def leave(self, token):
+         with self.lock:
+             actor = self.actor(token)
++            player_id = actor["id"]
++            # Invalidation happens while holding the same lock as command
++            # dispatch, making leave and a simultaneous command deterministic.
+             del self.sessions[token]
+-            del self.players[actor['id']]
+-            self.commands = {k: v for k, v in self.commands.items() if k[0] != actor['id']}
+-            return {'ok': True}
++            del self.players[player_id]
++            self.commands = {
++                key: value for key, value in self.commands.items() if key[0] != player_id
++            }
++            return {"ok": True}
+ 
+     @staticmethod
+     def protected(player, now):
+-        # Spawn-protection collision policy is unfinished.
+-        return False
++        """Whether server time is strictly before this live player's deadline."""
++        return bool(player["alive"] and now < player["protected_until_ms"])
+ 
+     def move_player(self, actor, direction, now):
+-        if not actor['alive']:
+-            reject(409, 'conflict')
+-        dx, dy = {'left': (-1, 0), 'right': (1, 0), 'up': (0, -1), 'down': (0, 1)}[direction]
+-        x, y = actor['x'] + dx, actor['y'] + dy
+-        room = self.rooms[actor['room_id']]
+-        if not 0 <= x < room['cols'] or not 0 <= y < room['rows'] or [x, y] in room['walls']:
++        if not actor["alive"]:
++            reject(409, "conflict")
++
++        dx, dy = _DIRECTIONS[direction]
++        x, y = actor["x"] + dx, actor["y"] + dy
++        room = self.rooms[actor["room_id"]]
++        # Outside the rectangle is a wall.  A blocked move is still a valid,
++        # committed command, but has no health or position effect.
++        if not (0 <= x < room["cols"] and 0 <= y < room["rows"]):
++            return
++        if [x, y] in room["walls"]:
+             return
+-        collision = any(p['id'] != actor['id'] and p['room_id'] == actor['room_id'] and p['alive']
+-                        and (p['x'], p['y']) == (x, y)
+-                        and not self.protected(actor, now) and not self.protected(p, now)
+-                        for p in self.players.values())
+-        if collision:
+-            actor['hp'] -= 1
+-            actor['alive'] = actor['hp'] > 0
+-        else:
+-            actor.update(x=x, y=y)
++
++        for other in self.players.values():
++            if (
++                other["id"] != actor["id"]
++                and other["room_id"] == actor["room_id"]
++                and other["alive"]
++                and (other["x"], other["y"]) == (x, y)
++            ):
++                # Protection is evaluated by the transaction clock.  It is
++                # enough for either live participant to be protected to allow
++                # the move, including temporary overlap.
++                if self.protected(actor, now) or self.protected(other, now):
++                    continue
++                actor["hp"] -= 1
++                if actor["hp"] <= 0:
++                    actor["hp"] = 0
++                    actor["alive"] = False
++                return
++
++        actor.update(x=x, y=y)
++
++    @staticmethod
++    def _valid_command_fields(operation, body):
++        generation = body.get("generation")
++        command_id = body.get("command_id")
++        if (
++            type(generation) is not int
++            or generation < 1
++            or not isinstance(command_id, str)
++            or _COMMAND_ID.fullmatch(command_id) is None
++        ):
++            reject(400, "invalid_request")
++        direction = None
++        if operation == "move":
++            direction = body.get("direction")
++            if direction not in _DIRECTIONS:
++                reject(400, "invalid_request")
++        return generation, command_id, direction
++
++    def _replay_or_reject(self, actor, operation, generation, command_id, direction):
++        """Return True if a committed command was replayed.
++
++        Replay lookup occurs only after all public field types/values have been
++        validated.  A replay is a new state snapshot, so it gets a new seq and
++        current clock value, but it never repeats its original mutation.
++        """
++        key = (actor["id"], generation, command_id)
++        entry = self.commands.get(key)
++        if entry is None:
++            return False
++
++        if entry["operation"] != operation or entry.get("direction") != direction:
++            reject(409, "conflict")
++
++        # Normal commands can replay while their original generation remains
++        # current.  A successful respawn is the one intentional exception:
++        # its original generation is replaced by exactly the generation it
++        # produced, and the original request remains replayable in that state.
++        replayable = actor["generation"] == generation
++        if operation == "respawn":
++            replayable = replayable or entry["produced_generation"] == actor["generation"]
++        if not replayable:
++            reject(409, "conflict")
++        return True
+ 
+     def command(self, token, operation, body):
+         with self.lock:
+             actor = self.actor(token)
+-            generation, command_id = body.get('generation'), body.get('command_id')
+-            direction = body.get('direction')
+-            if (type(generation) is not int or generation < 1 or not isinstance(command_id, str)
+-                    or re.fullmatch(r'[A-Za-z0-9_-]{1,64}', command_id) is None
+-                    or (operation == 'move' and direction not in ('left', 'right', 'up', 'down'))):
+-                reject(400, 'invalid_request')
+-            # Command replay is unfinished.
++            generation, command_id, direction = self._valid_command_fields(operation, body)
++
++            if self._replay_or_reject(actor, operation, generation, command_id, direction):
++                return {"state": self.snapshot(actor, self.now())}
++
++            # A new command can only operate on the caller's current
++            # generation.  Rejected stale commands do not reserve their id.
++            if generation != actor["generation"]:
++                reject(409, "conflict")
++
+             now = self.now()
+-            if generation != actor['generation']:
+-                reject(409, 'conflict')
+-            if operation == 'move':
++            if operation == "move":
+                 self.move_player(actor, direction, now)
+-            elif operation == 'respawn':
+-                reject(501, 'not_implemented')
++                produced_generation = actor["generation"]
++            elif operation == "respawn":
++                if actor["alive"]:
++                    reject(409, "conflict")
++                position = self.free_spawn(actor["room_id"])
++                self._new_spawn(actor, now, position, actor["generation"] + 1)
++                produced_generation = actor["generation"]
+             else:
+-                reject(404, 'not_found')
+-            return {'state': self.snapshot(actor, now)}
++                reject(404, "not_found")
++
++            # Store only after the operation has succeeded.  Full spawn areas,
++            # live respawns and dead-player moves therefore do not reserve ids.
++            self.commands[(actor["id"], generation, command_id)] = {
++                "operation": operation,
++                "direction": direction,
++                "produced_generation": produced_generation,
++            }
++            return {"state": self.snapshot(actor, now)}
+diff --git a/server.py b/server.py
+index 47b48e032a643523c490bc01ed5aa08a3e54db05..9b421b44c9ad40b41a5bf797e15812db230ac28d 100644
+--- a/server.py
++++ b/server.py
+@@ -1,87 +1,169 @@
+ """Standalone local HTTP entry point for the synthetic arena."""
++
+ import argparse
+ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ import json
+ from pathlib import Path
+ from urllib.parse import urlsplit
++
+ from arena import Arena, Conflict, reject
+ 
++
+ ROOT = Path(__file__).resolve().parent
+ 
+ 
+-def handler(arena):
+-    class Handler(BaseHTTPRequestHandler):
+-        def log_message(self, *args):
+-            pass
+-
+-        def send(self, status, value, content_type='application/json'):
+-            data = json.dumps(value, ensure_ascii=False).encode() if content_type == 'application/json' else value
+-            self.send_response(status)
+-            self.send_header('Content-Type', content_type + '; charset=utf-8')
+-            self.send_header('Content-Length', str(len(data)))
+-            self.send_header('Cache-Control', 'no-store')
+-            self.end_headers()
+-            self.wfile.write(data)
+-
+-        def dispatch(self, method):
+-            try:
+-                path = urlsplit(self.path).path
+-                if method == 'GET' and path in ('/', '/app.js', '/style.css'):
+-                    name = 'index.html' if path == '/' else path[1:]
+-                    mime = {'index.html': 'text/html', 'app.js': 'text/javascript', 'style.css': 'text/css'}[name]
+-                    return self.send(200, (ROOT / name).read_bytes(), mime)
+-                if method == 'GET' and path == '/health':
+-                    return self.send(200, {'ok': True})
+-                if method == 'GET' and path == '/api/rooms':
+-                    return self.send(200, arena.catalog())
+-                body = {}
+-                if method == 'POST':
+-                    try:
+-                        length = int(self.headers.get('Content-Length', ''))
+-                        if not 0 < length <= 16384:
+-                            raise ValueError()
+-                        body = json.loads(self.rfile.read(length))
+-                        if not isinstance(body, dict):
+-                            raise ValueError()
+-                    except (ValueError, UnicodeDecodeError):
+-                        reject(400, 'invalid_request')
+-                if method == 'POST' and path == '/api/join':
+-                    return self.send(201, arena.join(body))
+-                auth = self.headers.get('Authorization', '')
+-                token = auth[7:] if auth.startswith('Bearer ') else None
+-                if method == 'GET' and path == '/api/state':
+-                    return self.send(200, arena.state(token))
+-                if method == 'POST' and path == '/api/leave':
+-                    return self.send(200, arena.leave(token))
+-                if method == 'POST' and path in ('/api/move', '/api/respawn'):
+-                    return self.send(200, arena.command(token, path.rsplit('/', 1)[1], body))
+-                reject(404, 'not_found')
+-            except Conflict as exc:
+-                self.send(exc.status, {'error': exc.code})
+-            except (BrokenPipeError, ConnectionResetError):
++class RequestHandlerFactory:
++    """Create a handler class bound to one ephemeral :class:`Arena`."""
++
++    def __init__(self, arena):
++        self.arena = arena
++
++    def __call__(self):
++        arena = self.arena
++
++        class Handler(BaseHTTPRequestHandler):
++            # HTTP/1.0 closes responses by default, which also keeps malformed
++            # request bodies from being accidentally interpreted as a next
++            # request by this intentionally small service.
++            protocol_version = "HTTP/1.0"
++
++            def log_message(self, *_args):
+                 pass
+-            except Exception:
+-                self.send(500, {'error': 'service_error'})
+ 
+-        def do_GET(self):
+-            self.dispatch('GET')
++            def send(self, status, value, content_type="application/json"):
++                if content_type == "application/json":
++                    data = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
++                else:
++                    data = value
++                self.send_response(status)
++                self.send_header("Content-Type", content_type + "; charset=utf-8")
++                self.send_header("Content-Length", str(len(data)))
++                self.send_header("Cache-Control", "no-store")
++                self.end_headers()
++                self.wfile.write(data)
++
++            def read_json_object(self):
++                """Read exactly one bounded UTF-8 JSON object body."""
++                raw_length = self.headers.get("Content-Length")
++                try:
++                    # Content-Length is required for every JSON POST in the
++                    # public protocol.  bool is not relevant here because the
++                    # header value is always text.
++                    length = int(raw_length) if raw_length is not None else -1
++                except (TypeError, ValueError):
++                    reject(400, "invalid_request")
++                if length <= 0 or length > 16384:
++                    reject(400, "invalid_request")
++                raw = self.rfile.read(length)
++                if len(raw) != length:
++                    reject(400, "invalid_request")
++                try:
++                    text = raw.decode("utf-8")
++                    value = json.loads(
++                        text,
++                        parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()),
++                    )
++                except (UnicodeDecodeError, ValueError, TypeError, RecursionError, OverflowError):
++                    reject(400, "invalid_request")
++                if not isinstance(value, dict):
++                    reject(400, "invalid_request")
++                return value
+ 
+-        def do_POST(self):
+-            self.dispatch('POST')
++            def token(self):
++                authorization = self.headers.get("Authorization")
++                if not isinstance(authorization, str) or not authorization.startswith("Bearer "):
++                    return None
++                token = authorization[7:]
++                return token if token else None
+ 
+-        def do_PUT(self):
+-            self.send(404, {'error': 'not_found'})
++            def dispatch(self, method):
++                try:
++                    path = urlsplit(self.path).path
++
++                    # Resolve the route/method before reading a body.  Unknown
++                    # paths and wrong methods are always the public 404 shape.
++                    post_routes = {"/api/join", "/api/leave", "/api/move", "/api/respawn"}
++                    if method == "GET" and path in {"/", "/app.js", "/style.css"}:
++                        name = "index.html" if path == "/" else path[1:]
++                        mime = {
++                            "index.html": "text/html",
++                            "app.js": "text/javascript",
++                            "style.css": "text/css",
++                        }[name]
++                        return self.send(200, (ROOT / name).read_bytes(), mime)
++                    if method == "GET" and path == "/health":
++                        return self.send(200, {"ok": True})
++                    if method == "GET" and path == "/api/rooms":
++                        return self.send(200, arena.catalog())
++                    if method == "GET" and path == "/api/state":
++                        return self.send(200, arena.state(self.token()))
++                    if method != "POST" or path not in post_routes:
++                        reject(404, "not_found")
++
++                    body = self.read_json_object()
++                    if path == "/api/join":
++                        return self.send(201, arena.join(body))
++                    token = self.token()
++                    if path == "/api/leave":
++                        return self.send(200, arena.leave(token))
++                    if path == "/api/move":
++                        return self.send(200, arena.command(token, "move", body))
++                    if path == "/api/respawn":
++                        return self.send(200, arena.command(token, "respawn", body))
++                    # Kept for completeness if the route table is extended.
++                    reject(404, "not_found")
++                except Conflict as exc:
++                    self.send(exc.status, {"error": exc.code})
++                except (BrokenPipeError, ConnectionResetError):
++                    pass
++                except Exception:
++                    # All business paths are JSON.  Do not expose process or
++                    # filesystem details in an unexpected service failure.
++                    try:
++                        self.send(500, {"error": "service_error"})
++                    except (BrokenPipeError, ConnectionResetError):
++                        pass
+ 
+-        do_DELETE = do_PATCH = do_PUT
+-    return Handler
++            def do_GET(self):
++                self.dispatch("GET")
++
++            def do_POST(self):
++                self.dispatch("POST")
++
++            def do_PUT(self):
++                self.dispatch("PUT")
++
++            def do_DELETE(self):
++                self.dispatch("DELETE")
++
++            def do_PATCH(self):
++                self.dispatch("PATCH")
++
++            def do_HEAD(self):
++                self.dispatch("HEAD")
++
++            def do_OPTIONS(self):
++                self.dispatch("OPTIONS")
++
++            def do_TRACE(self):
++                self.dispatch("TRACE")
++
++            def do_CONNECT(self):
++                self.dispatch("CONNECT")
++
++        return Handler
++
++
++def handler(arena):
++    return RequestHandlerFactory(arena)()
+ 
+ 
+-if __name__ == '__main__':
++if __name__ == "__main__":
+     parser = argparse.ArgumentParser()
+-    parser.add_argument('--host', default='127.0.0.1')
+-    parser.add_argument('--port', type=int, default=8080)
+-    parser.add_argument('--world', default='fixtures/world.json')
+-    parser.add_argument('--clock-file', default='fixtures/clock.json')
++    parser.add_argument("--host", default="127.0.0.1")
++    parser.add_argument("--port", type=int, default=8080)
++    parser.add_argument("--world", default="fixtures/world.json")
++    parser.add_argument("--clock-file", default="fixtures/clock.json")
+     args = parser.parse_args()
+-    arena = Arena(json.loads(Path(args.world).read_text()), args.clock_file)
++    arena = Arena(json.loads(Path(args.world).read_text(encoding="utf-8")), args.clock_file)
+     ThreadingHTTPServer((args.host, args.port), handler(arena)).serve_forever()
+diff --git a/style.css b/style.css
+index 8413f11db3f9f27a987b6c7b677a72b003542709..a840234d5de36b85e72003047272791497e54a09 100644
+--- a/style.css
++++ b/style.css
+@@ -1 +1 @@
+-:root{font-family:system-ui,sans-serif;color:#162b39;background:#eef2f4}*{box-sizing:border-box}body{margin:0}main{max-width:780px;margin:32px auto;padding:0 20px}header>p:first-child{font-size:12px;letter-spacing:.1em;color:#4a6372}h1{margin:8px 0;font-size:36px}header p{line-height:1.5}form,.toolbar,.status,.controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}form{padding:20px;background:white;border:1px solid #bac7cd;border-radius:10px}label{display:grid;gap:6px;flex:1;min-width:140px}input,select,button{font:inherit;padding:10px;border:1px solid #91a6b2;border-radius:6px;max-width:100%}button{background:#163f55;color:white;cursor:pointer}button:disabled{opacity:.5;cursor:default}.toolbar{justify-content:space-between}.status{min-height:52px}#shield-indicator{background:#daf2f0;padding:6px 10px;border:1px solid #427b78;border-radius:6px}canvas{display:block;width:100%;height:auto;border:2px solid #263d4a;border-radius:8px;background:white}.controls{padding:14px 0}#roster>div{padding:10px;border-bottom:1px solid #c4d0d6}#error{padding:12px;color:#852820;background:#fff0ed;border:1px solid #e4b0a6}section{margin-top:20px}[hidden]{display:none!important}
++:root{font-family:system-ui,sans-serif;color:#162b39;background:#eef2f4}*{box-sizing:border-box}body{margin:0}main{max-width:780px;margin:32px auto;padding:0 20px}header>p:first-child{font-size:12px;letter-spacing:.1em;color:#4a6372}h1{margin:8px 0;font-size:36px}header p{line-height:1.5}form,.toolbar,.status,.controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}form{padding:20px;background:white;border:1px solid #bac7cd;border-radius:10px}label{display:grid;gap:6px;flex:1;min-width:140px}input,select,button{font:inherit;padding:10px;border:1px solid #91a6b2;border-radius:6px;max-width:100%;min-width:0}input,select{width:100%}button{background:#163f55;color:white;cursor:pointer}button:disabled{opacity:.5;cursor:default}.toolbar{justify-content:space-between}.status{min-height:52px}#shield-indicator{background:#daf2f0;padding:6px 10px;border:1px solid #427b78;border-radius:6px}canvas{display:block;width:100%;max-width:100%;height:auto;border:2px solid #263d4a;border-radius:8px;background:white}.controls{padding:14px 0}#roster>div{padding:10px;border-bottom:1px solid #c4d0d6;overflow-wrap:anywhere}.toolbar strong{min-width:0;overflow-wrap:anywhere}#error{padding:12px;color:#852820;background:#fff0ed;border:1px solid #e4b0a6}section{margin-top:20px}[hidden]{display:none!important}

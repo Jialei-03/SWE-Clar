@@ -1,0 +1,24 @@
+{
+  "profile": "python-vision",
+  "platform": "linux/amd64",
+  "workdir": "/workspace",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "workspace_mb": 256,
+    "evaluation_wall_seconds": 240
+  },
+  "dependencies": "Prepared Python3.12.3/Pillow12.3.0; Chromium/Playwright; bundled Leaflet1.9.4 with license",
+  "task_preflight": [
+    "python",
+    "/public_tests/preflight.py"
+  ],
+  "public_test": [
+    "python",
+    "/public_tests/smoke.py"
+  ],
+  "start": "FOOD_CONFIG=runtime/config.json FOOD_DATABASE=runtime/meals.sqlite PORT=8080 python server.py",
+  "health": "GET http://127.0.0.1:8080/",
+  "reset": "New runtime/database for fresh attempt; reuse database for restart persistence."
+}

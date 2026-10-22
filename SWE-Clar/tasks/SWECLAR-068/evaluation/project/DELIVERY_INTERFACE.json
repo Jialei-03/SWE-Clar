@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-068",
+  "readme": "# Supplied signal component\n\nIndependent Python function, JSON CLI and small HTTP/SVG viewer. Implement `evaluate_indicator(config, context)` in solution.py; keep input objects unchanged. Determinism applies to required business fields; additional metadata is allowed. No original Pine code, live data, financial calculation or trade execution is included. The original grade logic was sequence-sensitive; this two-trend classification and exact-string blackout are deliberately simplified local conventions.\n\nPrepared python-web supplies Python3.12.3 and protected browser checks use Playwright/Chromium. No installation or build is needed. CLI: `python cli.py` reads `{config,context}` JSON on stdin and writes a result object. Start `PORT=8080 python server.py`; stdout reports a JSON port. Open http://127.0.0.1:8080/; GET / is health, POST /evaluate carries the same JSON input. Public check: `python /public_tests/smoke.py`. Reload resets local viewer state. Loopback only, 2 CPUs, 2GiB RAM, 256 processes, 256MiB workspace.\n\nConfig fields: `triggers` name-to-boolean map, `tf2_enabled`, `blackout_enabled`, `blackout_times` array of strings, `menu_visible`. Context fields: `trigger_states` name-to-boolean map, `htf1` and `htf2` supplied bull/bear observations (null/missing means unavailable), `time` string and `viewport_width` number. Trigger membership is independent and follows context key order. Disabled or absent trigger controls cannot fire. TF1 is the primary enabled timeframe; TF2 is selected separately. Ask the synthetic client for classification, blackout and presentation rules.\n\nResult fields used by adapters: `active_signals` string array, `tf1_active` boolean, `classification` string, `labels_visible` boolean, `styles` containing htf1/htf2/regression CSS color strings, `menu:{visible:boolean,size:string}`. The existing viewer renders labels from the actual active list and line strokes/menu from the result. Its straight lines are intentionally illustrative synthetic geometry, not a reconstructed indicator calculation. Show information menu changes config.menu_visible; viewport_width is supplied from the actual browser width. Invalid adapter requests may use any HTTP4xx error wording; successful responses may include extra metadata.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "evaluate_indicator",
+        "signature": "evaluate_indicator(config: dict, context: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "config",
+          "context"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+        "asserted_field_paths": [
+          "active_signals"
+        ],
+        "field_schemas": {
+          "active_signals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "operations": []
+    },
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "evaluate_indicator",
+        "signature": "evaluate_indicator(config: dict, context: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "config",
+          "context"
+        ],
+        "protocol_fields": [
+          "htf1",
+          "trigger_states",
+          "triggers"
+        ],
+        "field_schemas": {
+          "triggers": {
+            "type": "object"
+          },
+          "trigger_states": {
+            "type": "object"
+          }
+        }
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "A deterministic JSON-compatible result; input objects are not mutated.",
+        "asserted_field_paths": [
+          "active_signals"
+        ],
+        "field_schemas": {
+          "active_signals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "operations": []
+    }
+  ]
+}

@@ -1,0 +1,193 @@
+schema_version: 1
+task_id: SWECLAR-060
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Playable local creature arena with deterministic battle, inventory, loot and fusion
+requirement_units:
+- ru_id: RU-001
+  name: Game workflow entry point
+  content: Preserve the supplied real HTTP/canvas game. process_game_action(state,action) returns a new
+    JSON state with result or nonempty error.code, without mutating either input. Errors preserve existing
+    business collections. Existing movement/rendering, /health, /state, /action and /reset must remain
+    usable. Successful combat, inventory, loot and fusion actions appear in actual health, world loot
+    and panels. Extra metadata and alternative nonempty error codes are accepted. Finite numeric values
+    exclude booleans; quantities/capacities/stack limits are integers. Unknown/malformed actions reject
+    without corrupting state.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for game workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_game_action
+      signature: process_game_action(state,action) -> dict
+    inputs:
+      state: Synthetic scenario mapping
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: New JSON state and actual browser/HTTP effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Browser slice, not an original commercial 3D game. Supplied probability/time inputs make offline
+    checks deterministic.
+- ru_id: RU-002
+  name: POC creatures and real-time skills
+  content: A skill needs known source, target and skill, finite numeric hp/level/defense/power and positive
+    hp for both combatants. Compute damage=max(0,power+source.level-target.defense), report this computed
+    damage before hp clamp, set target_hp=max(0,old_hp-damage), and append exactly one event for accepted
+    actions (including zero damage). Rejection leaves hp/events unchanged. Preserve other combatants and
+    skills. Successful gestures update the visible scene.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for poc creatures and real-time skills.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_game_action
+      signature: process_game_action(state,action) -> dict
+    inputs:
+      state: Synthetic scenario mapping
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: New JSON state and actual browser/HTTP effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Browser slice, not an original commercial 3D game. Supplied probability/time inputs make offline
+    checks deterministic.
+- ru_id: RU-003
+  name: Fixed-slot stackable inventory
+  content: Existing inventory capacity is fixed. add_item requires a positive integer quantity and item_id,
+    boolean stackable (default false), and a positive integer stack_limit when stackable. Fill existing
+    slots for the same item up to that supplied limit, then allocate new stacks up to capacity. Nonstackable
+    items occupy one slot per unit. Reject invalid items/users/quantities and capacity overflow atomically.
+    Slot and response metadata may be retained; acceptance depends on required fields, not exact dictionary
+    formatting.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for fixed-slot stackable inventory.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_game_action
+      signature: process_game_action(state,action) -> dict
+    inputs:
+      state: Synthetic scenario mapping
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: New JSON state and actual browser/HTTP effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Browser slice, not an original commercial 3D game. Supplied probability/time inputs make offline
+    checks deterministic.
+- ru_id: RU-004
+  name: Deterministic percentage drop and ownership window
+  content: roll_drop requires a defeated known enemy (hp<=0), a unique nonempty drop_id, existing owner
+    inventory, valid item description, finite now and supplied roll/chance in [0,1]. It creates one item
+    drop iff roll<chance; a nonwinning valid roll returns dropped=false without changing world drops.
+    The owner's exclusive window is [created,created+60); during [created+60,created+120) any player with
+    an existing inventory may pick up. At created+120 it is unavailable. Earlier-than-created pickup rejects.
+    Successful pickup atomically inserts exactly one item according to the same inventory rules and removes
+    the world drop or marks it picked. Full inventory, unknown user/drop, expired/picked drops or invalid
+    time reject without consuming loot or changing inventory. Repeated pickup cannot duplicate an item.
+    expire(now) removes/marks unpicked drops whose expiry is <=now; other drops remain available. Results
+    expose dropped/picked booleans; internal timestamp field names are not prescribed.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for deterministic percentage drop and ownership
+    window.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_game_action
+      signature: process_game_action(state,action) -> dict
+    inputs:
+      state: Synthetic scenario mapping
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: New JSON state and actual browser/HTTP effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Browser slice, not an original commercial 3D game. Supplied probability/time inputs make offline
+    checks deterministic.
+- ru_id: RU-005
+  name: POC fusion encyclopedia
+  content: recipes maps IDs to level, exactly two input creature types and one result type. encyclopedia
+    lists level-one recipes in ascending recipe-ID order, adding recipe_id for the UI selector and preserving
+    configured fields. fuse accepts any valid configured recipe_id (the level-one filter applies only
+    to encyclopedia), requires an existing owned-creature list with both input occurrences, consumes each
+    required occurrence once and appends one result. Identical inputs require two owned copies. Missing
+    recipe, invalid recipe or insufficient ownership rejects atomically. Other users and recipe definitions
+    remain unchanged; successful fusion updates the creature panel.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for poc fusion encyclopedia.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_game_action
+      signature: process_game_action(state,action) -> dict
+    inputs:
+      state: Synthetic scenario mapping
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: New JSON state and actual browser/HTTP effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Browser slice, not an original commercial 3D game. Supplied probability/time inputs make offline
+    checks deterministic.

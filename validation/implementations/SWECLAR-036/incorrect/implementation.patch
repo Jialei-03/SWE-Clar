@@ -1,0 +1,549 @@
+diff --git a/CertificateSetup.cs b/CertificateSetup.cs
+index b54fc0b197455e8c8bf59b71e438d97253465ae4..e7d1c4ec281bff82f61dffe1de4012edea4d9d1a 100644
+--- a/CertificateSetup.cs
++++ b/CertificateSetup.cs
+@@ -1,28 +1,68 @@
+-using System.Security.Cryptography;
++using System.Net;
+ using System.Security.Cryptography.X509Certificates;
++using System.Security.Cryptography;
+ using Microsoft.AspNetCore.Server.Kestrel.Https;
+-using System.Net;
+ 
+ public static class CertificateSetup
+ {
++    private static X509Certificate2? clientCa;
++
++    public static bool IsConfigured { get; private set; }
++
+     public static void Configure(WebApplicationBuilder builder)
+     {
+-        var server = new X509Certificate2(Environment.GetEnvironmentVariable("SERVER_PFX")!, Environment.GetEnvironmentVariable("SERVER_PFX_PASSWORD"));
+-        var ca = X509Certificate2.CreateFromPem(File.ReadAllText(Environment.GetEnvironmentVariable("CLIENT_CA_PEM")!));
+-        var port = int.Parse(Environment.GetEnvironmentVariable("API_PORT")!);
+-        builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, port, listen => listen.UseHttps(https =>
++        var serverPath = Environment.GetEnvironmentVariable("SERVER_PFX") ?? string.Empty;
++        var caPath = Environment.GetEnvironmentVariable("CLIENT_CA_PEM") ?? string.Empty;
++        var serverPassword = Environment.GetEnvironmentVariable("SERVER_PFX_PASSWORD");
++        var port = int.Parse(Environment.GetEnvironmentVariable("API_PORT") ?? "8080");
++
++        var server = new X509Certificate2(serverPath, serverPassword);
++        var ca = X509Certificate2.CreateFromPem(File.ReadAllText(caPath));
++        clientCa = ca;
++
++        builder.WebHost.ConfigureKestrel(options => options.Listen(
++            IPAddress.Loopback,
++            port,
++            listen => listen.UseHttps(https =>
++            {
++                https.ServerCertificate = server;
++                // The certificate is requested during TLS but is not required
++                // for ordinary routes. /secure enforces it at the application
++                // boundary as well.
++                https.ClientCertificateMode = ClientCertificateMode.AllowCertificate;
++                https.ClientCertificateValidation = (certificate, _, _) =>
++                    certificate is not null && Validate(certificate, ca);
++            })));
++
++        IsConfigured = true;
++    }
++
++    public static bool IsValidClientCertificate(X509Certificate2 certificate)
++    {
++        try
+         {
+-            https.ServerCertificate = server;
+-            https.ClientCertificateMode = ClientCertificateMode.AllowCertificate;
+-            https.ClientCertificateValidation = (certificate, _, _) => Validate(certificate, ca);
+-        })));
++            var ca = clientCa;
++            return ca is not null && Validate(certificate, ca);
++        }
++        catch
++        {
++            return false;
++        }
+     }
+-    public static bool Validate(X509Certificate2 certificate, X509Certificate2 ca)
++
++    public static bool Validate(X509Certificate2? certificate, X509Certificate2 ca)
+     {
++        if (certificate is null)
++        {
++            return false;
++        }
++
+         using var chain = new X509Chain();
+         chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+         chain.ChainPolicy.CustomTrustStore.Add(ca);
+         chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
++        // Restrict the chain for the purpose for which this API accepts a
++        // client certificate. No machine or OS trust store is modified.
+         chain.ChainPolicy.ApplicationPolicy.Add(new Oid("1.3.6.1.5.5.7.3.2"));
+         return chain.Build(certificate);
+     }
+diff --git a/DatabaseSetup.cs b/DatabaseSetup.cs
+index 3a40d055258fb2def6d2fe589319b8647b06fb4d..f594559ab6545aa2c0fb77b8a23f54fb3b0e52d2 100644
+--- a/DatabaseSetup.cs
++++ b/DatabaseSetup.cs
+@@ -3,46 +3,263 @@ using MySqlConnector;
+ public sealed class DatabaseSetup(string connectionString)
+ {
+     private readonly SemaphoreSlim gate = new(1, 1);
+-    public static readonly string[] MigrationIds = ["001_create_samples", "002_add_category", "003_index_category"];
+-    private static readonly string[] MigrationSql = [
+-        "CREATE TABLE IF NOT EXISTS samples (id VARCHAR(80) PRIMARY KEY, name VARCHAR(160) NOT NULL)",
++
++    public static readonly string[] MigrationIds =
++    [
++        "001_create_samples",
++        "002_add_category",
++        "003_index_category"
++    ];
++
++    private static readonly string[] MigrationSql =
++    [
++        "CREATE TABLE IF NOT EXISTS samples (id VARCHAR(80) PRIMARY KEY,name VARCHAR(159) NOT NULL)",
+         "ALTER TABLE samples ADD COLUMN IF NOT EXISTS category VARCHAR(80) NOT NULL DEFAULT 'general'",
+         "CREATE INDEX IF NOT EXISTS sample_category ON samples(category)"
+     ];
++
+     public async Task<MySqlConnection> Open()
+     {
+         var connection = new MySqlConnection(connectionString);
+         try
+         {
+             await connection.OpenAsync();
+-            var version = Convert.ToString(await new MySqlCommand("SELECT VERSION()", connection).ExecuteScalarAsync()) ?? "";
+-            if (!version.Contains("MariaDB", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("provider_mismatch");
++            await using var versionCommand = new MySqlCommand("SELECT VERSION()", connection);
++            var version = Convert.ToString(await versionCommand.ExecuteScalarAsync()) ?? string.Empty;
++
++            // A connection succeeding is not enough: the configured endpoint must
++            // actually be a MariaDB server.
++            if (!version.Contains("MariaDB", StringComparison.OrdinalIgnoreCase))
++            {
++                throw new InvalidOperationException("provider_mismatch");
++            }
++
+             return connection;
+         }
+-        catch { await connection.DisposeAsync(); throw; }
++        catch
++        {
++            await connection.DisposeAsync();
++            throw;
++        }
++    }
++
++    private static async Task EnsureHistory(MySqlConnection connection)
++    {
++        await using var command = new MySqlCommand(
++            "CREATE TABLE IF NOT EXISTS schema_migrations (sequence_id INT AUTO_INCREMENT PRIMARY KEY, migration_id VARCHAR(80) NOT NULL UNIQUE)",
++            connection);
++        await command.ExecuteNonQueryAsync();
+     }
+-    private static async Task EnsureHistory(MySqlConnection connection) =>
+-        await new MySqlCommand("CREATE TABLE IF NOT EXISTS schema_migrations (sequence_id INT AUTO_INCREMENT PRIMARY KEY, migration_id VARCHAR(80) NOT NULL UNIQUE)", connection).ExecuteNonQueryAsync();
++
++    private static async Task<bool> HistoryTableExists(MySqlConnection connection)
++    {
++        await using var command = new MySqlCommand(
++            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'schema_migrations'",
++            connection);
++        var value = await command.ExecuteScalarAsync();
++        return Convert.ToInt64(value) != 0;
++    }
++
+     private static async Task<List<string>> ReadHistory(MySqlConnection connection)
+     {
+         var rows = new List<string>();
+-        using var command = new MySqlCommand("SELECT migration_id FROM schema_migrations ORDER BY sequence_id", connection);
++        await using var command = new MySqlCommand(
++            "SELECT migration_id FROM schema_migrations ORDER BY sequence_id",
++            connection);
+         await using var reader = await command.ExecuteReaderAsync();
+-        while (await reader.ReadAsync()) rows.Add(reader.GetString(0));
++        while (await reader.ReadAsync())
++        {
++            rows.Add(reader.GetString(0));
++        }
++
+         return rows;
+     }
++
++    private static async Task<List<string>> ReadExistingHistory(MySqlConnection connection)
++    {
++        return await HistoryTableExists(connection)
++            ? await ReadHistory(connection)
++            : [];
++    }
++
+     public async Task<List<string>> History()
+     {
+-        await using var connection = await Open(); await EnsureHistory(connection); return await ReadHistory(connection);
++        await gate.WaitAsync();
++        try
++        {
++            await using var connection = await Open();
++            await EnsureHistory(connection);
++            return await ReadHistory(connection);
++        }
++        finally
++        {
++            gate.Release();
++        }
+     }
+-    public Task<(List<string> Applied, List<string> All)> Apply(string[]? ids) =>
+-        throw new NotImplementedException("Apply actual schema migrations and durable history");
+-    public async Task<List<Dictionary<string,string>>> Samples()
++
++    public async Task<(List<string> Applied, List<string> All)> Apply(string[]? ids)
+     {
+-        await using var connection = await Open(); var rows = new List<Dictionary<string,string>>();
+-        using var command = new MySqlCommand("SELECT id,name,category FROM samples ORDER BY id", connection);
+-        await using var reader = await command.ExecuteReaderAsync();
+-        while (await reader.ReadAsync()) rows.Add(new() { ["id"] = reader.GetString(0), ["name"] = reader.GetString(1), ["category"] = reader.GetString(2) });
+-        return rows;
++        // Validate everything that can be validated without touching the
++        // database first. In particular, malformed batches never apply an
++        // earlier item from the same request.
++        ValidateRequestShape(ids);
++
++        await gate.WaitAsync();
++        try
++        {
++            await using var connection = await Open();
++            var existing = await ReadExistingHistory(connection);
++            ValidateHistory(existing);
++            ValidateAgainstHistory(ids!, existing);
++
++            if (ids!.Length == 0)
++            {
++                return ([], existing);
++            }
++
++            var applied = new List<string>();
++            var appliedSet = existing.ToHashSet(StringComparer.Ordinal);
++            var hasNewMigration = ids.Any(id => !appliedSet.Contains(id));
++
++            if (!hasNewMigration)
++            {
++                return (applied, existing);
++            }
++
++            // MariaDB DDL commits independently. Run each statement and add
++            // its history row only after the statement succeeds. If a process
++            // stops between those operations, the idempotent statement can be
++            // safely retried on the next request.
++            await EnsureHistory(connection);
++            foreach (var id in ids)
++            {
++                if (appliedSet.Contains(id))
++                {
++                    continue;
++                }
++
++                var index = Array.IndexOf(MigrationIds, id);
++                await using (var command = new MySqlCommand(MigrationSql[index], connection))
++                {
++                    await command.ExecuteNonQueryAsync();
++                }
++
++                await using (var command = new MySqlCommand(
++                    "INSERT INTO schema_migrations (migration_id) VALUES (@migration_id)", connection))
++                {
++                    command.Parameters.AddWithValue("@migration_id", id);
++                    await command.ExecuteNonQueryAsync();
++                }
++
++                appliedSet.Add(id);
++                existing.Add(id);
++                applied.Add(id);
++            }
++
++            return (applied, existing);
++        }
++        finally
++        {
++            gate.Release();
++        }
++    }
++
++    public async Task<List<Dictionary<string, string>>> Samples()
++    {
++        await gate.WaitAsync();
++        try
++        {
++            await using var connection = await Open();
++            var rows = new List<Dictionary<string, string>>();
++            await using var command = new MySqlCommand(
++                "SELECT id, name, category FROM samples ORDER BY id",
++                connection);
++            await using var reader = await command.ExecuteReaderAsync();
++            while (await reader.ReadAsync())
++            {
++                rows.Add(new Dictionary<string, string>
++                {
++                    ["id"] = reader.GetString(0),
++                    ["name"] = reader.GetString(1),
++                    ["category"] = reader.GetString(2)
++                });
++            }
++
++            return rows;
++        }
++        finally
++        {
++            gate.Release();
++        }
++    }
++
++    private static void ValidateRequestShape(string[]? ids)
++    {
++        if (ids is null)
++        {
++            throw new ArgumentException("migration list is required");
++        }
++
++        var seen = new HashSet<string>(StringComparer.Ordinal);
++        var previousIndex = -1;
++        foreach (var id in ids)
++        {
++            if (id is null)
++            {
++                throw new ArgumentException("migration id is required");
++            }
++
++            var index = Array.IndexOf(MigrationIds, id);
++            if (index < 0 || !seen.Add(id))
++            {
++                throw new ArgumentException("invalid migration id");
++            }
++
++            // The request itself is an ordered migration batch. This also
++            // prevents a replay from disguising an out-of-order new item.
++            if (index <= previousIndex)
++            {
++                throw new ArgumentException("migrations are out of order");
++            }
++
++            previousIndex = index;
++        }
++    }
++
++    private static void ValidateAgainstHistory(string[] ids, IReadOnlyList<string> history)
++    {
++        var applied = history.ToHashSet(StringComparer.Ordinal);
++        var nextIndex = history.Count;
++        foreach (var id in ids)
++        {
++            if (applied.Contains(id))
++            {
++                continue;
++            }
++
++            var index = Array.IndexOf(MigrationIds, id);
++            if (index != nextIndex)
++            {
++                throw new ArgumentException("migration prefix is not contiguous");
++            }
++
++            nextIndex++;
++        }
++    }
++
++    private static void ValidateHistory(IReadOnlyList<string> history)
++    {
++        if (history.Count > MigrationIds.Length)
++        {
++            throw new InvalidOperationException("invalid migration history");
++        }
++
++        for (var index = 0; index < history.Count; index++)
++        {
++            if (!string.Equals(history[index], MigrationIds[index], StringComparison.Ordinal))
++            {
++                throw new InvalidOperationException("invalid migration history");
++            }
++        }
+     }
+ }
+diff --git a/Program.cs b/Program.cs
+index b3bdfe105a84f76d6d8d06704ea72941daceab53..ab866b3271d54ace99d227046c02878b58ef7986 100644
+--- a/Program.cs
++++ b/Program.cs
+@@ -1,47 +1,156 @@
++using System.Security.Cryptography.X509Certificates;
+ using System.Text.Json;
++
+ var builder = WebApplication.CreateBuilder(args);
+ builder.Logging.ClearProviders();
+ CertificateSetup.Configure(builder);
+-var database = new DatabaseSetup(Environment.GetEnvironmentVariable("MARIADB_CONNECTION")!);
++var database = new DatabaseSetup(Environment.GetEnvironmentVariable("MARIADB_CONNECTION") ?? string.Empty);
+ var app = builder.Build();
++
+ IResult Error(string code, int status = 400) => Results.Json(new { error = code }, statusCode: status);
++
+ app.MapGet("/health", async () =>
+ {
+-    try { var ids = await database.History(); return Results.Json(new { database_connected = true, migration_count = ids.Count, tls_configured = true }); }
+-    catch { return Results.Json(new { database_connected = false, migration_count = 0, tls_configured = true }); }
++    try
++    {
++        var ids = await database.History();
++        return Results.Json(new
++        {
++            database_connected = true,
++            migration_count = ids.Count,
++            tls_configured = CertificateSetup.IsConfigured
++        });
++    }
++    catch
++    {
++        // Do not return exception text: connection exceptions can contain
++        // configuration details. A failed probe is not a connected database.
++        return Results.Json(new
++        {
++            database_connected = false,
++            migration_count = 0,
++            tls_configured = CertificateSetup.IsConfigured
++        });
++    }
+ });
++
+ app.MapPost("/connect", async (HttpRequest request) =>
+ {
++    JsonElement body;
++    try
++    {
++        body = await request.ReadFromJsonAsync<JsonElement>();
++    }
++    catch (JsonException)
++    {
++        return Error("database_connection_failed");
++    }
++    catch (BadHttpRequestException)
++    {
++        return Error("database_connection_failed");
++    }
++    catch
++    {
++        return Error("database_connection_failed");
++    }
++
++    if (body.ValueKind != JsonValueKind.Object ||
++        !body.TryGetProperty("provider", out var provider) ||
++        provider.ValueKind != JsonValueKind.String ||
++        !string.Equals(provider.GetString(), "MariaDB", StringComparison.OrdinalIgnoreCase))
++    {
++        return Error("database_connection_failed");
++    }
++
+     try
+     {
+-        var body = await request.ReadFromJsonAsync<JsonElement>();
+-        if (!body.TryGetProperty("provider", out var provider) || provider.ValueKind != JsonValueKind.String || !string.Equals(provider.GetString(), "MariaDB", StringComparison.OrdinalIgnoreCase)) return Error("database_connection_failed");
+-        return Results.Json(new { connected = body.TryGetProperty("connection_ok", out var flag) && flag.ValueKind == JsonValueKind.True, provider = "mariadb" });
++        await using var connection = await database.Open();
++        return Results.Json(new { connected = true, provider = "mariadb" });
++    }
++    catch
++    {
++        return Error("database_connection_failed", 503);
+     }
+-    catch { return Error("database_connection_failed", 503); }
+ });
++
+ app.MapPost("/migrations", async (HttpRequest request) =>
+ {
++    string[]? ids;
++    try
++    {
++        ids = await request.ReadFromJsonAsync<string[]>();
++    }
++    catch (JsonException)
++    {
++        return Error("invalid_migrations");
++    }
++    catch (BadHttpRequestException)
++    {
++        return Error("invalid_migrations");
++    }
++    catch
++    {
++        return Error("invalid_migrations");
++    }
++
+     try
+     {
+-        var ids = await request.ReadFromJsonAsync<string[]>(); var result = await database.Apply(ids);
++        var result = await database.Apply(ids);
+         return Results.Json(new { applied = result.Applied, all = result.All });
+     }
+-    catch (ArgumentException) { return Error("invalid_migrations"); }
+-    catch (JsonException) { return Error("invalid_migrations"); }
+-    catch (BadHttpRequestException) { return Error("invalid_migrations"); }
+-    catch { return Error("migration_failed", 503); }
++    catch (ArgumentException)
++    {
++        return Error("invalid_migrations");
++    }
++    catch
++    {
++        return Error("migration_failed", 503);
++    }
+ });
++
+ app.MapGet("/samples", async () =>
+ {
+-    try { return Results.Json(await database.Samples()); }
+-    catch { return Error("api_not_ready", 503); }
++    try
++    {
++        return Results.Json(await database.Samples());
++    }
++    catch
++    {
++        return Error("api_not_ready", 503);
++    }
+ });
++
+ app.MapGet("/secure", async (HttpContext context) =>
+ {
+-    // TODO: enforce the protected endpoint certificate requirement.
+-    try { return Results.Json(new { message = "certificate accepted", migration_count = (await database.History()).Count }); }
+-    catch { return Error("api_not_ready", 503); }
++    // AllowCertificate makes the TLS client certificate optional for the
++    // connection. It is mandatory for this route, and is checked from the
++    // TLS connection rather than from request headers.
++    X509Certificate2? certificate;
++    try
++    {
++        certificate = context.Connection.ClientCertificate ??
++            await context.Connection.GetClientCertificateAsync();
++    }
++    catch
++    {
++        return Error("certificate_required", 403);
++    }
++
++    if (certificate is null || !CertificateSetup.IsValidClientCertificate(certificate))
++    {
++        return Error("certificate_required", 403);
++    }
++
++    try
++    {
++        var history = await database.History();
++        return Results.Json(new { message = "certificate accepted", migration_count = history.Count });
++    }
++    catch
++    {
++        return Error("api_not_ready", 503);
++    }
+ });
++
+ app.MapFallback(() => Error("unknown_endpoint", 404));
+ app.Run();

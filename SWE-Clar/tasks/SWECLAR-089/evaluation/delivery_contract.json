@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-089",
+  "public": {
+    "readme": "# Lesson scheduling and credit backend\n\nRepair this Python HTTP/SQLite backend and its studio provider adapter. `python server.py` starts a loopback API; PORT=0 selects an available port and prints it as JSON. Configure STUDIO_DB and STUDIO_CONFIG. The private runtime configuration holds initial_state, sessions (synthetic Bearer tokens mapped to users), provider_url and optional provider_token. POST /actions sends one JSON action and receives a scoped result or error, never the internal state. `process_music_action(state,action,service=None)` is the internal immutable workflow boundary.\n\nInitial state holds users, packages (package IDs to lesson counts), credits, availability and booking/ledger records. Actions include set_availability, purchase_package, book, complete, cancel and portal. Availability slots use start/end ISO timestamps with timezone offsets. The starter includes durable storage, the request adapter, workflow rules and incomplete provider operations. Clarify scheduling, payment, notification and access rules as needed.\n\nThe benchmark executes real local HTTP requests against a synthetic provider. Its normalized payment/meeting/email protocol is not the native Stripe or Zoom API. Email acknowledgements mean an idempotent connector accepted a synthetic notification; no real email is sent. This is a reconstructed backend component, not the original commercial SaaS, its wireframes, production login service or account deployment.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_music_action",
+          "signature": "process_music_action(state,action,service=None) -> dict"
+        },
+        "inputs": {
+          "state": "Private backend state; not returned by HTTP API",
+          "action": "Supported workflow action",
+          "service": "StudioClient(base_url,token=None)"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "Internal next state; HTTP adapter returns scoped result/error and persists successful state changes."
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_music_action",
+        "signature": "process_music_action(state,action,service=None) -> dict"
+      },
+      "inputs": {
+        "state": "Private backend state; not returned by HTTP API",
+        "action": "Supported workflow action",
+        "service": "StudioClient(base_url,token=None)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Internal next state; HTTP adapter returns scoped result/error and persists successful state changes."
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_music_action",
+        "signature": "process_music_action(state,action,service=None) -> dict"
+      },
+      "inputs": {
+        "state": "Private backend state; not returned by HTTP API",
+        "action": "Supported workflow action",
+        "service": "StudioClient(base_url,token=None)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Internal next state; HTTP adapter returns scoped result/error and persists successful state changes."
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_music_action",
+        "signature": "process_music_action(state,action,service=None) -> dict"
+      },
+      "inputs": {
+        "state": "Private backend state; not returned by HTTP API",
+        "action": "Supported workflow action",
+        "service": "StudioClient(base_url,token=None)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Internal next state; HTTP adapter returns scoped result/error and persists successful state changes."
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_music_action",
+        "signature": "process_music_action(state,action,service=None) -> dict"
+      },
+      "inputs": {
+        "state": "Private backend state; not returned by HTTP API",
+        "action": "Supported workflow action",
+        "service": "StudioClient(base_url,token=None)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Internal next state; HTTP adapter returns scoped result/error and persists successful state changes."
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_music_action",
+        "signature": "process_music_action(state,action,service=None) -> dict"
+      },
+      "inputs": {
+        "state": "Private backend state; not returned by HTTP API",
+        "action": "Supported workflow action",
+        "service": "StudioClient(base_url,token=None)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Internal next state; HTTP adapter returns scoped result/error and persists successful state changes."
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "9d73ab15105ff5e5610070df43f33525003f77e9290235231389c063c8c0b4dd",
+  "test_sources_sha256": {
+    "evaluation/tests/candidate_proxy.py": "6edb00c2c494ab3e64aedca1660081322532a52d5658b9481beb23b0bdc74eeb",
+    "evaluation/tests/conftest.py": "8b7860e7d8d0902169fab1abc22d2daff6c02906e44d3d565cdd16e3cb0ac45f",
+    "evaluation/tests/evaluate.py": "2d235ecbe7745653f3942a95a228e5105e6b2badf2d37fc290b47acd0c6687ca",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "4a1c90a558fbb73f32150395081c3e9e464127902643bf2754a966d71491d522"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

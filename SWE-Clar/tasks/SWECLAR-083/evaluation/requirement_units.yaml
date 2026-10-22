@@ -1,0 +1,191 @@
+schema_version: 1
+task_id: SWECLAR-083
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual graph-backed distance-constrained loop routing API, SVG selection and geometric
+  navigation checks
+requirement_units:
+- ru_id: RU-001
+  name: Navigation workflow entry point
+  content: Implement the supplied local routing web component and process_navigation_action(state,action,client=None)
+    without mutating inputs. Read the directed road graph through the actual configured GraphClient HTTP
+    POST, compute routes and persist successful actions atomically. Serve the existing page, script and
+    stylesheet only; a rejected request leaves the saved state unchanged. The README defines the small
+    synthetic loop-network boundary.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for navigation workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_navigation_action
+      signature: process_navigation_action(state,action,client=None) -> dict
+    inputs:
+      state: local workflow state
+      action: routing/navigation action
+      client: GraphClient
+    output:
+      type: dict
+      meaning: new state
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/navigation_contract.py
+  notes: Independent local directed-graph routing, HTTP provider and SVG UI are disclosed reconstruction
+    choices. No original app identity, credentials, routes, customer design or external map account is
+    included.
+- ru_id: RU-002
+  name: Distance-constrained alternative routes
+  content: generate_alternatives(start_node,requested_miles,tolerance) enumerates unique simple directed
+    loops returning to start with 3–10 distinct nodes from the fetched graph. Sum haversine segment lengths
+    using Earth radius 6371008.8 metres and 1609.344 metres per mile. Accept only distances within inclusive
+    tolerance; order by absolute distance delta then stable route ID. Ignore supplied candidates and edge
+    distance labels. Reject empty/invalid results and clear prior selection/navigation only on successful
+    regeneration. Use at most 100000 traversal states and the documented network limits.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for distance-constrained alternative routes.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_navigation_action
+      signature: process_navigation_action(state,action,client=None) -> dict
+    inputs:
+      state: local workflow state
+      action: routing/navigation action
+      client: GraphClient
+    output:
+      type: dict
+      meaning: new state
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/navigation_contract.py
+  notes: Independent local directed-graph routing, HTTP provider and SVG UI are disclosed reconstruction
+    choices. No original app identity, credentials, routes, customer design or external map account is
+    included.
+- ru_id: RU-003
+  name: Map point and alternative selection
+  content: Validate latitude/longitude as finite nonboolean numbers in geographic ranges. Store placed
+    points. Route selection requires a currently generated ID, copies its geometry/distance and clears
+    prior navigation. Render route polylines from actual coordinates and let page controls select a displayed
+    alternative. Never return an invented geometry or unsupported route ID.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for map point and alternative selection.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_navigation_action
+      signature: process_navigation_action(state,action,client=None) -> dict
+    inputs:
+      state: local workflow state
+      action: routing/navigation action
+      client: GraphClient
+    output:
+      type: dict
+      meaning: new state
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/navigation_contract.py
+  notes: Independent local directed-graph routing, HTTP provider and SVG UI are disclosed reconstruction
+    choices. No original app identity, credentials, routes, customer design or external map account is
+    included.
+- ru_id: RU-004
+  name: Navigation progress and off-route feedback
+  content: Starting navigation requires a selected route. For progress, use the actual position to compute
+    minimum distance to the selected polyline with the documented local tangent-plane projection; ignore
+    action.off_route_meters. An event strictly beyond a finite nonnegative threshold adds one deduplicated
+    off_route alert with vibration intent per event_id. Record valid positions, reject malformed coordinates
+    atomically. This component does not assert background GPS capture or actual device vibration.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for navigation progress and off-route feedback.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_navigation_action
+      signature: process_navigation_action(state,action,client=None) -> dict
+    inputs:
+      state: local workflow state
+      action: routing/navigation action
+      client: GraphClient
+    output:
+      type: dict
+      meaning: new state
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/navigation_contract.py
+  notes: Independent local directed-graph routing, HTTP provider and SVG UI are disclosed reconstruction
+    choices. No original app identity, credentials, routes, customer design or external map account is
+    included.
+- ru_id: RU-005
+  name: Stable light and dark themes
+  content: Theme accepts only light or dark and actually changes the rendered page while preserving selected
+    route and navigation. Invalid themes preserve prior state. Reload restores the saved theme and route
+    selection.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for stable light and dark themes.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_navigation_action
+      signature: process_navigation_action(state,action,client=None) -> dict
+    inputs:
+      state: local workflow state
+      action: routing/navigation action
+      client: GraphClient
+    output:
+      type: dict
+      meaning: new state
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/navigation_contract.py
+  notes: Independent local directed-graph routing, HTTP provider and SVG UI are disclosed reconstruction
+    choices. No original app identity, credentials, routes, customer design or external map account is
+    included.

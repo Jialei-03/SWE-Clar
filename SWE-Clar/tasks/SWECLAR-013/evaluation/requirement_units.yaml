@@ -1,0 +1,178 @@
+schema_version: 1
+task_id: SWECLAR-013
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independently reconstructed receivables follow-up web application derived from an administrative
+  business scenario.
+requirement_units:
+- ru_id: RU-001
+  name: Working account application
+  content: 'Preserve the real HTTP/browser application: upload the documented CSV, display all accounts
+    ordered by account ID, inspect an account, select accounts and submit status/notes, and download CSV.
+    New accounts have open status and empty note. Retain all data and operation history across restart.
+    Unknown detail IDs return 404. Both the API and actual browser controls must perform these operations.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for working account application?
+  matching_keywords:
+  - application
+  - interface
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --host 127.0.0.1 --port 0 --db <isolated database>
+      protocol: HTTP endpoints and browser workflow documented in starter README
+    inputs: Synthetic CSV, account IDs, statuses and notes
+    output: Observable HTTP responses, browser behavior, exported CSV and persisted records
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: All exact software behavior is a benchmark reconstruction convention, not a quotation or confirmed
+    original software commission. Source visibility is the synthetic initial-disclosure label for runtime
+    compatibility.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/receivables_contract.py
+- ru_id: RU-002
+  name: Atomic repeated imports
+  content: Validate the entire CSV before making changes. Reject an empty file, incorrect columns, malformed
+    IDs, noninteger or out-of-range numbers, and duplicate IDs within the upload with HTTP 400 and no
+    changes. On repeat import, update balance and age for existing accounts but preserve their status,
+    note and history. Retain accounts absent from the upload. Repeating an identical file is idempotent.
+    Do not create follow-up audit events for imports.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for atomic repeated imports?
+  matching_keywords:
+  - import
+  - duplicate
+  - CSV
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --host 127.0.0.1 --port 0 --db <isolated database>
+      protocol: HTTP endpoints and browser workflow documented in starter README
+    inputs: Synthetic CSV, account IDs, statuses and notes
+    output: Observable HTTP responses, browser behavior, exported CSV and persisted records
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: All exact software behavior is a benchmark reconstruction convention, not a quotation or confirmed
+    original software commission. Source visibility is the synthetic initial-disclosure label for runtime
+    compatibility.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/receivables_contract.py
+- ru_id: RU-003
+  name: Follow-up eligibility
+  content: Include only accounts aged strictly more than 60 days, with positive balance_cents, whose status
+    is not resolved. Recompute after imports and updates. Order the queue by age_days descending and then
+    account_id ascending, without silently limiting the list. The threshold and tie-break are synthetic
+    business decisions.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for follow-up eligibility?
+  matching_keywords:
+  - queue
+  - age
+  - eligible
+  - order
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --host 127.0.0.1 --port 0 --db <isolated database>
+      protocol: HTTP endpoints and browser workflow documented in starter README
+    inputs: Synthetic CSV, account IDs, statuses and notes
+    output: Observable HTTP responses, browser behavior, exported CSV and persisted records
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: All exact software behavior is a benchmark reconstruction convention, not a quotation or confirmed
+    original software commission. Source visibility is the synthetic initial-disclosure label for runtime
+    compatibility.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/receivables_contract.py
+- ru_id: RU-004
+  name: Atomic audited follow-ups
+  content: Allow any transition among open, contacted, disputed and resolved, including reopening. Trim
+    notes; require a nonempty note for every non-open status and at most 2000 characters after trimming.
+    Reject empty selections, duplicate IDs, unknown IDs, invalid statuses or invalid notes with HTTP 400,
+    without changing any selected account or its history. A valid batch updates every selected account
+    atomically. The note field is required and must be a string; missing, null, numeric, boolean, array
+    or object notes are invalid, including for open status. Replace the current note with the trimmed
+    submitted note, rather than appending it. An empty string clears the current note when status is open.
+    Append one persistent before/after history record for each account whose status or trimmed note actually
+    changes. Unchanged submissions return updated=0 and add no record. Updated counts changed accounts,
+    not submitted IDs. Concurrent retries must not duplicate an unchanged event.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for atomic audited follow-ups?
+  matching_keywords:
+  - status
+  - note
+  - batch
+  - history
+  - retry
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --host 127.0.0.1 --port 0 --db <isolated database>
+      protocol: HTTP endpoints and browser workflow documented in starter README
+    inputs: Synthetic CSV, account IDs, statuses and notes
+    output: Observable HTTP responses, browser behavior, exported CSV and persisted records
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: All exact software behavior is a benchmark reconstruction convention, not a quotation or confirmed
+    original software commission. Source visibility is the synthetic initial-disclosure label for runtime
+    compatibility.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/receivables_contract.py
+- ru_id: RU-005
+  name: Queue CSV export
+  content: Export exactly the current eligible queue in its defined order, with the documented header.
+    Preserve integer cents, age, status and trimmed note; use correct CSV quoting for commas, quotes,
+    Unicode and multiline notes. For notes beginning with =, +, - or @ after trimming, prefix a single
+    apostrophe in the exported cell to prevent spreadsheet formula interpretation; do not alter the stored
+    note. The export is a real downloadable UTF-8 CSV. An empty queue still exports the header.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for queue csv export?
+  matching_keywords:
+  - export
+  - spreadsheet
+  - CSV
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --host 127.0.0.1 --port 0 --db <isolated database>
+      protocol: HTTP endpoints and browser workflow documented in starter README
+    inputs: Synthetic CSV, account IDs, statuses and notes
+    output: Observable HTTP responses, browser behavior, exported CSV and persisted records
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: All exact software behavior is a benchmark reconstruction convention, not a quotation or confirmed
+    original software commission. Source visibility is the synthetic initial-disclosure label for runtime
+    compatibility.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/receivables_contract.py

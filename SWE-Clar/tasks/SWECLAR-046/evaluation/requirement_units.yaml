@@ -1,0 +1,278 @@
+schema_version: 1
+task_id: SWECLAR-046
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual HTTP ETL, destination-field preservation and acknowledged outreach integration
+requirement_units:
+- ru_id: RU-001
+  name: Pipeline entry point
+  content: Complete the existing data-layer project with actual HTTP source reads, destination reads/writes
+    and outreach connector requests through PipelineClient. Preserve input objects and report actual outcomes
+    instead of trusting caller-supplied rows or accepted flags. Validate a supplied run_id as a nonempty
+    string before any request; missing run_id uses the next local run number.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for pipeline entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_pipeline_event
+      signature: process_pipeline_event(state,event,service=None) -> dict
+    inputs:
+      arguments:
+      - state
+      - event
+      action_variants:
+        pipeline_event:
+          fields:
+          - type
+      protocol_fields:
+      - type
+      service: PipelineClient(source_urls,destination_urls,outreach_url,token=None)
+    output:
+      type: dict
+      meaning: State, result/run summary or error.code as defined in public README. Extra nonconflicting
+        metadata is allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independently reconstructed local HTTP integration. Vendor names and business-specific fields
+    generalized; exact acknowledgement, idempotency, run accounting and credential-key rules are synthetic
+    conventions. No original workspace or actual outreach delivery is included.
+- ru_id: RU-002
+  name: Idempotent source synchronization
+  content: For sync, GET the configured source URL (JSON array) and destination URL (JSON object keyed
+    by source ID). Normalize nonempty string/integer source_id to a string, reject bool/invalid IDs per
+    row, and PUT each valid merged row to destination_url/<URL-encoded source_id>. Count a write only
+    after a 2xx JSON response with accepted=true and matching source_id. Create new rows with status=new
+    and update existing rows without duplication. Transport/acknowledgement failure leaves that locally
+    confirmed destination row unchanged, counts failed and does not prevent later rows.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for idempotent source synchronization.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_pipeline_event
+      signature: process_pipeline_event(state,event,service=None) -> dict
+    inputs:
+      arguments:
+      - state
+      - event
+      action_variants:
+        sync:
+          fields:
+          - destination
+          - source
+          - type
+      protocol_fields:
+      - destination
+      - destinations
+      - source
+      - sources
+      - type
+      service: PipelineClient(source_urls,destination_urls,outreach_url,token=None)
+    output:
+      type: dict
+      meaning: State, result/run summary or error.code as defined in public README. Extra nonconflicting
+        metadata is allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independently reconstructed local HTTP integration. Vendor names and business-specific fields
+    generalized; exact acknowledgement, idempotency, run accounting and credential-key rules are synthetic
+    conventions. No original workspace or actual outreach delivery is included.
+- ru_id: RU-003
+  name: Operational-field preservation
+  content: A synchronization update must preserve destination-owned workflow fields, including status,
+    assignee, notes, first-contact date (first_contact_date), estimated students (estimated_students),
+    and annual license value (annual_license_value). Read existing destination fields from the HTTP service
+    before merging; a stale caller state must not overwrite newer workflow-owned values.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for operational-field preservation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_pipeline_event
+      signature: process_pipeline_event(state,event,service=None) -> dict
+    inputs:
+      arguments:
+      - state
+      - event
+      action_variants:
+        sync:
+          fields:
+          - destination
+          - source
+          - type
+      protocol_fields:
+      - credentials
+      - destination
+      - destinations
+      - outbox
+      - runs
+      - source
+      - sources
+      - type
+      service: PipelineClient(source_urls,destination_urls,outreach_url,token=None)
+    output:
+      type: dict
+      meaning: State, result/run summary or error.code as defined in public README. Extra nonconflicting
+        metadata is allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independently reconstructed local HTTP integration. Vendor names and business-specific fields
+    generalized; exact acknowledgement, idempotency, run accounting and credential-key rules are synthetic
+    conventions. No original workspace or actual outreach delivery is included.
+- ru_id: RU-004
+  name: Outreach delivery guard
+  content: For queue_outreach, refresh the destination from HTTP. Only a new row with a nonempty email
+    on channel=email is eligible. POST {delivery_id,email} to outreach_url with Idempotency-Key=outreach:<destination>:<source_id>;
+    require a 2xx response with accepted=true and matching delivery_id, then persist status=queued through
+    the destination PUT contract before recording success/outbox. Failures leave the row locally unqueued
+    and retry uses the same delivery ID. The connector honors idempotency when a prior delivery succeeded
+    but status persistence failed. LinkedIn or missing-email rows remain manual and are never submitted.
+    Already queued rows are skipped.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for outreach delivery guard.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_pipeline_event
+      signature: process_pipeline_event(state,event,service=None) -> dict
+    inputs:
+      arguments:
+      - state
+      - event
+      action_variants:
+        queue_outreach:
+          fields:
+          - accepted
+          - channel
+          - destination
+          - source_id
+          - type
+        sync:
+          fields:
+          - destination
+          - source
+          - type
+      protocol_fields:
+      - accepted
+      - channel
+      - credentials
+      - destination
+      - destinations
+      - outbox
+      - runs
+      - source
+      - source_id
+      - sources
+      - type
+      service: PipelineClient(source_urls,destination_urls,outreach_url,token=None)
+    output:
+      type: dict
+      meaning: State, result/run summary or error.code as defined in public README. Extra nonconflicting
+        metadata is allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independently reconstructed local HTTP integration. Vendor names and business-specific fields
+    generalized; exact acknowledgement, idempotency, run accounting and credential-key rules are synthetic
+    conventions. No original workspace or actual outreach delivery is included.
+- ru_id: RU-005
+  name: Run audit and secret safety
+  content: Record processed,created,updated,skipped,failed counts and run_id per completed operation.
+    Reject malformed source/destination service responses as service_failed. Recursively remove credential
+    fields from returned state and outbound destination records, including token,secret,credential,credentials,webhook_url,api_key,connection,private_connection,password,authorization,access_token,refresh_token
+    and client_secret, matching case-insensitively after trimming key whitespace. Client transport credentials
+    remain outside returned state. A failed or invalid run must not report successful delivery.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for run audit and secret safety.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_pipeline_event
+      signature: process_pipeline_event(state,event,service=None) -> dict
+    inputs:
+      arguments:
+      - state
+      - event
+      action_variants:
+        sync:
+          fields:
+          - destination
+          - run_id
+          - source
+          - type
+      protocol_fields:
+      - credentials
+      - destination
+      - destinations
+      - outbox
+      - run_id
+      - runs
+      - source
+      - sources
+      - type
+      service: PipelineClient(source_urls,destination_urls,outreach_url,token=None)
+    output:
+      type: dict
+      meaning: State, result/run summary or error.code as defined in public README. Extra nonconflicting
+        metadata is allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independently reconstructed local HTTP integration. Vendor names and business-specific fields
+    generalized; exact acknowledgement, idempotency, run accounting and credential-key rules are synthetic
+    conventions. No original workspace or actual outreach delivery is included.

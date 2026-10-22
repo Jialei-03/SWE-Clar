@@ -1,0 +1,662 @@
+{
+  "schema_version": 1,
+  "platform": "linux/amd64",
+  "profiles": {
+    "dotnet-sql": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/NuGet.Config": {
+        "source": "environments/amd64/dotnet-sql/NuGet.Config",
+        "sha256": "bf75b7ba9f7e0f6206cdcf2f6e7db0f2d093bfbef7a4e8fb0a0e512631da7627"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/dotnet-sql/preflight.py",
+        "sha256": "fba8b367e85ac7724484f4cd0ea524c7caac79c0213b0fdad8e079c84126b283"
+      },
+      "/opt/sweclar/database_fixture.py": {
+        "source": "environments/amd64/dotnet-sql/database_fixture.py",
+        "sha256": "357fba13617c1f103065230cea33890375312856b2a198b5c614adb565268265"
+      },
+      "/opt/sweclar/check_database.py": {
+        "source": "environments/amd64/dotnet-sql/check_database.py",
+        "sha256": "c503a30954cecd355b00d99a7df3880af95d5b3421dcc6d29e2733d9012bf301"
+      },
+      "/opt/sweclar/dotnet-probe/Probe.csproj": {
+        "source": "environments/amd64/dotnet-sql/probe/Probe.csproj",
+        "sha256": "d29dcc6273ef8a79bba804223c822af40512e691fa860f702f91cfa3c5ea8d0a"
+      },
+      "/opt/sweclar/dotnet-probe/Program.cs": {
+        "source": "environments/amd64/dotnet-sql/probe/Program.cs",
+        "sha256": "2b3235050b726f97382c305b7e780e1424475725dc10d94e3c2447ce4bd03d4a"
+      }
+    },
+    "dotnet-sqlite": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/NuGet.Config": {
+        "source": "environments/amd64/dotnet-sql/NuGet.Config",
+        "sha256": "bf75b7ba9f7e0f6206cdcf2f6e7db0f2d093bfbef7a4e8fb0a0e512631da7627"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/dotnet-sqlite/preflight.py",
+        "sha256": "b64d3c5435d6f1f130c8e4af9f03f9331df4abcc85f1dd638555585f3c27cdcb"
+      },
+      "/opt/sweclar/database_fixture.py": {
+        "source": "environments/amd64/dotnet-sql/database_fixture.py",
+        "sha256": "357fba13617c1f103065230cea33890375312856b2a198b5c614adb565268265"
+      },
+      "/opt/sweclar/check_database.py": {
+        "source": "environments/amd64/dotnet-sql/check_database.py",
+        "sha256": "c503a30954cecd355b00d99a7df3880af95d5b3421dcc6d29e2733d9012bf301"
+      },
+      "/opt/sweclar/dotnet-probe/Probe.csproj": {
+        "source": "environments/amd64/dotnet-sql/probe/Probe.csproj",
+        "sha256": "d29dcc6273ef8a79bba804223c822af40512e691fa860f702f91cfa3c5ea8d0a"
+      },
+      "/opt/sweclar/dotnet-probe/Program.cs": {
+        "source": "environments/amd64/dotnet-sql/probe/Program.cs",
+        "sha256": "2b3235050b726f97382c305b7e780e1424475725dc10d94e3c2447ce4bd03d4a"
+      },
+      "/opt/sweclar/sqlite-probe/Probe.csproj": {
+        "source": "environments/amd64/dotnet-sqlite/probe/Probe.csproj",
+        "sha256": "a822c71b9e33699dc86f146d0b152ee086c58ce0f16f91ebf5c5fd0608e91ad7"
+      },
+      "/opt/sweclar/sqlite-probe/Program.cs": {
+        "source": "environments/amd64/dotnet-sqlite/probe/Program.cs",
+        "sha256": "130f3ee28d756c7f327ea700ac4b4e44f70b796e286b057a051bbf5a92ad9f71"
+      }
+    },
+    "flutter-component": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/flutter-component/preflight.py",
+        "sha256": "97596f5dd0dda91ce6b3c707f27e6be963b25f73dbac0fdb5a4e29c29c9dcc2c"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/flutter-fixture/pubspec.yaml": {
+        "source": "environments/amd64/flutter-component/preflight_fixture/pubspec.yaml",
+        "sha256": "851fba6203267a86fc97bc0b552098a438367848949695d02827ee12e8d49e37"
+      },
+      "/opt/sweclar/flutter-fixture/test/environment_test.dart": {
+        "source": "environments/amd64/flutter-component/preflight_fixture/test/environment_test.dart",
+        "sha256": "7f8b2d3eec5577d8c7a70e052ac2079aae08537fa7dc30c2a31f5fa7ed163fdb"
+      }
+    },
+    "flutter-firestore": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/flutter-firestore/preflight.py",
+        "sha256": "d772747efe30fde38f0ec248aa854c4aef4f7e4e18cb8d35f1876f69fe92d177"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/flutter-fixture/pubspec.yaml": {
+        "source": "environments/amd64/flutter-component/preflight_fixture/pubspec.yaml",
+        "sha256": "851fba6203267a86fc97bc0b552098a438367848949695d02827ee12e8d49e37"
+      },
+      "/opt/sweclar/flutter-fixture/test/environment_test.dart": {
+        "source": "environments/amd64/flutter-component/preflight_fixture/test/environment_test.dart",
+        "sha256": "7f8b2d3eec5577d8c7a70e052ac2079aae08537fa7dc30c2a31f5fa7ed163fdb"
+      },
+      "/opt/sweclar/flutter_preflight.py": {
+        "source": "environments/amd64/flutter-component/preflight.py",
+        "sha256": "97596f5dd0dda91ce6b3c707f27e6be963b25f73dbac0fdb5a4e29c29c9dcc2c"
+      },
+      "/opt/sweclar/firestore_service.py": {
+        "source": "environments/amd64/flutter-firestore/firestore_service.py",
+        "sha256": "e3ba6645f5bb359592f2995b3ab6d046a912d66c885cd78f947834b644e1cc5f"
+      },
+      "/opt/sweclar/development_seed.json": {
+        "source": "environments/amd64/flutter-firestore/development_seed.json",
+        "sha256": "0248c925a708a2db1b471ddf29ad46ac0439c7126fc9593cbef217d8d2910759"
+      },
+      "/opt/sweclar/firestore-fixture/probe.dart": {
+        "source": "environments/amd64/flutter-firestore/preflight_fixture/probe.dart",
+        "sha256": "20728fc79c181ea369ddcc202bf46b6a7ce12dbde28c1210d2db64c10938a1a4"
+      },
+      "/opt/sweclar/firestore-fixture/pubspec.yaml": {
+        "source": "environments/amd64/flutter-firestore/preflight_fixture/pubspec.yaml",
+        "sha256": "929d499f77f4618047a04d4325e9de6dcd7b0f5ca5ca410f3410488fbb23eed4"
+      }
+    },
+    "flutter-websocket": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/flutter-fixture/pubspec.yaml": {
+        "source": "environments/amd64/flutter-component/preflight_fixture/pubspec.yaml",
+        "sha256": "851fba6203267a86fc97bc0b552098a438367848949695d02827ee12e8d49e37"
+      },
+      "/opt/sweclar/flutter-fixture/test/environment_test.dart": {
+        "source": "environments/amd64/flutter-component/preflight_fixture/test/environment_test.dart",
+        "sha256": "7f8b2d3eec5577d8c7a70e052ac2079aae08537fa7dc30c2a31f5fa7ed163fdb"
+      },
+      "/opt/sweclar/flutter_preflight.py": {
+        "source": "environments/amd64/flutter-component/preflight.py",
+        "sha256": "97596f5dd0dda91ce6b3c707f27e6be963b25f73dbac0fdb5a4e29c29c9dcc2c"
+      },
+      "/opt/sweclar/capability.cjs": {
+        "source": "environments/amd64/flutter-websocket/capability.cjs",
+        "sha256": "2527b319ee602c8424750088861974a8823ba67351dd25abd1810978dd2b47fc"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/flutter-websocket/preflight.py",
+        "sha256": "2716cb530cabc498230c2a6d1a187a6c27dd88b724e1f8dfd8fe514d5b051d0c"
+      }
+    },
+    "native-control": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/native-control/harness.py",
+        "sha256": "024fdcc09a5b52c34d338e59d90861b516ed4c738fe0177d44c3ec8d8da34b7c"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/native-control/preflight.py",
+        "sha256": "e2c25204eab5a43aac7747c73533a490f7c253aed9cf36ad90b7ecf07ef46c06"
+      }
+    },
+    "native-wx": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/native-control/harness.py",
+        "sha256": "024fdcc09a5b52c34d338e59d90861b516ed4c738fe0177d44c3ec8d8da34b7c"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/native-wx/preflight.py",
+        "sha256": "fa50210dbc6340aa4934427e05c8238717de4cc66d02351a323be238f8d6c600"
+      },
+      "/opt/sweclar/native_preflight.py": {
+        "source": "environments/amd64/native-control/preflight.py",
+        "sha256": "e2c25204eab5a43aac7747c73533a490f7c253aed9cf36ad90b7ecf07ef46c06"
+      },
+      "/opt/sweclar/gui_health.cpp": {
+        "source": "environments/amd64/native-wx/gui_health.cpp",
+        "sha256": "38778978da74104dd0e51e96784f761ba3de2330065b23d75ed0fea25dbb62f1"
+      }
+    },
+    "node-sdk": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/vision_preflight.py": {
+        "source": "environments/amd64/python-vision/preflight.py",
+        "sha256": "c00c78b18f417e9951e5cbe1c8a87e9b2eef14c6f71a332f30cc6803d75acffa"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/node-sdk/preflight.py",
+        "sha256": "eea604e7868b954d616632754e438a895a61385e11f105a5b584a3deeb298800"
+      }
+    },
+    "node-websocket": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/vision_preflight.py": {
+        "source": "environments/amd64/python-vision/preflight.py",
+        "sha256": "c00c78b18f417e9951e5cbe1c8a87e9b2eef14c6f71a332f30cc6803d75acffa"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/node-websocket/preflight.py",
+        "sha256": "e7eb9a46d2cc45c20715e45020ff0454e763c38a032266301a1a7abbd858979d"
+      },
+      "/opt/sweclar/capability.cjs": {
+        "source": "environments/amd64/node-websocket/capability.cjs",
+        "sha256": "2527b319ee602c8424750088861974a8823ba67351dd25abd1810978dd2b47fc"
+      }
+    },
+    "php-document": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/php-document/preflight.py",
+        "sha256": "0ebdbd282303073baa21298a8382674d37abafd9bd611cb25745d2862ce7d150"
+      },
+      "/opt/sweclar/document_probe.php": {
+        "source": "environments/amd64/php-document/document_probe.php",
+        "sha256": "b43143fc2555d3edac4077df8a4f937816e2908efdb6b7b7ac927c2bccd92147"
+      }
+    },
+    "php-editable-doc": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/document_probe.php": {
+        "source": "environments/amd64/php-document/document_probe.php",
+        "sha256": "b43143fc2555d3edac4077df8a4f937816e2908efdb6b7b7ac927c2bccd92147"
+      },
+      "/opt/sweclar/base_preflight.py": {
+        "source": "environments/amd64/php-document/preflight.py",
+        "sha256": "0ebdbd282303073baa21298a8382674d37abafd9bd611cb25745d2862ce7d150"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/php-editable-doc/preflight.py",
+        "sha256": "b8a1456b290fd01c07de49c461649f3771a40e6ab538a5ff5d1563823d8715cb"
+      },
+      "/opt/sweclar/docx_health.py": {
+        "source": "environments/amd64/php-editable-doc/docx_health.py",
+        "sha256": "7473d896a4fb44e62167a0a6610903b9d7b507047a053be1c2f3341c6d79dabe"
+      }
+    },
+    "php-wordpress": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/document_probe.php": {
+        "source": "environments/amd64/php-document/document_probe.php",
+        "sha256": "b43143fc2555d3edac4077df8a4f937816e2908efdb6b7b7ac927c2bccd92147"
+      },
+      "/opt/sweclar/base_preflight.py": {
+        "source": "environments/amd64/php-document/preflight.py",
+        "sha256": "0ebdbd282303073baa21298a8382674d37abafd9bd611cb25745d2862ce7d150"
+      },
+      "/opt/sweclar/database_fixture.py": {
+        "source": "environments/amd64/php-wordpress/database_fixture.py",
+        "sha256": "357fba13617c1f103065230cea33890375312856b2a198b5c614adb565268265"
+      },
+      "/opt/sweclar/wordpress_fixture.py": {
+        "source": "environments/amd64/php-wordpress/wordpress_fixture.py",
+        "sha256": "50be590ba1a5d7713b6e91b7351cbd90b3d67e7837172c27a239f85d97fba905"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/php-wordpress/preflight.py",
+        "sha256": "b35dee96e8d9044f852988612365aea79e3fdb116320b55c16b4e79568bc9349"
+      }
+    },
+    "python-audio": {
+      "/opt/sweclar/render_midi.py": {
+        "source": "environments/amd64/python-audio/render_midi.py",
+        "sha256": "d9a13a6de584ed4314ec19443cbce9888c50374b4dc6e7ce6e5e5ad4d004a68a"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-audio/preflight.py",
+        "sha256": "bd5fa05c43bed07c3393b406a5f92fc98aa4e2a3c86ce11df0b02a2f03f57e0d"
+      }
+    },
+    "python-calendar": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-calendar/preflight.py",
+        "sha256": "6e813c95c43d8c56bbe8e813c6dc029e30ab3aab886b3926666e5e1e940612fd"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      }
+    },
+    "python-cesium": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/vision_preflight.py": {
+        "source": "environments/amd64/python-vision/preflight.py",
+        "sha256": "c00c78b18f417e9951e5cbe1c8a87e9b2eef14c6f71a332f30cc6803d75acffa"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-cesium/preflight.py",
+        "sha256": "75a908218f6bbc7295cdac6bf66fd59e676bf5cb72c98dfdbef35f1dbadd5f5b"
+      },
+      "/opt/sweclar/cesium_probe.py": {
+        "source": "environments/amd64/python-cesium/cesium_probe.py",
+        "sha256": "f9619195d61d3cef3ffc1d0c4d487569b4de0753abbcb9355abe7ea68981d401"
+      }
+    },
+    "python-classroom": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-classroom/preflight.py",
+        "sha256": "55e467891b9002e441c12ea33e0aeb422fe3a340d8ed588bf8e7b5a57f8243a1"
+      }
+    },
+    "python-comfy": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/vision_preflight.py": {
+        "source": "environments/amd64/python-vision/preflight.py",
+        "sha256": "c00c78b18f417e9951e5cbe1c8a87e9b2eef14c6f71a332f30cc6803d75acffa"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-comfy/preflight.py",
+        "sha256": "d1192710752dfa551583cbdc3a21f6943928c531d0940af8c0d9c5acaa70bcb4"
+      },
+      "/opt/sweclar/comfy_probe.py": {
+        "source": "environments/amd64/python-comfy/comfy_probe.py",
+        "sha256": "d3e2245f4dd7d8584c6efa41021e9476bb02f81af64b76bec847124968d0674a"
+      }
+    },
+    "python-crypto": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/base_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-crypto/preflight.py",
+        "sha256": "c4c7861d5ffc977d8e70be3ccb8c4a306e365fe21aa5aaec9db98da9f1640b23"
+      },
+      "/opt/sweclar/crypto_health.py": {
+        "source": "environments/amd64/python-crypto/crypto_health.py",
+        "sha256": "248ec61de4042aa3b651e30f9c73ab24b1d787043c0f048783c81f6d2bcb1755"
+      }
+    },
+    "python-document-io": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/vision_preflight.py": {
+        "source": "environments/amd64/python-vision/preflight.py",
+        "sha256": "c00c78b18f417e9951e5cbe1c8a87e9b2eef14c6f71a332f30cc6803d75acffa"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-document-io/preflight.py",
+        "sha256": "dd6d59c63337020cc994121455c33a596b01ade28a708a17f41f0f670d388c33"
+      },
+      "/opt/sweclar/report_probe.py": {
+        "source": "environments/amd64/python-report/report_probe.py",
+        "sha256": "a0c0dd462aa1661930b6faa67d96d935765e4fd154f0f9dea573da5305a4d0a9"
+      },
+      "/opt/sweclar/report_preflight.py": {
+        "source": "environments/amd64/python-report/preflight.py",
+        "sha256": "ec17c75e7977d8a066b2e159fc1545636bef0c74ec1c08964e6acadbac8edd54"
+      },
+      "/opt/sweclar/document_health.py": {
+        "source": "environments/amd64/python-document-io/document_health.py",
+        "sha256": "6bfbede53a2fa2584e8cda57fc890798fa652d4f846c786bb604ef25f849458c"
+      }
+    },
+    "python-game": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-game/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-game/preflight.py",
+        "sha256": "8ee98cb7cea1cdda050e510af67d3d665b4b82e39043f6dda22272996dda6425"
+      }
+    },
+    "python-listing": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/offer_service.py": {
+        "source": "environments/amd64/python-listing/offer_service.py",
+        "sha256": "b42788641fd73532374806507a25562b6247194eed981837e979db5e8dca2f75"
+      },
+      "/opt/sweclar/events.json": {
+        "source": "environments/amd64/python-listing/events.json",
+        "sha256": "bbde81351a5e001deb3bb302badad468c98f05bcba59ef4a36abab1859567985"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-listing/preflight.py",
+        "sha256": "421ab07f7b3a89f824f29a5a5ba91a1097f2ae4efaef55c8024ba9dc99a43761"
+      }
+    },
+    "python-media": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-media/preflight.py",
+        "sha256": "b2391970673ac633264a3dd82a4ff6792ee409b7dd121bce7639f7559be7c9e5"
+      },
+      "/opt/sweclar/browser_health.py": {
+        "source": "environments/amd64/python-media/browser_health.py",
+        "sha256": "9af1b192afdd4ba1fc96bc7b2d3fe367464d1376c2656c03db54ffe167a638d8"
+      }
+    },
+    "python-media-score": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/browser_health.py": {
+        "source": "environments/amd64/python-media/browser_health.py",
+        "sha256": "9af1b192afdd4ba1fc96bc7b2d3fe367464d1376c2656c03db54ffe167a638d8"
+      },
+      "/opt/sweclar/score/package-lock.json": {
+        "source": "environments/amd64/python-media-score/ui/package-lock.json",
+        "sha256": "42ac562240be84933308672c598c655b45692b259fea1c84919482be58f70b92"
+      },
+      "/opt/sweclar/score/package.json": {
+        "source": "environments/amd64/python-media-score/ui/package.json",
+        "sha256": "c82ee1205c4b092f963d395f30500a4655f0927a89e9a44a48fd47c475d7976f"
+      },
+      "/opt/sweclar/media_preflight.py": {
+        "source": "environments/amd64/python-media/preflight.py",
+        "sha256": "b2391970673ac633264a3dd82a4ff6792ee409b7dd121bce7639f7559be7c9e5"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-media-score/preflight.py",
+        "sha256": "19fac0ed006dc427e839cade8503909a6cd35f4ce04743667fe33408913f7950"
+      },
+      "/opt/sweclar/score_health.py": {
+        "source": "environments/amd64/python-media-score/score_health.py",
+        "sha256": "aab13fcfc42725db3647c4b273086206580997c65c67ea153a27aa35ea2149bc"
+      }
+    },
+    "python-portal": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/portal/package-lock.json": {
+        "source": "environments/amd64/python-portal/ui/package-lock.json",
+        "sha256": "240154214d397eeeaed36ab8b9be1b07c0c1be288adbdf29a6f459c4238db8af"
+      },
+      "/opt/sweclar/portal/package.json": {
+        "source": "environments/amd64/python-portal/ui/package.json",
+        "sha256": "82aa8f2a1ab780108c8d40390037252d70cee0289d52da50e13a0081ae75a7d4"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-portal/preflight.py",
+        "sha256": "b44c7cdd3af326b333e4642ca87d2b25568073e36869e6cc34dfb2c862b8730e"
+      },
+      "/opt/sweclar/check_mongo.py": {
+        "source": "environments/amd64/python-portal/check_mongo.py",
+        "sha256": "4ba55f5244ec2e6c9c7c948979a7ba5c73660a9904efbe026640a7e0f4d36209"
+      },
+      "/opt/sweclar/mongo_health.cjs": {
+        "source": "environments/amd64/python-portal/mongo_health.cjs",
+        "sha256": "575f60138200e8cb6e02d7fc104461f7a7753ca1ab4e65aed5636e988d9fed6a"
+      }
+    },
+    "python-practice": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/ui/package-lock.json": {
+        "source": "environments/amd64/python-practice/ui/package-lock.json",
+        "sha256": "42583ac2ede5bb02451950746b6ea64ddc02d21d2f04146b7fdb419430e166e3"
+      },
+      "/opt/sweclar/ui/package.json": {
+        "source": "environments/amd64/python-practice/ui/package.json",
+        "sha256": "1f7fe5d315d18dd93635033f4d3112aa4bd6c2e6b12dc3a60de85e00d95fd9c2"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-practice/preflight.py",
+        "sha256": "cb79a36f73abdd68ca221db3283598049171cdeac6610bd12548a85653ba8dcc"
+      },
+      "/opt/sweclar/fixture.py": {
+        "source": "environments/amd64/python-practice/fixture.py",
+        "sha256": "377d842066e9b1c8c3de43f750defe7fcd8cc1529eb5004880c514386c615b3f"
+      }
+    },
+    "python-report": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/vision_preflight.py": {
+        "source": "environments/amd64/python-vision/preflight.py",
+        "sha256": "c00c78b18f417e9951e5cbe1c8a87e9b2eef14c6f71a332f30cc6803d75acffa"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-report/preflight.py",
+        "sha256": "ec17c75e7977d8a066b2e159fc1545636bef0c74ec1c08964e6acadbac8edd54"
+      },
+      "/opt/sweclar/report_probe.py": {
+        "source": "environments/amd64/python-report/report_probe.py",
+        "sha256": "a0c0dd462aa1661930b6faa67d96d935765e4fd154f0f9dea573da5305a4d0a9"
+      }
+    },
+    "python-vision": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-vision/preflight.py",
+        "sha256": "c00c78b18f417e9951e5cbe1c8a87e9b2eef14c6f71a332f30cc6803d75acffa"
+      }
+    },
+    "python-watch": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/web_preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      },
+      "/opt/sweclar/watch_service.py": {
+        "source": "environments/amd64/python-watch/watch_service.py",
+        "sha256": "00b700c09e06c06e73ca0adde5e171d8eb797e2cc86846f6c2d9a2c4ee7c7962"
+      },
+      "/opt/sweclar/fixtures.json": {
+        "source": "environments/amd64/python-watch/fixtures.json",
+        "sha256": "36308edcdf4f5ae6568a480d87a42627b85e1c66bacd24fb9091ab43dc63bbae"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-watch/preflight.py",
+        "sha256": "f00387504d27dbf2ad01ba2787c08c842c1b9fd2e910d1cb1665b7590b38061d"
+      }
+    },
+    "python-web": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-web/preflight.py",
+        "sha256": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+      }
+    },
+    "python-web-mqtt": {
+      "/opt/sweclar/harness.py": {
+        "source": "environments/amd64/python-web-mqtt/harness.py",
+        "sha256": "fd77eca3c49c94221e6e83c0c93114525758b90122ed66ee33b72128db75d526"
+      },
+      "/opt/sweclar/preflight.py": {
+        "source": "environments/amd64/python-web-mqtt/preflight.py",
+        "sha256": "15168c1a70872f5012bb6e32a11dcdad2468fadb898fc475ed45166221306c02"
+      }
+    }
+  }
+}

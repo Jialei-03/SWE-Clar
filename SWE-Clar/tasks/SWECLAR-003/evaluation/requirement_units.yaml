@@ -1,0 +1,199 @@
+schema_version: 1
+task_id: SWECLAR-003
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent static campaign website builder and actual offline browser behavior
+requirement_units:
+- ru_id: RU-001
+  name: Actual static-site build
+  content: Complete the supplied independent Python/HTML/CSS/JavaScript project using the public README
+    interfaces. build_campaign_site must write a usable index.html and local resources and return the
+    declared result; the CLI consumes JSON stdin. Do not mutate the input. Identical input and assets
+    produce identical file names and bytes. Preserve the real hero, cards, contact form and footer and
+    use manager-prepared Python/Chromium. No install, external account, original code or customer asset
+    is needed. Respect the public input shape, string limits, filenames, legal fragment syntax (including reserved accept/decline control IDs) and error
+    interface. Validate input shape before asset resolution. Source/output trees use regular files and
+    directories only.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern actual static-site build?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python solution.py OUTPUT ASSETS < spec.json
+      runtime: Prepared Python 3.12 and Chromium; no external network
+    inputs:
+      spec: JSON object defined in starter README
+      output: Dedicated disposable output directory, disjoint from source and input assets
+      assets: Benchmark-owned local image directory
+    output:
+      build: index_file index.html or error.code invalid_spec/invalid_asset
+      browser: Actual static DOM, local image loading, localStorage consent/outbox and contact interactions
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Website development category is supported by privately inspected delivered artifacts. All code,
+    styles, images, labels, exact layout/storage/validation policies and inputs are independently authored.
+    No original file, brand, message, source identifier or archive is distributed.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/campaign_contract.py
+- ru_id: RU-002
+  name: Responsive page layout
+  content: Render the actual hero, one campaign card per input campaign, contact form and footer. Cards
+    have three columns at viewport widths >=1024, two columns from 600 through 1023, and one column below
+    600. Keep original input order and keep core text, images and controls visible without horizontal
+    overflow, including long valid text. CSS breakpoints are independent benchmark conventions. Visual
+    style and exact dimensions are free within these layout and usability constraints.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern responsive page layout?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python solution.py OUTPUT ASSETS < spec.json
+      runtime: Prepared Python 3.12 and Chromium; no external network
+    inputs:
+      spec: JSON object defined in starter README
+      output: Dedicated disposable output directory, disjoint from source and input assets
+      assets: Benchmark-owned local image directory
+    output:
+      build: index_file index.html or error.code invalid_spec/invalid_asset
+      browser: Actual static DOM, local image loading, localStorage consent/outbox and contact interactions
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Website development category is supported by privately inspected delivered artifacts. All code,
+    styles, images, labels, exact layout/storage/validation policies and inputs are independently authored.
+    No original file, brand, message, source identifier or archive is distributed.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/campaign_contract.py
+- ru_id: RU-003
+  name: Literal content and asset publication
+  content: 'Use supplied locale, title and description in html lang, page title, meta description and
+    visible hero content. Render each campaign''s literal name and its specified image in order, assigning
+    unique nonempty card IDs. Treat all text as text: markup, quotes, ampersands and template-like tokens
+    must not execute or substitute other content. Every referenced hero/card image must be declared in
+    available_assets and be a real regular nonsymlink file in asset_root matching the public filename
+    syntax; otherwise return invalid_asset. Unreferenced catalog entries do not need files. Copy only
+    required images, preserving their bytes, and make them actually load in the generated page. Build
+    failures for invalid_spec or invalid_asset leave any existing output unchanged and create no partial
+    output on a fresh path. A successful rebuild replaces the entire dedicated output tree, removing stale
+    generated files. Keep source and assets untouched. These exact publication rules are independently
+    designed.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern literal content and asset publication?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python solution.py OUTPUT ASSETS < spec.json
+      runtime: Prepared Python 3.12 and Chromium; no external network
+    inputs:
+      spec: JSON object defined in starter README
+      output: Dedicated disposable output directory, disjoint from source and input assets
+      assets: Benchmark-owned local image directory
+    output:
+      build: index_file index.html or error.code invalid_spec/invalid_asset
+      browser: Actual static DOM, local image loading, localStorage consent/outbox and contact interactions
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Website development category is supported by privately inspected delivered artifacts. All code,
+    styles, images, labels, exact layout/storage/validation policies and inputs are independently authored.
+    No original file, brand, message, source identifier or archive is distributed.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/campaign_contract.py
+- ru_id: RU-004
+  name: Consent and local legal navigation
+  content: When consent_decision is explicitly accept or decline, it overrides the stored value on each
+    page load and is saved as the current decision. With omitted/null input, restore only a stored accept/decline
+    decision; otherwise start with no decision and show the panel. Accept and Decline controls set the
+    corresponding persistent value and hide the panel. Reload preserves a valid stored decision when input
+    is null; different site IDs are isolated. Invalid stored strings are ignored. Render the three supplied
+    legal destinations as usable footer anchors to actual local sections, with synthetic explanatory content.
+    The legal destinations must not use #accept or #decline; these IDs belong exclusively to the consent controls. These are local demonstration preferences, not a claim of regulatory compliance.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern consent and local legal navigation?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python solution.py OUTPUT ASSETS < spec.json
+      runtime: Prepared Python 3.12 and Chromium; no external network
+    inputs:
+      spec: JSON object defined in starter README
+      output: Dedicated disposable output directory, disjoint from source and input assets
+      assets: Benchmark-owned local image directory
+    output:
+      build: index_file index.html or error.code invalid_spec/invalid_asset
+      browser: Actual static DOM, local image loading, localStorage consent/outbox and contact interactions
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Website development category is supported by privately inspected delivered artifacts. All code,
+    styles, images, labels, exact layout/storage/validation policies and inputs are independently authored.
+    No original file, brand, message, source identifier or archive is distributed.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/campaign_contract.py
+- ru_id: RU-005
+  name: Offline contact requests
+  content: 'Never request external scripts, styles, images or form endpoints. Valid contact submission
+    requires trimmed name length 1..80, trimmed message length 1..2000, and trimmed email length <=254
+    matching ^[^\s@]+@[^\s@]+\.[^\s@]+$. Lowercase the entire email. Each valid submit appends one record
+    with a new nonempty unique request_id and exactly name/email/message to this site''s persistent outbox,
+    clears the three fields, shows saved_locally and updates Requests: N. Identical valid submissions
+    count independently. Invalid input shows invalid_contact, preserves the existing outbox and does not
+    reset the entered fields. Do not rely on native form validation that prevents the required feedback.
+    Restore the outbox after reload; an absent, malformed JSON, non-array or record array lacking string
+    request_id/name/email/message is treated as empty. Storage is separate per site_id. Both consent choices
+    allow this explicitly initiated local form action. Observe real form events, browser storage and network
+    activity, not self-reported window APIs.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern offline contact requests?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python solution.py OUTPUT ASSETS < spec.json
+      runtime: Prepared Python 3.12 and Chromium; no external network
+    inputs:
+      spec: JSON object defined in starter README
+      output: Dedicated disposable output directory, disjoint from source and input assets
+      assets: Benchmark-owned local image directory
+    output:
+      build: index_file index.html or error.code invalid_spec/invalid_asset
+      browser: Actual static DOM, local image loading, localStorage consent/outbox and contact interactions
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Website development category is supported by privately inspected delivered artifacts. All code,
+    styles, images, labels, exact layout/storage/validation policies and inputs are independently authored.
+    No original file, brand, message, source identifier or archive is distributed.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/campaign_contract.py

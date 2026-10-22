@@ -1,0 +1,1 @@
+{"state":{"products":{},"coupons":{}},"action":{"type":"create_account","user_id":"sample-user","email":"member@example.org","provider":"fast_checkout","phone":"synthetic-contact"}}

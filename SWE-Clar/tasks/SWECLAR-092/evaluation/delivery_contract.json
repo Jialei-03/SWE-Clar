@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-092",
+  "public": {
+    "readme": "# Fleet dashboard workspace\n\nThis independently reconstructed HTML/CSS/JavaScript project uses vendored Bootstrap 5.3.3 (MIT). Open `index.html` directly; no build step or remote service is needed. `data.js` supplies synthetic fleet JSON as `window.FLEET_DATA`, with `summary`, `drivers`, and `vehicles` collections. An embedding application can set that global before loading the page. Driver and vehicle records have `id` and `name` fields.\n\nPreserve the existing overview, data rendering, local assets and controls while completing the responsive layout and interactions. `window.dashboard.render()` refreshes the view and `window.dashboard.dispatch(action)` is the local interaction entry point; both operate on the supplied data. The page is a synthetic layout substitute. The unavailable original Figma is not included and pixel equivalence to it is not asserted.\n\nThis page excludes a global header/navigation sidebar. The existing Drivers/Vehicles detail panel is local to this component. Preserve the existing control IDs and data entry point. Exact responsive and interaction rules are provided in the task requirements.",
+    "interfaces": [
+      {
+        "type": "web_ui",
+        "entry": {
+          "language": "html_css_javascript",
+          "pages": [
+            "index.html"
+          ]
+        },
+        "inputs": {
+          "fleet_data": "window.FLEET_DATA: {summary: object, drivers: array<{id,name}>, vehicles: array<{id,name}>}",
+          "viewport_width_px": "integer",
+          "interaction_entry": "window.dashboard.dispatch(action)"
+        },
+        "output": {
+          "type": "rendered_page",
+          "meaning": "Observable dashboard layout, supplied record text, error messages and sidebar interactions"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "web_ui",
+      "entry": {
+        "language": "html_css_javascript",
+        "pages": [
+          "index.html"
+        ]
+      },
+      "inputs": {
+        "fleet_data": "window.FLEET_DATA: {summary: object, drivers: array<{id,name}>, vehicles: array<{id,name}>}",
+        "viewport_width_px": "integer",
+        "interaction_entry": "window.dashboard.dispatch(action)"
+      },
+      "output": {
+        "type": "rendered_page",
+        "meaning": "Observable dashboard layout, supplied record text, error messages and sidebar interactions"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "web_ui",
+      "entry": {
+        "language": "html_css_javascript",
+        "pages": [
+          "index.html"
+        ]
+      },
+      "inputs": {
+        "fleet_data": "window.FLEET_DATA: {summary: object, drivers: array<{id,name}>, vehicles: array<{id,name}>}",
+        "viewport_width_px": "integer",
+        "interaction_entry": "window.dashboard.dispatch(action)"
+      },
+      "output": {
+        "type": "rendered_page",
+        "meaning": "Observable dashboard layout, supplied record text, error messages and sidebar interactions"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "web_ui",
+      "entry": {
+        "language": "html_css_javascript",
+        "pages": [
+          "index.html"
+        ]
+      },
+      "inputs": {
+        "fleet_data": "window.FLEET_DATA: {summary: object, drivers: array<{id,name}>, vehicles: array<{id,name}>}",
+        "viewport_width_px": "integer",
+        "interaction_entry": "window.dashboard.dispatch(action)"
+      },
+      "output": {
+        "type": "rendered_page",
+        "meaning": "Observable dashboard layout, supplied record text, error messages and sidebar interactions"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "web_ui",
+      "entry": {
+        "language": "html_css_javascript",
+        "pages": [
+          "index.html"
+        ]
+      },
+      "inputs": {
+        "fleet_data": "window.FLEET_DATA: {summary: object, drivers: array<{id,name}>, vehicles: array<{id,name}>}",
+        "viewport_width_px": "integer",
+        "interaction_entry": "window.dashboard.dispatch(action)"
+      },
+      "output": {
+        "type": "rendered_page",
+        "meaning": "Observable dashboard layout, supplied record text, error messages and sidebar interactions"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "web_ui",
+      "entry": {
+        "language": "html_css_javascript",
+        "pages": [
+          "index.html"
+        ]
+      },
+      "inputs": {
+        "fleet_data": "window.FLEET_DATA: {summary: object, drivers: array<{id,name}>, vehicles: array<{id,name}>}",
+        "viewport_width_px": "integer",
+        "interaction_entry": "window.dashboard.dispatch(action)"
+      },
+      "output": {
+        "type": "rendered_page",
+        "meaning": "Observable dashboard layout, supplied record text, error messages and sidebar interactions"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "d9db7f0dd42e20c906e8091e5b22c9fa9f5ab574ab100230b7355f3c19293eae",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "16a986d45d8dabfc1d82653df0ae1adf9785bb3cd1d931aca2a1c4cef9784380",
+    "evaluation/tests/candidate_proxy.py": "cda82ee02b3af3e51d4b6990cfee775a7fbc35cabb6031ac98661dd762a1e9a5",
+    "evaluation/tests/conftest.py": "e9af3d0a9aa5a7a3e430fd300b851a0973a110910e32ca894c38018582bf3f82",
+    "evaluation/tests/evaluate.py": "dee1f5674bb2c586c6181f609b7f8d9eab210d070d409e335218fcc3530241db",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "cddc14c60abf614d8f4f6dfefb8c369da79c694201e649b417b182437c9bd9df"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

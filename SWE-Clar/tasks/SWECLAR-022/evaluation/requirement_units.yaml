@@ -1,0 +1,470 @@
+schema_version: 1
+task_id: SWECLAR-022
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent directory, scheduled promotion inbox, receipt review and reward reservation
+requirement_units:
+- ru_id: RU-001
+  name: Real directory and role boundaries
+  content: 'Maintain authenticated directory reads and administrator mall/shop/branch writes with durable
+    valid relationships, duplicate-ID handling and flag updates. Consumers and merchants cannot create
+    or change catalog records. Merchant owner fields are not arbitrary account IDs: validate active merchant
+    role. Literal names/IDs including punctuation/non-ASCII and markup-like text must work. General unknown
+    ID404, role403, session401 semantics and old-account isolation are regression obligations. Directory
+    and rewards data come from the supplied fixture plus committed changes, not hardcoded identifiers.
+    Starter implements this working directory foundation and actual role-specific browser controls.
+
+
+    Public delivery and interface contract:
+
+
+    Prepared `python-vision`, Linux AMD64, Python3.12, SQLite, Pillow12.3, Chromium140/Playwright1.55.
+    OCR tools installed by this shared profile are unused. All dependencies, synthetic accounts/catalog/rewards,
+    PNG samples and read-only clock are prepared before candidate budget. Candidate and browser UID1000/cap0
+    cannot read evaluator files or modify benchmark fixtures. Loopback-only network; 2CPUs,2048MiB memory,256PIDs,512MiB
+    workspace,1024MiB temporary storage; evaluation wall limit300seconds.
+
+
+    Work in `/workspace`. Build `python -m compileall -q server.py store.py media.py`. Start `python server.py
+    --host 0.0.0.0 --port 8080 --db /workspace/data/loyalty.sqlite3 --fixture /public_tests/catalog.json
+    --clock /public_tests/clock.json`. Public regression `python /public_tests/test_public.py` uses disposable
+    copies and databases. Reset: stop server, remove `/workspace/data`, restart. Ordinary restart preserves
+    all durable data; sessions expire. Prepared images: `/tmp/sweclar-loyalty-samples/receipt.png` and
+    `receipt-other.png`. Public fixture clock is JSON `{now:600}`. On each dispatch, read current clock
+    file once; use that integer for the entire transaction. Clock values in official runs are integers0..2000000000
+    and nondecreasing. Candidates can launch disposable servers with their own synthetic clock copies
+    to test time changes. Official clock is manager-controlled and never a client-supplied timestamp.
+    No hardware, external push/payment account or environment repair is required.
+
+
+    Starter provides real authenticated directory creation/browsing, PNG uploads/display and receipt submission/pending
+    lists. Complete promotion preference/scheduling/dispatch, receipt duplicate/review/credit rules and
+    reward reservation/ledger behavior. Internal schema, IDs, algorithms, locking and visual styling are
+    free; contracts below are public. Hidden business rules are available through relevant client clarification,
+    never through original history or private tests.
+
+
+    ### Fixtures, common values and HTTP format
+
+
+    Fixture arrays: users, malls, shops, branches, rewards. User fields id,username,password,role(`consumer|merchant|administrator`),active
+    boolean. Mall{id,name}; Shop{id,name,owner_id,category}; Branch{id,shop_id,mall_id,participating};
+    Reward{id,name,cost,stock}, positive integer cost<=100000 and nonnegative integer stock<=100000. Merchant
+    owner references are valid. Category is one of `food`,`home`,`leisure`. Fixture arrays define creation
+    order; initial records have valid unique IDs and references. No source business names or original
+    images occur.
+
+
+    General IDs/request keys are case-sensitive strings1..100Unicode scalar values (no unpaired surrogates),
+    with punctuation/non-ASCII allowed; no UUID spelling is required. IDs are preserved exactly, never
+    case-folded or stripped. Human names/title/receipt_number are trimmed at both ends, retain interior
+    whitespace, and have lengths1..100 after trimming; message body length1..400. Clock/scheduling values,
+    cents, points, stock and revisions are JSON integers, never boolean; amounts0..100000000. Receipt
+    date is a real Gregorian exact YYYY-MM-DD, year0001..9999. All rendering of names/text is literal.
+    JSON request bodies are UTF-8 objects1..800000bytes; reject invalid/nonfinite JSON and malformed fields400
+    `invalid_request`. Extra fields are ignored; extra harmless response metadata is allowed. Paths URL-encode
+    IDs. Errors `{error:{code}}`; unknown/inaccessible resources404 `not_found`; unauthenticated401 `unauthenticated`;
+    disallowed role403 `forbidden`. Check authentication, then role, then field syntax before resource/business
+    validation unless otherwise specified. Failure leaves durable state unchanged.
+
+
+    Sessions use>=32random bytes, kept in browser memory, invalidated individually by logout and all by
+    server restart. Returned User{id,username,role} excludes passwords/hash/token except token on login.
+    No tokens/records persist in browser storage or survive logout/current401. Responses from previous
+    accounts, including401 errors, must not restore old data or clear a newer account. All lists are creation
+    order unless specified.
+
+
+    ### Public objects and endpoints
+
+
+    Mall{id,name}; Shop{id,name,owner_id,category}; Branch{id,shop_id,mall_id,participating}. Catalog
+    reads expose these synthetic public directory fields, not credentials or consumer profiles. Preferences{categories,mall_ids},
+    arrays unique, normalized into category order(food,home,leisure) and mall creation order. Consumer
+    preferences initially empty.
+
+
+    Asset{id,width,height,url}; Receipt{id,owner_id,request_id,branch_id,receipt_number,date,amount_cents,asset_id,status,points,reviewed_by};
+    status pending|approved|rejected; points0 until approval; reviewed_by null before review. Receipt
+    image is an actual stored PNG.
+
+
+    Promotion{id,shop_id,branch_ids,title,body,due_at,expires_at,status,delivered_count}; status scheduled|cancelled;
+    expiry is determined by clock, not mutable stored status. branch_ids retain submitted order. Message{id,promotion_id,title,body,shop_id,branch_ids,delivered_at};
+    consumers see only their own messages. Merchant/admin promotion counts disclose no consumer IDs. Ledger{id,kind,reference_id,delta,balance};
+    kind receipt|redemption; reference_id points to receipt/redemption; balance is balance immediately
+    after that entry. Redemption{id,owner_id,request_id,reward_id,cost,status}, status reserved. Wallet{balance,ledger,redemptions}.
+    Reward API returns current remaining stock.
+
+
+    - GET /health public200 `{ok:true}`.
+
+    - POST /api/login {username,password} →200 {token,user}, invalid/inactive401.
+
+    - POST /api/logout {} →200 {ok:true}; GET /api/me →200 {user}.
+
+    - GET /api/catalog →200 {malls,shops,branches,rewards}; authenticated all roles.
+
+    - GET /api/merchant-owners →200 {merchant_owners:[{id}]}, administrator only. List active synthetic
+    merchant IDs in fixture order, including merchants with no existing shop; expose no usernames, credentials
+    or consumer accounts. This prepares the owner selector without guessing account IDs.
+
+    - POST /api/malls {id,name} →201 {mall}; POST /api/shops {id,name,owner_id,category} →201 {shop};
+    POST /api/branches {id,shop_id,mall_id,participating} →201 {branch}. Administrator only; existing
+    ID409 duplicate_id; unknown referenced entity404; owner must be active merchant otherwise422 invalid_owner.
+    One shop may have multiple branches, including more than one branch in the same mall; only explicit
+    ID uniqueness is required.
+
+    - PATCH /api/branches/{id} {participating:boolean} →200 {branch}, administrator only, idempotent flag
+    update, no other fields change.
+
+    - GET /api/assets →200 {assets}, consumer own uploads only; POST /api/assets {png_base64} →201 {asset},
+    consumer only. GET /api/assets/{id} →actual image/png bytes: owner may read; administrator may read
+    only if attached to any submitted receipt; merchant/other consumer get404. Asset metadata listing
+    not available to administrators or merchants (403).
+
+    - POST /api/receipts {request_id,branch_id,receipt_number,date,amount_cents,asset_id} →201 {receipt}
+    first creation;200 own matching replay; conflict handling is clarifiable with the client. Consumer
+    only. GET /api/receipts →200 {receipts}: consumer own, administrator all, merchant403. Pending records
+    sort before approved/rejected, each group creation order.
+
+    - POST /api/receipts/{id}/review {decision:approved|rejected} →200 {receipt}, administrator only.
+    Business validation is clarifiable with the client.
+
+    - GET /api/preferences →200 {preferences}; PUT /api/preferences {categories,mall_ids} →200 {preferences},
+    consumer only; allowed category values and existing mall IDs required, duplicate items400.
+
+    - POST /api/promotions {shop_id,branch_ids,title,body,due_at,expires_at} →201 {promotion}, merchant
+    only. GET /api/promotions →200 {promotions}: merchant own shops, administrator all, consumer403. POST
+    /api/promotions/{id}/cancel {} →200 {promotion}, owning merchant only; foreign/unknown404; repeated
+    cancellation harmless.
+
+    - POST /api/dispatch {} →200 {delivered_count}, administrator only. Returned count is new messages
+    in this call, not lifetime total. Dispatch must use configured clock, ignore supplied now/recipient/cooldown
+    fields, and enforce the clarified dispatch policy.
+
+    - GET /api/inbox →200 {messages}, consumer own only, others403.
+
+    - GET /api/wallet →200 Wallet, consumer own only, others403.
+
+    - POST /api/redemptions {request_id,reward_id} →201 {redemption} first success,200 matching replay;
+    consumer only.
+
+    - GET /api/redemptions →200 {redemptions}, consumer own or administrator all; merchant403. Creation
+    order.
+
+
+    PNG input: strict Base64 encoding of one actual nonanimated PNG, raw size1..524288bytes, width/height1..1024.
+    Decode and verify; invalid/animated/oversized400 invalid_request. Preserve exact decoded RGBA pixels
+    and dimensions, re-encode without original metadata/comments/EXIF. IDs/hashes alone do not count as
+    images. Upload/storage survives restart. A submitted receipt uses an existing owned asset, otherwise404;
+    unknown branch404, currently nonparticipating422 not_participating. Upload/submit never change wallet.
+    Browser must let consumer select a PNG, see actual pixels, enter receipt fields and submit; admin
+    must inspect same image plus fields and approve/reject. Original filename is not part of stored public
+    metadata.
+
+
+    ### Browser contract
+
+
+    Serve `/` actual responsive browser application at390×844 and1280×900 without horizontal overflow.
+    Export window.LoyaltyClient and window.LoyaltyView. Client constructor(baseURL=''''); view constructor(client,document).
+    Public client methods login(username,password),logout(),refresh(),upload(pngBase64),createMall(payload),createShop(payload),createBranch(payload),setParticipation(id,value),submitReceipt(payload),reviewReceipt(id,decision),savePreferences(payload),createPromotion(payload),cancelPromotion(id),dispatch(),redeem(payload),dispose().
+    Methods may resolve without a payload or reject after updating observable error state. Observables
+    user nullable; malls,shops,branches,rewards,assets,receipts,promotions,inbox arrays; preferences nullable;
+    wallet nullable; redemptions array; error nullable{code}. Refresh only calls endpoints permitted to
+    the role; no endpoint implementation details are hidden. Existing exported implementations may be
+    replaced consistently. No particular prototype mutability or internal event mechanism required.
+
+
+    DOM IDs: login-form,username,password,login,logout,refresh,error,workspace,catalog,assets,receipts,promotions,inbox,wallet-balance,ledger,rewards,redemptions.
+    Form input/actions: mall-id,mall-name,create-mall; shop-id,shop-name,shop-owner,shop-category,create-shop;
+    branch-id,branch-shop,branch-mall,branch-participating,create-branch; upload-file,upload-photo; receipt-key,receipt-branch,receipt-number,receipt-date,receipt-amount,receipt-asset,submit-receipt;
+    preference-categories,preference-malls,save-preferences; promotion-shop,promotion-branches,promotion-title,promotion-body,promotion-due,promotion-expiry,create-promotion;
+    dispatch; redemption-key,redemption-reward,redeem. Multi-ID inputs preference-categories/preference-malls/promotion-branches
+    are JSON-array text inputs; selectors for referenced single IDs; checkbox for participating; integer
+    numeric inputs for amount/due/expiry. Role-inappropriate controls hidden. Public hooks locate real
+    rendered actions, not exact private markup structure.
+
+
+    Catalog has rows data-mall-id,data-shop-id,data-branch-id; administrator branch row checkbox data-participating.
+    Image display containers data-asset-id include visible decoded pixels and full-size link to the same
+    image; img or Canvas allowed. Receipt row data-receipt-id displays fields/status and actual receipt
+    image container; admin row buttons data-approve,data-reject. Promotion row data-promotion-id exposes
+    title/count and owning merchant data-cancel button. Inbox row data-message-id displays literal title/body;
+    ledger row data-ledger-id displays delta and resulting balance; redemption row data-redemption-id
+    displays reward/cost/status. Numeric formatting may differ provided values are unambiguous, accurate
+    and accessible. No exact prose/layout assertion beyond these hooks. Error UI contains returned error
+    code. Public refresh button explicitly fetches current state.
+
+
+    Form request keys are explicitly supplied in receipt-key/redemption-key; do not silently replace them
+    on retry. Successful mutation refreshes relevant visible state; failures cannot leave false success
+    or optimistic balance. Current401/old-account guards apply to JSON and image loads. Logout clears
+    private images, drafts and records; release object URLs/listeners on dispose. Admin image loads cannot
+    leak into a later consumer session. No service workers or persisted browser authentication are required.
+
+
+    '
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for real directory and role boundaries.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/loyalty.sqlite3 --fixture
+        /public_tests/catalog.json --clock /public_tests/clock.json
+    inputs:
+      transport: Loopback authenticated HTTP, actual PNG bytes, manager clock and real browser interactions
+      contract: README.md
+    output:
+      type: directory_receipt_loyalty_workspace
+      meaning: Durable directory, receipt images and review, promotion inbox and point/reward ledger
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/loyalty_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, catalog entries,
+    images, policies, interfaces and code are independent benchmark choices. Answer relevant business
+    questions only; never supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-002
+  name: Actual receipt image and pending workflow
+  content: Consumers upload actual PNG bytes, view their preserved pixels and submit structured receipt
+    data referencing an owned image and participating known branch. Administrators see submitted images
+    and pending fields, not other unattached uploads. Other consumers and merchants cannot retrieve receipt
+    images or records. Save pending Receipt with points0/reviewed_by null and all normalized submitted
+    fields. Lists prioritize pending items as specified. Upload/submission must not generate points, approve
+    itself or send promotions. Persistence is verified by restart and decoding the stored image, not an
+    asset ID or claimed status alone. Starter supports nonconflicting submissions and real browser/admin
+    review display; duplicates/review credit semantics are clarifiable with the client.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for actual receipt image and pending workflow.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/loyalty.sqlite3 --fixture
+        /public_tests/catalog.json --clock /public_tests/clock.json
+    inputs:
+      transport: Loopback authenticated HTTP, actual PNG bytes, manager clock and real browser interactions
+      contract: README.md
+    output:
+      type: directory_receipt_loyalty_workspace
+      meaning: Durable directory, receipt images and review, promotion inbox and point/reward ledger
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/loyalty_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, catalog entries,
+    images, policies, interfaces and code are independent benchmark choices. Answer relevant business
+    questions only; never supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-003
+  name: Promotion ownership, schedule and eligible audience
+  content: 'Only owning merchant creates/cancels a shop promotion. branch_ids must contain1..20distinct
+    existing branches of the chosen shop; unknown/foreign branch404, empty/duplicate/malformed400. due_at/expires_at
+    are integers0..2000000000 with due_at<expires_at; invalid400. Past due times are allowed. Store schedule
+    and normalized title/body with no immediate messages. Preferences start empty (opt-in required), category
+    and mall arrays both matter. Cancel sets status cancelled and retains existing messages; no refunds
+    or point effects.
+
+
+    At dispatch time now, candidate promotion is scheduled and due_at<=now<expires_at. Consumer must be
+    active, include shop.category in categories and include at least one selected currently participating
+    branch''s mall_id in mall_ids. No demographics or real geolocation are involved. Eligible branch IDs
+    in the delivered message are only matching participating branches, preserving promotion branch order;
+    duplicate malls do not duplicate consumer messages. Inactive/nonparticipating branches never count.
+    If no matching branch remains, no delivery. Messages copy title/body/shop/eligible branches at delivery
+    time and retain that content thereafter. Merchant sees only own promotion aggregate delivered_count
+    and no consumer identities. Administrator dispatch does not depend on any merchant browser being open.
+    Preference updates apply to subsequent delivery, not retroactive message deletion.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for promotion ownership, schedule and eligible audience.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/loyalty.sqlite3 --fixture
+        /public_tests/catalog.json --clock /public_tests/clock.json
+    inputs:
+      transport: Loopback authenticated HTTP, actual PNG bytes, manager clock and real browser interactions
+      contract: README.md
+    output:
+      type: directory_receipt_loyalty_workspace
+      meaning: Durable directory, receipt images and review, promotion inbox and point/reward ledger
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/loyalty_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, catalog entries,
+    images, policies, interfaces and code are independent benchmark choices. Answer relevant business
+    questions only; never supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-004
+  name: Per-consumer cooldown, scheduling order and idempotency
+  content: 'For each consumer, deliver at most one new promotion message during a dispatch. Across dispatches,
+    minimum interval is120seconds since that consumer''s latest message, across all merchants/categories;
+    equality120 is allowed. Consider due eligible promotions by ascending due_at then original creation
+    order (IDs are not tie-breakers). Skip promotions already delivered to that consumer, cancelled, expired
+    or currently ineligible. Pick first remaining promotion if cooldown allows. Others remain scheduled
+    for potential later dispatch until expiry; no auto-cancellation after another promotion wins.
+
+
+    Lifetime uniqueness is (consumer,promotion), so preference changes, retry, restart or reactivation
+    never resend the same promotion. Only actual new messages advance cooldown and delivered_count. Suppressed/expired/cancelled/no-audience
+    candidates do not change either. Repeat dispatch at unchanged clock yields zero if no new eligible
+    consumer can receive. Store message, per-consumer last delivery and promotion count atomically. Concurrent
+    dispatches/cancels obey transactional ordering; cannot duplicate or exceed cooldown. Return new total
+    across consumers for this call. Inbox reads real stored messages in delivery order; no state field
+    alone certifies notification delivery.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for per-consumer cooldown, scheduling order and idempotency.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/loyalty.sqlite3 --fixture
+        /public_tests/catalog.json --clock /public_tests/clock.json
+    inputs:
+      transport: Loopback authenticated HTTP, actual PNG bytes, manager clock and real browser interactions
+      contract: README.md
+    output:
+      type: directory_receipt_loyalty_workspace
+      meaning: Durable directory, receipt images and review, promotion inbox and point/reward ledger
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/loyalty_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, catalog entries,
+    images, policies, interfaces and code are independent benchmark choices. Answer relevant business
+    questions only; never supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-005
+  name: Receipt uniqueness, review and points ledger
+  content: 'Consumer request_id is scoped to that consumer and operation receipt. Validate syntax and
+    owned image/branch lookup, then replay: same key and same normalized submitted payload returns200
+    original Receipt even after review or branch participation changes; altered payload409 request_conflict.
+    Request keys are durable and not consumed by invalid attempts. For a new request, branch must currently
+    participate. Active receipt uniqueness is (branch_id,trimmed receipt_number,date) across all consumers
+    for pending/approved statuses, not just image hash or receipt number. A collision gives409 duplicate_receipt
+    without revealing owner. Rejected receipts release this key, allowing a new request_id to submit corrected
+    data; old request_id still replays its rejected record. Same number with different date or branch
+    is distinct. Concurrency reserves the unique key atomically.
+
+
+    Only administrator reviews. Pending→approved requires branch still participating, otherwise422 not_participating
+    with no changes. Points are floor(amount_cents/250) per receipt, using exact nonnegative integers;
+    even zero-point approval records one ledger entry. Pending→rejected credits nothing and releases uniqueness.
+    Approved/rejected review replay with identical decision returns200 same record without another ledger
+    entry. Opposite decision after final review409 review_conflict. Approved rows cannot later be rejected
+    or clawed back in this task. Review records actual authenticated administrator and does not trust
+    supplied points/operator/status. Receipt status, awarded points, wallet balance and one ledger credit
+    commit atomically and survive restart. Duplicate/concurrent approval creates exactly one credit. Rejected
+    images remain visible to owning consumer/admin as part of retained audit record.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for receipt uniqueness, review and points ledger.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/loyalty.sqlite3 --fixture
+        /public_tests/catalog.json --clock /public_tests/clock.json
+    inputs:
+      transport: Loopback authenticated HTTP, actual PNG bytes, manager clock and real browser interactions
+      contract: README.md
+    output:
+      type: directory_receipt_loyalty_workspace
+      meaning: Durable directory, receipt images and review, promotion inbox and point/reward ledger
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/loyalty_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, catalog entries,
+    images, policies, interfaces and code are independent benchmark choices. Answer relevant business
+    questions only; never supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-006
+  name: Reward reservation and atomic debit
+  content: 'Consumers redeem a known reward by own request_id, scoped to redemption separately from receipt
+    keys. Validate IDs; existing key/same reward returns200 original reservation without checking current
+    balance/stock, even if stock now0; changed reward409 request_conflict. For new request unknown reward404.
+    Check current stock first: zero409 out_of_stock; otherwise insufficient balance409 insufficient_points.
+    Failed requests consume no key, points or stock. Success atomically deducts current reward.cost, decreases
+    shared stock by1, creates reserved Redemption with copied cost, and appends one negative ledger delta/balance.
+    First success201. No actual external payment or fulfillment is implied.
+
+
+    Balance equals the sum of all ledger deltas; consumers cannot read another wallet or force owner/cost/status
+    with extra fields. Ledger order is commit order, with exact historical post-entry balance. Concurrent
+    requests, including different consumers competing for final stock, cannot overspend or over-reserve.
+    Matching retries retain original ID/cost/status and make no extra debit. Wallet and redemption lists
+    persist across restart. Actual browser workflow must show approved receipt credit, successful redemption,
+    reduced reward stock/balance and the stored reservation after refresh/login; errors display without
+    false balance changes. Lost-response retry uses the explicit same request key and reconciles the committed
+    result.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for reward reservation and atomic debit.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/loyalty.sqlite3 --fixture
+        /public_tests/catalog.json --clock /public_tests/clock.json
+    inputs:
+      transport: Loopback authenticated HTTP, actual PNG bytes, manager clock and real browser interactions
+      contract: README.md
+    output:
+      type: directory_receipt_loyalty_workspace
+      meaning: Durable directory, receipt images and review, promotion inbox and point/reward ledger
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-006-T01
+    file: evaluation/tests/loyalty_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, catalog entries,
+    images, policies, interfaces and code are independent benchmark choices. Answer relevant business
+    questions only; never supply original records, unrelated decisions, hidden tests or reference code.

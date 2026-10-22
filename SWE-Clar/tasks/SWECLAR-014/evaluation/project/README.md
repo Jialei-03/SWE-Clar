@@ -1,0 +1,56 @@
+# Synthetic multiplayer arena
+
+Extend the running browser game. Joining, session/room isolation, real grid movement, wall blocking and normal unprotected contact damage work. Repair spawn protection, synchronized visible timing and respawn/retry handling. Ask the simulated client for the business decisions before implementing the unfinished features.
+
+All code, maps and labels are independently authored synthetic benchmark material. The target is the local browser game, not an original customer game or deployment.
+
+## Public delivery contract
+
+
+Extend a working local multiplayer browser arena. Preserve actual joining, authenticated HTTP commands, room isolation, visible grid movement, walls and ordinary contact damage. Repair server-controlled spawn protection, the rendered countdown/visual state and respawn/retry synchronization. The deliverable is real Python HTTP service and browser HTML/CSS/JavaScript, not an event-to-state function or self-reported readiness record.
+
+The prepared `python-web` Linux AMD64 image provides Python standard library, Chromium, Playwright and fonts. Work in `/workspace`; use `python server.py --host 0.0.0.0 --port 8080 --world fixtures/world.json --clock-file fixtures/clock.json`. Visit loopback port 8080. Run `python -m compileall -q server.py arena.py` and `python /public_tests/test_public.py`. No installation, remote account, Redis, external network or customer system is needed. Source-only dependencies; no package manager. Resources: 2 CPUs, 2048 MiB RAM, 256 PIDs, 512 MiB workspace, 1024 MiB temporary storage; loopback networking. Environment health is checked independently of candidate code before each attempt.
+
+Each service process holds one ephemeral arena state. Stop and restart the documented command to reset all rooms/sessions; no database or persistence across service restart is required. Each attempt receives independent storage, processes, fixture and clock. The default supplied clock is `{ "mode": "realtime" }`; the service uses current UTC epoch milliseconds. Tests may instead supply `{ "now_ms": integer }` and advance this file. Read it for each transaction. The manager owns the test clock and its parent; candidates cannot replace them. Clock values supplied within a run are nondecreasing. Clock mode/format and test manipulation are public infrastructure.
+
+## Public fixture and protocol
+
+`world.json` has `rooms`, each `{id,label,cols,rows,walls,spawn_points}`. Width/height are grid cells; `walls` and `spawn_points` contain `[x,y]` integer pairs. Valid supplied rooms have unique IDs, 8..40 columns, 6..24 rows, in-bounds distinct walls and at least two distinct wall-free spawn points. Fixtures and labels vary. Cells outside `[0,cols)` or `[0,rows)` are walls. All player bodies occupy one cell. Server coordinates, health and generations are authoritative.
+
+UTF-8 JSON object bodies, maximum 16384 bytes, with Content-Length. Invalid JSON/types/length -> `400 {error:"invalid_request"}`. Protected requests require `Authorization: Bearer <token>`; absent/invalid sessions -> 401 `unauthenticated`. Wrong methods/unknown paths -> 404 `not_found`. Unknown room -> 404. Business conflicts -> 409 `conflict`. All business responses are JSON; extra harmless fields and opaque ID spelling are permitted.
+
+- `GET /health` -> `{ok:true}`.
+- `GET /api/rooms` -> `{rooms:[{id,label,cols,rows}]}`; no sessions/tokens.
+- `POST /api/join {room_id,label}` -> 201 `{token,player_id,state}`. Label is a string trimmed to 1..40 Unicode codepoints, rendered literally. New sessions choose the first listed spawn point not occupied by a live player. Full spawn area -> 409 with no new player/session. Tokens contain at least 32 random bytes; player IDs are nonempty opaque strings. Caller-supplied position, health, generation, protection or actor fields cannot set server state.
+- `GET /api/state` -> `{state}` for the authenticated player's room.
+- `POST /api/move {generation,command_id,direction}` -> `{state}`; direction left/right/up/down, generation a positive JSON integer (booleans excluded), command_id matches `[A-Za-z0-9_-]{1,64}`.
+- `POST /api/respawn {generation,command_id}` -> `{state}`.
+- `POST /api/leave {}` -> `{ok:true}`; removes this player and invalidates only this session.
+
+A state is `{room:{id,label,cols,rows,walls},seq,server_now_ms,players:[...]}`. Players contain `{id,label,x,y,hp,alive,generation,spawn_ms,protected_until_ms}`. `hp` is an integer 0..3; `alive` is boolean. Every state response gets a strictly increasing process-local `seq`, allocated under the same synchronization as the snapshot; serialize consistent immutable snapshots. Players may be returned in any order. Do not include any session token in a state, room list or other player's record. Only the authenticated room is visible/mutable; query/body actor or room overrides cannot widen access.
+
+## Public browser interface
+
+Serve `/`, `/app.js`, `/style.css`; use same-origin HTTP. Export `ArenaClient` and `ArenaView` from `app.js` for ordinary development tests. `new ArenaClient()` supports `join(roomId,label)`, `refresh()`, `move(direction)`, `respawn()`, `leave()`, `dispose()`, and `acceptState(state)` for the actual response-handling path. `state`, `playerId`, `error`, `busy` are observable controller properties. Internal representation otherwise unconstrained. `new ArenaView(client, document)` binds actual UI and drawing; `dispose()` cancels timers/listeners. Browser boot mounts these classes; no tests-only implementation.
+
+DOM IDs: `join-form`, `room-select`, `player-label`, `join`, `leave`, `arena`, `roster`, `error`, `shield-remaining`, `shield-indicator`, `respawn`; movement buttons use `data-direction="left|right|up|down"`. `arena` is a Canvas2D canvas, intrinsic dimensions `cols*24` by `rows*24`, CSS responsive without page overflow at 390x844 and 1280x900. Draw the actual grid, walls and each alive player's body in its cell; mark the local player and visibly distinguish protected bodies. Different colors/shapes/decorations are allowed. Roster rows have `data-player-id`, and display literal label, health and alive/dead status. `shield-remaining` contains the local player's nonnegative integer seconds; its exact numeric interface is public, but timing policy is clarified. `shield-indicator` is visible only while the local player is protected; wording/styles may vary. Errors must be visible and cannot be presented as success. Arrow keys and real buttons move; clicking Respawn and Leave performs real HTTP operations. Poll state while joined so another client's changes appear without manual reload. Rendering/countdown updates between polls; no arbitrary external-time synchronization service.
+
+## RU-001 — Existing playable arena and session isolation (visible)
+
+Actual HTTP sessions, catalog/join/leave, independent room state and consistent snapshots work. New players have hp=3, alive=true, generation=1 and spawn_ms from the transaction clock. Joining never trusts caller-controlled role/position/health/time. Labels render as literal text. The browser draws the actual map and players, supports real navigation/movement controls, reflects another client's position and clears room-specific data on leave or an invalidated session. Tokens are kept in memory, not persistent browser storage. A fresh browser starts unjoined. Keep all published commands and interfaces working.
+
+## RU-002 — Normal movement and contact regression (visible)
+
+For a live unprotected player, a valid movement command proposes exactly one cell in the requested direction. A wall/out-of-bounds move is blocked with 200 and no health loss. Entering a cell occupied by another live unprotected player is blocked; the moving player loses one hp, the stationary player is unchanged. Reaching hp=0 sets alive=false; dead players remain in the roster but occupy/draw no board cell. Empty-cell movement commits the new coordinate with unchanged health. Queries, polls, rendering and clock advancement alone never move, harm or respawn players. Server mutations are synchronized so simultaneous moves see a legal serial order. Preserve the real visual movement, wall geometry and health feedback for these disclosed behaviors.
+
+
+## Browser development support
+
+The prepared `/public_tests/arena_support.py` supplies `Application`, `request` and `browser_session`. A session starts a fresh server/workspace, supplies a protected fixture and clock, and stops/cleans its processes. `Application.set_clock(now_ms)` is a manager operation; application code only reads the provided file. `browser_session()` launches actual Chromium under UID 1000 with no capabilities, even when a protected evaluator calls it. Use the same helper in your own Playwright tests. The benchmark provisions all dependencies and health checks before coding; no install commands are needed.
+
+A fresh real browser joins through the form. The default fixture clock runs in real time. To reset, stop the service and start it again. Source files are `server.py`, `arena.py`, `app.js`, `index.html`, `style.css`, and the synthetic `fixtures/` directory. Preserve the public interfaces while changing internal organization as needed.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

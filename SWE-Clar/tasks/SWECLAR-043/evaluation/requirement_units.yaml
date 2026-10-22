@@ -1,0 +1,232 @@
+schema_version: 1
+task_id: SWECLAR-043
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Local proof-of-delivery workbench
+requirement_units:
+- ru_id: RU-001
+  name: Delivery workflow scope
+  content: Implement the delivery workflow in the supplied local browser/API workbench. Preserve its order
+    read/update API and real proof-file upload/download functionality. The public README defines the interfaces
+    and local storage; no vehicle-safety, installation, authentication or external delivery service is
+    required. Unknown event types return a structured error.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for delivery workflow scope.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: apply_delivery_event
+      signature: 'apply_delivery_event(order: dict, event: dict) -> dict'
+    inputs:
+      arguments:
+      - order
+      - event
+      protocol_fields:
+      - status
+      - type
+    output:
+      type: dict
+      meaning: Updated order or unchanged order plus error.code. Public README defines HTTP and record
+        shapes. Extra nonconflicting metadata and arbitrary nonempty error codes are allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent delivery workflow reconstructed from logistics business context. Exact validation
+    rules are synthetic benchmark conventions. Existing local HTTP, file-storage and browser adapters
+    are provided; no original application or attachments are distributed.
+- ru_id: RU-002
+  name: Order lifecycle
+  content: Support created to assigned to picked_up to delivered transitions and rejection from assigned
+    or picked_up. Successful events append one record with event type and resulting status to history,
+    preserving previous entries. Delivered and rejected orders are terminal.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for order lifecycle.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: apply_delivery_event
+      signature: 'apply_delivery_event(order: dict, event: dict) -> dict'
+    inputs:
+      arguments:
+      - order
+      - event
+      protocol_fields:
+      - id
+      - reason
+      - status
+      - type
+    output:
+      type: dict
+      meaning: Updated order or unchanged order plus error.code. Public README defines HTTP and record
+        shapes. Extra nonconflicting metadata and arbitrary nonempty error codes are allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent delivery workflow reconstructed from logistics business context. Exact validation
+    rules are synthetic benchmark conventions. Existing local HTTP, file-storage and browser adapters
+    are provided; no original application or attachments are distributed.
+- ru_id: RU-003
+  name: Proof of delivery
+  content: A delivered transition requires a receiver name and either a signature or photo proof, and
+    stores the proof in the result. Receiver and supplied proof references must be nonempty strings after
+    whitespace trimming; either or both proof types may be supplied. Missing proof fields may be omitted
+    or null in stored proof. References are opaque strings; file capture/storage is handled by the supplied
+    adapter.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for proof of delivery.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: apply_delivery_event
+      signature: 'apply_delivery_event(order: dict, event: dict) -> dict'
+    inputs:
+      arguments:
+      - order
+      - event
+      action_variants:
+        deliver:
+          fields:
+          - photo
+          - receiver
+          - type
+      protocol_fields:
+      - history
+      - photo
+      - receiver
+      - signature
+      - status
+      - type
+    output:
+      type: dict
+      meaning: Updated order or unchanged order plus error.code. Public README defines HTTP and record
+        shapes. Extra nonconflicting metadata and arbitrary nonempty error codes are allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent delivery workflow reconstructed from logistics business context. Exact validation
+    rules are synthetic benchmark conventions. Existing local HTTP, file-storage and browser adapters
+    are provided; no original application or attachments are distributed.
+- ru_id: RU-004
+  name: Rejection reason
+  content: A rejected transition requires a non-empty reason and stores it in the result. Whitespace-only
+    and non-string reasons are invalid; storing the original or trimmed nonempty reason is acceptable.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for rejection reason.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: apply_delivery_event
+      signature: 'apply_delivery_event(order: dict, event: dict) -> dict'
+    inputs:
+      arguments:
+      - order
+      - event
+      action_variants:
+        reject:
+          fields:
+          - reason
+          - type
+      protocol_fields:
+      - reason
+      - status
+      - type
+    output:
+      type: dict
+      meaning: Updated order or unchanged order plus error.code. Public README defines HTTP and record
+        shapes. Extra nonconflicting metadata and arbitrary nonempty error codes are allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent delivery workflow reconstructed from logistics business context. Exact validation
+    rules are synthetic benchmark conventions. Existing local HTTP, file-storage and browser adapters
+    are provided; no original application or attachments are distributed.
+- ru_id: RU-005
+  name: Atomic validation errors
+  content: Invalid events return a structured error without changing status, history, proof, or rejection
+    data. All calls leave input objects unchanged and preserve unrelated order metadata. A subsequent
+    valid action clears any prior error. Unknown states and illegal transitions are rejected.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for atomic validation errors.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: apply_delivery_event
+      signature: 'apply_delivery_event(order: dict, event: dict) -> dict'
+    inputs:
+      arguments:
+      - order
+      - event
+      action_variants:
+        deliver:
+          fields:
+          - photo
+          - receiver
+          - type
+      protocol_fields:
+      - history
+      - meta
+      - photo
+      - receiver
+      - status
+      - type
+    output:
+      type: dict
+      meaning: Updated order or unchanged order plus error.code. Public README defines HTTP and record
+        shapes. Extra nonconflicting metadata and arbitrary nonempty error codes are allowed.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent delivery workflow reconstructed from logistics business context. Exact validation
+    rules are synthetic benchmark conventions. Existing local HTTP, file-storage and browser adapters
+    are provided; no original application or attachments are distributed.

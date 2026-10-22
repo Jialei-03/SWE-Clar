@@ -1,0 +1,725 @@
+diff --git a/app.js b/app.js
+index 0fbc92d272a59017014190b24e59bd4acf1c22a1..316c887c78cece391c1b137d5321b282991ac763 100644
+--- a/app.js
++++ b/app.js
+@@ -2,5 +2,5 @@ const q=s=>document.querySelector(s);let detection=null,quote=null,map=null,boun
+ function display(){q('#detected').hidden=!detection;q('#estimate').hidden=!quote;if(detection){q('#area').textContent=`Estimated roof area: ${detection.area_m2.toFixed(2)} m²`;if(!map){map=L.map('map',{scrollWheelZoom:false,zoomAnimation:false,fadeAnimation:false}).setView([0,0],18);new ResizeObserver(()=>{map.invalidateSize();if(bounds)map.fitBounds(bounds.getBounds(),{padding:[25,25],animate:false});}).observe(q('#map'));}if(bounds)bounds.remove();const b=detection.bounds;bounds=L.rectangle([[b.sw.latitude,b.sw.longitude],[b.ne.latitude,b.ne.longitude]],{color:'#287b82',weight:3}).addTo(map);map.invalidateSize();map.fitBounds(bounds.getBounds(),{padding:[25,25]});}if(quote){q('#items').replaceChildren();for(const item of quote.items){const li=document.createElement('li');li.textContent=`${item.name}: ${item.amount}`;q('#items').append(li);}q('#total').textContent='Total: '+quote.total;}}
+ q('#detect input').oninput=()=>{epoch++;detection=null;quote=null;display();};q('#detect').onsubmit=async e=>{e.preventDefault();const mark=epoch;try{const result=await request('/detect',{address:new FormData(e.target).get('address')});if(mark!==epoch)return;detection=result;quote=null;q('#error').textContent='';display();}catch(e){if(mark===epoch)q('#error').textContent=e.message;}};
+ q('#quote').onchange=()=>{epoch++;quote=null;display();};q('#quote').onsubmit=async e=>{e.preventDefault();if(!detection)return;const mark=epoch,v=new FormData(e.target);try{const result=await request('/quote',{detection_id:detection.detection_id,roof_type:v.get('roof_type'),material:v.get('material'),extras:v.getAll('extra')});if(mark!==epoch)return;quote=result;leadId=crypto.randomUUID();q('#saved').textContent='';q('#error').textContent='';display();}catch(e){if(mark===epoch)q('#error').textContent=e.message;}};
+-q('#lead').onsubmit=async e=>{e.preventDefault();if(!quote)return;const mark=epoch;try{await request('/lead',{...Object.fromEntries(new FormData(e.target)),lead_id:leadId,quote_id:quote.quote_id,address:quote.address});if(mark===epoch)q('#saved').textContent='Enquiry saved.';}catch(e){if(mark===epoch)q('#error').textContent=e.message;}};
+-(async()=>{const mark=epoch;const pricing=await request('/pricing');for(const cat of ['roof_type','material'])for(const name of Object.keys(pricing[cat])){const option=document.createElement('option');option.value=name;option.textContent=name;q(`[name=${cat}]`).append(option);}for(const name of Object.keys(pricing.extras)){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.name='extra';box.value=name;label.append(box,document.createTextNode(name));q('#extras').append(label);}const value=await request('/current');if(mark!==epoch)return;detection=value.detection;quote=value.quote;if(detection)q('#detect input').value=detection.address;display();})().catch(e=>q('#error').textContent=e.message);
++q('#lead').oninput=()=>{epoch++;q('#saved').textContent='';};q('#lead').onsubmit=async e=>{e.preventDefault();if(!quote)return;const mark=epoch;try{await request('/lead',{...Object.fromEntries(new FormData(e.target)),lead_id:leadId,quote_id:quote.quote_id,address:quote.address});if(mark===epoch)q('#saved').textContent='Enquiry saved.';}catch(e){if(mark===epoch)q('#error').textContent=e.message;}};
++(async()=>{const mark=epoch;try{const pricing=await request('/pricing');for(const cat of ['roof_type','material'])for(const name of Object.keys(pricing[cat])){const option=document.createElement('option');option.value=name;option.textContent=name;q(`[name=${cat}]`).append(option);}for(const name of Object.keys(pricing.extras)){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.name='extra';box.value=name;label.append(box,document.createTextNode(name));q('#extras').append(label);}const value=await request('/current');if(mark!==epoch)return;detection=value.detection;quote=value.quote;if(detection)q('#detect input').value=detection.address;display();}catch(e){if(mark===epoch)q('#error').textContent=e.message;}})();
+diff --git a/provider.py b/provider.py
+index 8fb55b55d5715530811cf49b28f163e9095bdb67..3b93fa5ad91d15999625220f512b16da3070e2c6 100644
+--- a/provider.py
++++ b/provider.py
+@@ -1,17 +1,221 @@
+-import json,math
+-from urllib.request import build_opener,ProxyHandler
+-from urllib.parse import urlencode,urlsplit
++"""Small client for the two provider endpoints used by the estimator.
+ 
+-def number(value,low,high):
+-    if not isinstance(value,(int,float)) or isinstance(value,bool) or not math.isfinite(value) or not low<=value<=high:raise ValueError('invalid_number')
++The provider response is deliberately normalised here.  Nothing returned by a
++provider (apart from the fields used by the estimator) is allowed to become a
++stored application record.
++"""
++
++import json
++import math
++from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
++from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
++
++
++_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
++
++
++class _NoRedirect(HTTPRedirectHandler):
++    def redirect_request(self, request, fp, code, msg, headers, newurl):
++        # Provider keys are query parameters.  Never follow a redirect which
++        # could carry one to a host outside the configured loopback service.
++        return None
++
++
++def _invalid():
++    raise ValueError("invalid_provider_response")
++
++
++def number(value, low, high):
++    """Return a finite JSON number within the supplied inclusive range."""
++    # bool is an int in Python, but is not a geographic number.
++    if isinstance(value, bool) or not isinstance(value, (int, float)):
++        raise ValueError("invalid_number")
++    try:
++        valid = math.isfinite(value) and low <= value <= high
++    except (OverflowError, TypeError):
++        valid = False
++    if not valid:
++        raise ValueError("invalid_number")
++    return value
++
++
++def location(point):
++    """Validate a Solar-style ``latitude``/``longitude`` object."""
++    if not isinstance(point, dict):
++        _invalid()
++    try:
++        latitude = number(point["latitude"], -90, 90)
++        longitude = number(point["longitude"], -180, 180)
++    except (KeyError, TypeError):
++        _invalid()
++    return {"latitude": latitude, "longitude": longitude}
++
++
++def _geocoding_location(point):
++    if not isinstance(point, dict):
++        _invalid()
++    try:
++        latitude = number(point["lat"], -90, 90)
++        longitude = number(point["lng"], -180, 180)
++    except (KeyError, TypeError):
++        _invalid()
++    return latitude, longitude
++
++
++def _partial_match_is_valid(value):
++    # Google uses a boolean here.  Treat a malformed flag as malformed input
++    # rather than silently accepting a possibly ambiguous result.
++    if not isinstance(value, bool):
++        _invalid()
+     return value
+ 
+-def location(p):return {'latitude':number(p['latitude'],-90,90),'longitude':number(p['longitude'],-180,180)}
++
++def _box(value, center):
++    if not isinstance(value, dict):
++        _invalid()
++    try:
++        south_west = location(value["sw"])
++        north_east = location(value["ne"])
++    except (KeyError, TypeError):
++        _invalid()
++
++    if (
++        not south_west["latitude"] < north_east["latitude"]
++        or not south_west["longitude"] < north_east["longitude"]
++        or not south_west["latitude"] <= center["latitude"] <= north_east["latitude"]
++        or not south_west["longitude"] <= center["longitude"] <= north_east["longitude"]
++    ):
++        _invalid()
++    return {"sw": south_west, "ne": north_east}
++
++
+ class SolarClient:
+-    def __init__(self,config):
+-        self.config=config
+-        for name in ['geocoding_url','solar_url']:
+-            if urlsplit(config[name]).hostname not in ['127.0.0.1','localhost','::1']:raise ValueError('benchmark_endpoint_must_be_local')
+-    def get(self,url,params):
+-        with build_opener(ProxyHandler({})).open(url+'?'+urlencode({**params,'key':self.config['api_key']}),timeout=3) as response:return json.loads(response.read())
+-    def find(self,address):raise NotImplementedError('Resolve address and retrieve actual roof data')
++    def __init__(self, config):
++        if not isinstance(config, dict):
++            raise ValueError("invalid_provider_config")
++        self.config = config
++        self.endpoints = {}
++        for name in ("geocoding_url", "solar_url"):
++            url = config.get(name)
++            if not isinstance(url, str):
++                raise ValueError("invalid_provider_config")
++            parts = None
++            try:
++                parts = urlsplit(url)
++                host = parts.hostname.lower() if parts.hostname else None
++            except (TypeError, ValueError):
++                host = None
++            if (
++                parts is None
++                or parts.scheme not in {"http", "https"}
++                or host not in _LOOPBACK_HOSTS
++                or parts.username is not None
++                or parts.password is not None
++            ):
++                raise ValueError("benchmark_endpoint_must_be_local")
++            self.endpoints[name] = url
++
++        key = config.get("api_key")
++        if not isinstance(key, str) or not key:
++            raise ValueError("invalid_provider_config")
++        # Keep the key only in this client.  It is never included in a
++        # detection payload, response, or application log.
++        self.api_key = key
++
++    def get(self, url, params):
++        """GET a JSON object without using ambient proxy configuration."""
++        if not isinstance(params, dict):
++            raise ValueError("provider_request_failed")
++        try:
++            parts = urlsplit(url)
++            query = [
++                (key, value)
++                for key, value in parse_qsl(parts.query, keep_blank_values=True)
++                if key != "key"
++            ]
++            for key, value in params.items():
++                if str(key) != "key":
++                    query.append((str(key), str(value)))
++            query.append(("key", self.api_key))
++            target = urlunsplit(
++                (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
++            )
++            request = Request(target, method="GET")
++            # An empty ProxyHandler prevents a machine-level proxy from
++            # turning a loopback benchmark request into an external request.
++            opener = build_opener(ProxyHandler({}), _NoRedirect())
++            with opener.open(request, timeout=3) as response:
++                status = getattr(response, "status", 200)
++                if not isinstance(status, int) or not 200 <= status < 300:
++                    raise ValueError("provider_request_failed")
++                raw = response.read()
++            value = json.loads(raw)
++        except Exception:
++            # Do not propagate an HTTP URL (which contains the API key) in an
++            # exception that a caller might log.
++            raise ValueError("provider_request_failed") from None
++        if not isinstance(value, dict):
++            raise ValueError("invalid_provider_response")
++        return value
++
++    def find(self, address):
++        """Resolve *address* and return the minimal normalised detection."""
++        if not isinstance(address, str) or not address.strip():
++            raise ValueError("invalid_address")
++        submitted_address = address.strip()
++
++        geocoding = self.get(
++            self.endpoints["geocoding_url"], {"address": submitted_address}
++        )
++        if geocoding.get("status") != "OK":
++            raise ValueError("address_not_found")
++        if "partial_match" in geocoding and _partial_match_is_valid(
++            geocoding["partial_match"]
++        ):
++            raise ValueError("ambiguous_address")
++        results = geocoding.get("results")
++        if not isinstance(results, list) or len(results) != 1:
++            raise ValueError("ambiguous_address")
++        result = results[0]
++        if not isinstance(result, dict):
++            _invalid()
++        if "partial_match" in result and _partial_match_is_valid(result["partial_match"]):
++            raise ValueError("ambiguous_address")
++        try:
++            geocoding_point = _geocoding_location(result["geometry"]["location"])
++        except (KeyError, TypeError):
++            _invalid()
++
++        solar = self.get(
++            self.endpoints["solar_url"],
++            {
++                "location.latitude": geocoding_point[0],
++                "location.longitude": geocoding_point[1],
++            },
++        )
++        if "status" in solar and solar.get("status") != "OK":
++            raise ValueError("provider_request_failed")
++        try:
++            center = location(solar["center"])
++            bounds = _box(solar["boundingBox"], center)
++            area = solar["solarPotential"]["wholeRoofStats"]["areaMeters2"]
++            # Area is a JSON number, not a string, and must be finite and
++            # strictly positive.  There is intentionally no invented upper
++            # bound: the provider owns the modelled area.
++            if isinstance(area, bool) or not isinstance(area, (int, float)):
++                _invalid()
++            try:
++                valid_area = math.isfinite(area) and area > 0
++            except (OverflowError, TypeError):
++                valid_area = False
++            if not valid_area:
++                _invalid()
++        except (KeyError, TypeError):
++            _invalid()
++
++        return {
++            "address": submitted_address,
++            "area_m2": area,
++            "center": center,
++            "bounds": bounds,
++        }
+diff --git a/server.py b/server.py
+index be9a12a42535bd2ed532849386b4b8f8ba5e175c..463235c61da43cdb0f752b52fdfe2282843597d8 100644
+--- a/server.py
++++ b/server.py
+@@ -8,7 +8,14 @@ ROOT=Path(__file__).parent;config=json.loads(Path(os.environ['ROOF_CONFIG']).rea
+ class Handler(BaseHTTPRequestHandler):
+     def log_message(self,*args):pass
+     def session(self):
+-        c=SimpleCookie();c.load(self.headers.get('Cookie',''));return store.session(c['session'].value if 'session' in c else None)
++        c=SimpleCookie()
++        try:
++            c.load(self.headers.get('Cookie',''))
++        except Exception:
++            # A malformed or forged cookie gets a fresh anonymous session;
++            # it must never become a path or database lookup primitive.
++            c=SimpleCookie()
++        return store.session(c['session'].value if 'session' in c else None)
+     def reply(self,status,mime,data,sid=None,new=False):
+         self.send_response(status);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(data)))
+         if new:self.send_header('Set-Cookie',f'session={sid}; HttpOnly; SameSite=Strict; Path=/')
+diff --git a/store.py b/store.py
+index 6f7ae09701ad02346bcc9b306c43d558f59e78d0..a730fa4e4b4e804cac257067629a2c832b2d0fb4 100644
+--- a/store.py
++++ b/store.py
+@@ -1,36 +1,419 @@
+-import sqlite3,json,secrets,hashlib,re
+-from decimal import Decimal,ROUND_HALF_UP
++"""SQLite persistence and quote calculation for the roof estimator."""
++
++import copy
++import json
++import math
++import os
++import secrets
++import sqlite3
++from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
++from pathlib import Path
++
++
++_CENT = Decimal("0.01")
++
++
+ class Store:
+-    def __init__(self,path,provider,pricing):
+-        self.path=path;self.provider=provider;self.pricing=pricing
+-        with self.connect() as db:db.executescript("""CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY);CREATE TABLE IF NOT EXISTS detections(id TEXT PRIMARY KEY,session_id TEXT REFERENCES sessions(id),payload TEXT);CREATE TABLE IF NOT EXISTS quotes(id TEXT PRIMARY KEY,session_id TEXT REFERENCES sessions(id),detection_id TEXT REFERENCES detections(id),payload TEXT);CREATE TABLE IF NOT EXISTS leads(id TEXT PRIMARY KEY,session_id TEXT REFERENCES sessions(id),quote_id TEXT REFERENCES quotes(id),payload TEXT);""")
+-    def connect(self):
+-        db=sqlite3.connect(self.path,timeout=10);db.row_factory=sqlite3.Row;db.execute('PRAGMA foreign_keys=ON');return db
+-    def session(self,ident):
++    def __init__(self, path, provider, pricing):
++        self.path = str(path)
++        self._uri = False
++        self._memory_anchor = None
++        if self.path == ":memory:":
++            # Keep an anchor connection alive so each short-lived operation
++            # can still use the same in-memory SQLite database.
++            self._uri = True
++            memory_name = "file:roof-store-" + secrets.token_hex(12) + "?mode=memory&cache=shared"
++            self._connect_path = memory_name
++            self._memory_anchor = sqlite3.connect(memory_name, uri=True, timeout=10)
++        else:
++            self._connect_path = self.path
++        self.provider = provider
++        # Take a private snapshot.  A request must not be able to change the
++        # server's pricing by retaining and mutating the object supplied here.
++        self.pricing = copy.deepcopy(pricing)
++        parent = Path(self.path).parent
++        if self.path not in {":memory:", ""}:
++            parent.mkdir(parents=True, exist_ok=True)
+         with self.connect() as db:
+-            if ident and db.execute('SELECT id FROM sessions WHERE id=?',(ident,)).fetchone():return ident,False
+-            ident=secrets.token_hex(24);db.execute('INSERT INTO sessions VALUES (?)',(ident,));return ident,True
+-    def detect(self,sid,address):
+-        result=self.provider.find(address);ident=secrets.token_hex(16);result['detection_id']=ident
+-        with self.connect() as db:db.execute('INSERT INTO detections VALUES (?,?,?)',(ident,sid,json.dumps(result)))
++            db.executescript(
++                """
++                CREATE TABLE IF NOT EXISTS sessions(
++                    id TEXT PRIMARY KEY
++                );
++                CREATE TABLE IF NOT EXISTS detections(
++                    id TEXT PRIMARY KEY,
++                    session_id TEXT REFERENCES sessions(id),
++                    payload TEXT
++                );
++                CREATE TABLE IF NOT EXISTS quotes(
++                    id TEXT PRIMARY KEY,
++                    session_id TEXT REFERENCES sessions(id),
++                    detection_id TEXT REFERENCES detections(id),
++                    payload TEXT
++                );
++                CREATE TABLE IF NOT EXISTS leads(
++                    id TEXT PRIMARY KEY,
++                    session_id TEXT REFERENCES sessions(id),
++                    quote_id TEXT REFERENCES quotes(id),
++                    payload TEXT
++                );
++                CREATE INDEX IF NOT EXISTS detections_session
++                    ON detections(session_id);
++                CREATE INDEX IF NOT EXISTS quotes_session_detection
++                    ON quotes(session_id, detection_id);
++                CREATE INDEX IF NOT EXISTS quotes_session_id
++                    ON quotes(session_id, id);
++                CREATE INDEX IF NOT EXISTS leads_session_id
++                    ON leads(session_id, id);
++                """
++            )
++        if self.path not in {":memory:", ""}:
++            # Detection, quote, and lead payloads are private server data.
++            # Do not leave a newly created SQLite file world-readable under a
++            # permissive process umask.
++            try:
++                os.chmod(self.path, 0o600)
++            except OSError:
++                # A later write will report the underlying filesystem error;
++                # schema setup itself should not hide it with a permission
++                # normalization failure.
++                pass
++
++    def connect(self):
++        db = sqlite3.connect(self._connect_path, timeout=10, uri=self._uri)
++        db.row_factory = sqlite3.Row
++        db.execute("PRAGMA foreign_keys=ON")
++        return db
++
++    @staticmethod
++    def _nonempty(value):
++        return isinstance(value, str) and bool(value.strip())
++
++    @staticmethod
++    def _finite_number(value, positive=False):
++        if isinstance(value, bool) or not isinstance(value, (int, float)):
++            raise ValueError("invalid_detection")
++        try:
++            valid = math.isfinite(value)
++        except (OverflowError, TypeError):
++            valid = False
++        if not valid or (positive and value <= 0):
++            raise ValueError("invalid_detection")
++        return float(value)
++
++    @classmethod
++    def _canonical_location(cls, value):
++        if not isinstance(value, dict):
++            raise ValueError("invalid_detection")
++        latitude = cls._finite_number(value.get("latitude"))
++        longitude = cls._finite_number(value.get("longitude"))
++        if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
++            raise ValueError("invalid_detection")
++        return {"latitude": latitude, "longitude": longitude}
++
++    @classmethod
++    def _canonical_detection(cls, result, address, detection_id):
++        if not isinstance(result, dict):
++            raise ValueError("invalid_detection")
++        try:
++            area = cls._finite_number(result["area_m2"], positive=True)
++            center = cls._canonical_location(result["center"])
++            bounds = result["bounds"]
++            if not isinstance(bounds, dict):
++                raise ValueError("invalid_detection")
++            south_west = cls._canonical_location(bounds["sw"])
++            north_east = cls._canonical_location(bounds["ne"])
++        except (KeyError, TypeError):
++            raise ValueError("invalid_detection") from None
++        if not cls._nonempty(address):
++            raise ValueError("invalid_detection")
++        if (
++            not south_west["latitude"] < north_east["latitude"]
++            or not south_west["longitude"] < north_east["longitude"]
++            or not south_west["latitude"] <= center["latitude"] <= north_east["latitude"]
++            or not south_west["longitude"] <= center["longitude"] <= north_east["longitude"]
++        ):
++            raise ValueError("invalid_detection")
++        return {
++            "detection_id": detection_id,
++            "address": address,
++            "area_m2": area,
++            "center": center,
++            "bounds": {"sw": south_west, "ne": north_east},
++        }
++
++    @staticmethod
++    def _decimal(value, error="invalid_rate"):
++        # Pricing is configuration, not caller input.  Still reject strings
++        # and booleans so a malformed config cannot quietly become a price.
++        if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
++            raise ValueError(error)
++        try:
++            result = Decimal(str(value))
++        except (InvalidOperation, ValueError, TypeError):
++            raise ValueError(error) from None
++        if not result.is_finite() or result < 0:
++            raise ValueError(error)
+         return result
+-    def current(self,sid):
++
++    @classmethod
++    def _amount(cls, area, rate):
++        try:
++            area_decimal = Decimal(str(area))
++            rate_decimal = cls._decimal(rate)
++            # Give quantize enough precision for the integer part as well as
++            # the cents.  This keeps the arithmetic decimal and half-up even
++            # for a large, but finite, provider area.
++            integer_digits = max(0, area_decimal.adjusted() + rate_decimal.adjusted() + 1)
++            precision = max(
++                28,
++                integer_digits
++                + len(area_decimal.as_tuple().digits)
++                + len(rate_decimal.as_tuple().digits)
++                + 4,
++            )
++            with localcontext() as context:
++                context.prec = precision
++                return (area_decimal * rate_decimal).quantize(
++                    _CENT, rounding=ROUND_HALF_UP
++                )
++        except (InvalidOperation, ValueError, TypeError, OverflowError):
++            raise ValueError("invalid_rate") from None
++
++    @staticmethod
++    def _money(value):
++        # _amount and the total calculation already produce a two-place
++        # Decimal.  Formatting it directly avoids a low global Decimal
++        # context truncating a valid large amount.
++        return format(value, ".2f")
++
++    @staticmethod
++    def _new_id():
++        return secrets.token_hex(16)
++
++    def session(self, ident):
++        """Return a valid browser session id, creating one when necessary."""
++        with self.connect() as db:
++            if self._nonempty(ident):
++                row = db.execute("SELECT id FROM sessions WHERE id=?", (ident,)).fetchone()
++                if row:
++                    return ident, False
++            # A random value is generated server-side; a caller cannot choose
++            # an id which collides with or aliases another browser session.
++            while True:
++                generated = secrets.token_hex(24)
++                try:
++                    db.execute("INSERT INTO sessions(id) VALUES (?)", (generated,))
++                    return generated, True
++                except sqlite3.IntegrityError:
++                    continue
++
++    def detect(self, sid, address):
++        """Resolve and persist one successful detection for *sid*."""
++        if not self._nonempty(sid) or not isinstance(address, str) or not address.strip():
++            raise ValueError("invalid_address")
++        submitted_address = address.strip()
++        # Nothing is written until the complete provider response has been
++        # validated.  In particular, a provider timeout cannot replace the
++        # last successful detection for this session.
++        result = self.provider.find(submitted_address)
++        detection_id = self._new_id()
++        detection = self._canonical_detection(result, submitted_address, detection_id)
++        payload = json.dumps(detection, allow_nan=False, separators=(",", ":"))
++        with self.connect() as db:
++            try:
++                db.execute(
++                    "INSERT INTO detections(id,session_id,payload) VALUES (?,?,?)",
++                    (detection_id, sid, payload),
++                )
++            except sqlite3.IntegrityError:
++                # This normally means a caller supplied a session which was
++                # not issued by session().  Do not leave a half-record.
++                raise PermissionError("session_denied") from None
++        return detection
++
++    def current(self, sid):
++        with self.connect() as db:
++            row = db.execute(
++                "SELECT * FROM detections WHERE session_id=? ORDER BY rowid DESC LIMIT 1",
++                (sid,),
++            ).fetchone()
++            if not row:
++                return {"detection": None, "quote": None}
++            quote = db.execute(
++                "SELECT payload FROM quotes "
++                "WHERE session_id=? AND detection_id=? ORDER BY rowid DESC LIMIT 1",
++                (sid, row["id"]),
++            ).fetchone()
++            return {
++                "detection": json.loads(row["payload"]),
++                "quote": json.loads(quote["payload"]) if quote else None,
++            }
++
++    def quote(self, sid, action):
++        """Calculate and atomically persist a quote for a session detection."""
++        if not self._nonempty(sid) or not isinstance(action, dict):
++            raise ValueError("invalid_quote")
++
++        detection_id = action.get("detection_id")
++        roof_type = action.get("roof_type")
++        material = action.get("material")
++        extras = action.get("extras")
++        if (
++            not self._nonempty(detection_id)
++            or not self._nonempty(roof_type)
++            or not self._nonempty(material)
++            or not isinstance(extras, list)
++        ):
++            raise ValueError("invalid_quote")
++        if any(not isinstance(extra, str) or not self._nonempty(extra) for extra in extras):
++            raise ValueError("invalid_quote")
++        if len(set(extras)) != len(extras):
++            raise ValueError("duplicate_extra")
++
++        pricing = self.pricing
++        if not isinstance(pricing, dict):
++            raise ValueError("invalid_rate")
++        roof_prices = pricing.get("roof_type")
++        material_prices = pricing.get("material")
++        extra_prices = pricing.get("extras")
++        if (
++            not isinstance(roof_prices, dict)
++            or not isinstance(material_prices, dict)
++            or not isinstance(extra_prices, dict)
++            or roof_type not in roof_prices
++            or material not in material_prices
++            or any(extra not in extra_prices for extra in extras)
++        ):
++            raise ValueError("unknown_choice")
++
++        # Validate and calculate only selected choices.  An unused malformed
++        # optional catalogue entry must not make an otherwise valid quote
++        # impossible, while every rate that contributes to this quote is
++        # checked strictly.
++        selected_rates = [roof_prices[roof_type], material_prices[material]]
++        selected_rates.extend(extra_prices[extra] for extra in extras)
++        rates = [self._decimal(rate) for rate in selected_rates]
++
++        # The lookup is part of the same write transaction as the insert.  A
++        # foreign detection is never usable, even if its id is known.
+         with self.connect() as db:
+-            row=db.execute('SELECT * FROM detections WHERE session_id=? ORDER BY rowid DESC LIMIT 1',(sid,)).fetchone()
+-            if not row:return {'detection':None,'quote':None}
+-            quote=db.execute('SELECT payload FROM quotes WHERE session_id=? AND detection_id=? ORDER BY rowid DESC LIMIT 1',(sid,row['id'])).fetchone();return {'detection':json.loads(row['payload']),'quote':json.loads(quote['payload']) if quote else None}
+-    def quote(self,sid,a):raise NotImplementedError('Calculate the estimate')
+-    def lead(self,sid,a):
+-        required=['lead_id','quote_id','name','email','phone','address']
+-        if any(not isinstance(a.get(k),str) or not a[k].strip() for k in required):raise ValueError('missing_contact')
+-        if not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+',a['email'].strip()) or not re.fullmatch(r'[+()0-9 -]{5,30}',a['phone'].strip()):raise ValueError('invalid_contact')
++            db.execute("BEGIN IMMEDIATE")
++            row = db.execute(
++                "SELECT id,payload FROM detections WHERE id=? AND session_id=?",
++                (detection_id, sid),
++            ).fetchone()
++            if not row:
++                raise PermissionError("detection_denied")
++            try:
++                detection = json.loads(row["payload"])
++            except (TypeError, ValueError):
++                raise ValueError("invalid_detection") from None
++            # Revalidate persisted data as a defence against a damaged or
++            # externally edited database.  The caller's area is never read.
++            if not isinstance(detection, dict):
++                raise ValueError("invalid_detection")
++            detection = self._canonical_detection(
++                detection, detection.get("address"), row["id"]
++            )
++
++            area = detection["area_m2"]
++            amounts = [self._amount(area, rate) for rate in rates]
++            try:
++                total_integer_digits = max(
++                    [0] + [max(0, amount.adjusted() + 1) for amount in amounts]
++                )
++                with localcontext() as context:
++                    context.prec = max(28, total_integer_digits + len(amounts) + 4)
++                    total_decimal = sum(amounts, Decimal("0.00")).quantize(
++                        _CENT, rounding=ROUND_HALF_UP
++                    )
++            except (InvalidOperation, ValueError, TypeError, OverflowError):
++                raise ValueError("invalid_rate") from None
++            items = [
++                {"kind": "roof_type", "name": roof_type, "amount": self._money(amounts[0])},
++                {"kind": "material", "name": material, "amount": self._money(amounts[1])},
++            ]
++            items.extend(
++                {
++                    "kind": "extra",
++                    "name": extra,
++                    "amount": self._money(amount),
++                }
++                for extra, amount in zip(extras, amounts[2:])
++            )
++            quote_id = self._new_id()
++            quote = {
++                "quote_id": quote_id,
++                "detection_id": row["id"],
++                "address": detection["address"],
++                "area_m2": area,
++                "roof_type": roof_type,
++                "material": material,
++                # Copy the list so the result is independent of the caller's
++                # mutable action object.
++                "extras": list(extras),
++                "items": items,
++                "total": self._money(total_decimal + Decimal("1.00")),
++            }
++            payload = json.dumps(quote, allow_nan=False, separators=(",", ":"))
++            db.execute(
++                "INSERT INTO quotes(id,session_id,detection_id,payload) VALUES (?,?,?,?)",
++                (quote_id, sid, row["id"], payload),
++            )
++            return quote
++
++    def lead(self, sid, action):
++        """Persist a session-owned enquiry, with lead-id idempotency."""
++        if not self._nonempty(sid) or not isinstance(action, dict):
++            raise ValueError("invalid_contact")
++        lead_id = action.get("lead_id")
++        if not self._nonempty(lead_id):
++            raise ValueError("missing_contact")
++        lead_id = lead_id.strip()
++
+         with self.connect() as db:
+-            db.execute('BEGIN IMMEDIATE');old=db.execute('SELECT * FROM leads WHERE id=?',(a['lead_id'],)).fetchone()
++            db.execute("BEGIN IMMEDIATE")
++            old = db.execute("SELECT * FROM leads WHERE id=?", (lead_id,)).fetchone()
+             if old:
+-                if old['session_id']!=sid:raise PermissionError('lead_denied')
+-                return json.loads(old['payload'])
+-            quote=db.execute('SELECT payload FROM quotes WHERE id=? AND session_id=?',(a['quote_id'],sid)).fetchone()
+-            if not quote:raise PermissionError('quote_denied')
+-            quote=json.loads(quote['payload'])
+-            if a['address'].strip()!=quote['address']:raise ValueError('address_mismatch')
+-            result={k:a[k].strip() for k in required};result['quote']=quote;db.execute('INSERT INTO leads VALUES (?,?,?,?)',(a['lead_id'],sid,a['quote_id'],json.dumps(result)));return result
++                if old["session_id"] != sid:
++                    raise PermissionError("lead_denied")
++                try:
++                    return json.loads(old["payload"])
++                except (TypeError, ValueError):
++                    raise ValueError("invalid_contact") from None
++
++            required = ("quote_id", "name", "email", "phone", "address")
++            if any(not self._nonempty(action.get(key)) for key in required):
++                raise ValueError("missing_contact")
++            quote_id = action["quote_id"]
++            quote_row = db.execute(
++                "SELECT id,payload FROM quotes WHERE id=? AND session_id=?",
++                (quote_id, sid),
++            ).fetchone()
++            if not quote_row:
++                raise PermissionError("quote_denied")
++            try:
++                quote = json.loads(quote_row["payload"])
++            except (TypeError, ValueError):
++                raise ValueError("invalid_quote") from None
++            if not isinstance(quote, dict) or not self._nonempty(quote.get("address")):
++                raise ValueError("invalid_quote")
++            if action["address"].strip() != quote["address"]:
++                raise ValueError("address_mismatch")
++
++            result = {
++                "lead_id": lead_id.strip(),
++                "quote_id": quote_row["id"],
++                "name": action["name"].strip(),
++                "email": action["email"].strip(),
++                "phone": action["phone"].strip(),
++                "address": action["address"].strip(),
++                "quote": quote,
++            }
++            payload = json.dumps(result, allow_nan=False, separators=(",", ":"))
++            db.execute(
++                "INSERT INTO leads(id,session_id,quote_id,payload) VALUES (?,?,?,?)",
++                (lead_id, sid, quote_row["id"], payload),
++            )
++            return result

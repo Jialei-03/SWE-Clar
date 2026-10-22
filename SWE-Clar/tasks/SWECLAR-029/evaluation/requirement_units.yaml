@@ -1,0 +1,208 @@
+schema_version: 1
+task_id: SWECLAR-029
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Assigned-job encrypted local storage and authenticated HTTP queue synchronization component
+requirement_units:
+- ru_id: RU-001
+  name: Field workflow entry point
+  content: Process one authentication, connectivity, download, queued field action, synchronization, status,
+    or logout operation without mutating inputs. Return the entire chainable next state at the top level;
+    result contains only the current action summary. Complete real local file persistence and HTTP synchronization
+    through the supplied store/transport interfaces. Keep the supplied encryption key outside returned
+    state.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for field workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_field_action
+      signature: process_field_action(state, action, store=None, transport=None) -> dict
+    inputs:
+      state: Chainable field-work state
+      action: Authentication, connection, download, enqueue, flush, status or logout action
+      store: OfflineStore(root,key)
+      transport: SyncTransport(endpoint)
+    output:
+      type: dict
+      meaning: Next state and real local persistence/network effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/offline_contract.py
+  notes: Python storage/sync reconstruction. Fixture authentication is not a production credential store.
+    AES-GCM format, byte capacity and local HTTP acknowledgement are explicit benchmark engineering choices.
+- ru_id: RU-002
+  name: Password and fourteen-day 2FA session
+  content: state.users is keyed by user_id; each record stores password_hash as the lowercase SHA-256
+    hex digest of the submitted UTF-8 password, two_factor_code, and optional last_2fa timestamp. Authentication
+    requires the matching digest and additionally requires the exact two_factor_code when last_2fa is
+    absent or at least 14 days old. A successful authentication stores sessions[user_id].last_active.
+    An action more than 1800 seconds after last_active returns session_expired; each valid authenticated
+    action updates it. Download, enqueue, flush and logout require that user's valid session; a flush
+    may process only that user's entries.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for password and fourteen-day 2fa session.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_field_action
+      signature: process_field_action(state, action, store=None, transport=None) -> dict
+    inputs:
+      state: Chainable field-work state
+      action: Authentication, connection, download, enqueue, flush, status or logout action
+      store: OfflineStore(root,key)
+      transport: SyncTransport(endpoint)
+    output:
+      type: dict
+      meaning: Next state and real local persistence/network effects
+      authentication_result:
+        required_fields:
+          two_factor_used: boolean
+        error_codes:
+        - auth_denied
+        - session_expired
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/offline_contract.py
+  notes: Python storage/sync reconstruction. Fixture authentication is not a production credential store.
+    AES-GCM format, byte capacity and local HTTP acknowledgement are explicit benchmark engineering choices.
+- ru_id: RU-003
+  name: Assigned-job offline download
+  content: An online authenticated user may download only a job listed in assignments[user_id] and present
+    in remote_jobs. Each remote job has data. Serialize data as compact UTF-8 JSON with sorted keys and
+    ensure_ascii=false; enforce capacity_bytes against total plaintext byte sizes for that user, replacing
+    rather than double-counting a redownload. Persist a real AES-GCM encrypted file via OfflineStore.write_bundle
+    and support authenticated read_bundle after constructing a new store with the same root/key. Use a
+    fresh 12-byte nonce, file format FS1 + nonce + ciphertext/tag, and the same compact JSON encoding
+    of [user_id,job_id] as associated data. Tampering, the wrong key and copying a bundle to another user/job
+    must fail authentication. Metadata contains size_bytes, plaintext SHA-256 digest, encrypted=true and
+    root-relative file path, never plaintext or key. Set last_down only after success; denied downloads
+    create no file.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for assigned-job offline download.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_field_action
+      signature: process_field_action(state, action, store=None, transport=None) -> dict
+    inputs:
+      state: Chainable field-work state
+      action: Authentication, connection, download, enqueue, flush, status or logout action
+      store: OfflineStore(root,key)
+      transport: SyncTransport(endpoint)
+    output:
+      type: dict
+      meaning: Next state and real local persistence/network effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/offline_contract.py
+  notes: Python storage/sync reconstruction. Fixture authentication is not a production credential store.
+    AES-GCM format, byte capacity and local HTTP acknowledgement are explicit benchmark engineering choices.
+- ru_id: RU-004
+  name: Offline background action queue and reconnect flush
+  content: Enqueue save, email and upload intents once per action_id. An exact replay is idempotent; conflicting
+    user/kind/payload reuse returns queue_conflict. An authenticated online flush sends only that user's
+    pending entries in insertion order as JSON {action_id,user_id,kind,payload} to the configured endpoint
+    with Idempotency-Key=action_id. Mark applied and update last_up only after a successful HTTP response
+    with accepted=true and matching action_id. Stop at the first failed delivery, return sync_failed and
+    retain it and later entries pending; already acknowledged entries remain applied. Retry must not resend
+    applied entries. Offline flush returns offline. The endpoint accepts intents; it does not claim real
+    email delivery or cloud upload.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for offline background action queue and reconnect
+    flush.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_field_action
+      signature: process_field_action(state, action, store=None, transport=None) -> dict
+    inputs:
+      state: Chainable field-work state
+      action: Authentication, connection, download, enqueue, flush, status or logout action
+      store: OfflineStore(root,key)
+      transport: SyncTransport(endpoint)
+    output:
+      type: dict
+      meaning: Next state and real local persistence/network effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/offline_contract.py
+  notes: Python storage/sync reconstruction. Fixture authentication is not a production credential store.
+    AES-GCM format, byte capacity and local HTTP acknowledgement are explicit benchmark engineering choices.
+- ru_id: RU-005
+  name: Footer status and secure logout
+  content: Status returns online, last_up, last_down and pending while preserving chainable collection
+    types. Logout removes the user session, queued work, offline metadata and actual stored encrypted
+    files, preserving other users' files and state. On storage deletion failure return logout_failed without
+    reporting successful logout.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for footer status and secure logout.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_field_action
+      signature: process_field_action(state, action, store=None, transport=None) -> dict
+    inputs:
+      state: Chainable field-work state
+      action: Authentication, connection, download, enqueue, flush, status or logout action
+      store: OfflineStore(root,key)
+      transport: SyncTransport(endpoint)
+    output:
+      type: dict
+      meaning: Next state and real local persistence/network effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/offline_contract.py
+  notes: Python storage/sync reconstruction. Fixture authentication is not a production credential store.
+    AES-GCM format, byte capacity and local HTTP acknowledgement are explicit benchmark engineering choices.

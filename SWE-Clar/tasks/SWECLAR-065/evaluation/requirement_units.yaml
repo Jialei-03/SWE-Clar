@@ -1,0 +1,174 @@
+schema_version: 1
+task_id: SWECLAR-065
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual React dashboard rendering, responsive geometry, navigation and onboarding interactions
+requirement_units:
+- ru_id: RU-001
+  name: Dashboard action entry point
+  content: Complete the supplied React project while preserving the working dashboard shell and supplied
+    metric rendering. Actions must update real browser content; keep input data and action objects unchanged.
+    No customer records or external requests are needed.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for dashboard action entry point.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: index.html
+    inputs:
+      data: window.DASHBOARD_DATA supplies synthetic metrics and onboarding_steps
+      actions: Actual buttons plus window.dashboard.dispatch(action)
+    output:
+      type: dom
+      meaning: Rendered cards, chart bars, section content and onboarding steps; snapshot() exposes a
+        copy of state
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Client supported broad UI redesign and onboarding improvements; patient dashboard content, exact
+    breakpoints and action rules are synthetic conventions. Existing React/metric rendering stays public;
+    claims processing is outside scope.
+- ru_id: RU-002
+  name: Responsive dashboard layout
+  content: Render metric cards as one column below 600 CSS pixels, two columns from 600 through 1023 and
+    three columns at 1024 or above. Use actual responsive geometry with no horizontal page overflow, and
+    keep navigation and controls usable at all three sizes.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for responsive dashboard layout.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: index.html
+    inputs:
+      data: window.DASHBOARD_DATA supplies synthetic metrics and onboarding_steps
+      actions: Actual buttons plus window.dashboard.dispatch(action)
+    output:
+      type: dom
+      meaning: Rendered cards, chart bars, section content and onboarding steps; snapshot() exposes a
+        copy of state
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Client supported broad UI redesign and onboarding improvements; patient dashboard content, exact
+    breakpoints and action rules are synthetic conventions. Existing React/metric rendering stays public;
+    claims processing is outside scope.
+- ru_id: RU-003
+  name: Patient metrics projection
+  content: Render only supplied numeric metric values and chart-series arrays; preserve zeros and fractional
+    values in visible cards and chart labels. Numeric arrays must produce actual chart marks, not a JSON
+    placeholder. Reject non-numeric or non-finite values with invalid_metrics while retaining previously
+    valid content.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for patient metrics projection.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: index.html
+    inputs:
+      data: window.DASHBOARD_DATA supplies synthetic metrics and onboarding_steps
+      actions: Actual buttons plus window.dashboard.dispatch(action)
+    output:
+      type: dom
+      meaning: Rendered cards, chart bars, section content and onboarding steps; snapshot() exposes a
+        copy of state
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Client supported broad UI redesign and onboarding improvements; patient dashboard content, exact
+    breakpoints and action rules are synthetic conventions. Existing React/metric rendering stays public;
+    claims processing is outside scope.
+- ru_id: RU-004
+  name: Section navigation
+  content: Clicking navigation changes the visible section heading and active navigation control to patients,
+    charts, scales, predictions or groups. Retain the active section in state; an unknown section returns
+    unknown_section without replacing existing content.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for section navigation.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: index.html
+    inputs:
+      data: window.DASHBOARD_DATA supplies synthetic metrics and onboarding_steps
+      actions: Actual buttons plus window.dashboard.dispatch(action)
+    output:
+      type: dom
+      meaning: Rendered cards, chart bars, section content and onboarding steps; snapshot() exposes a
+        copy of state
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Client supported broad UI redesign and onboarding improvements; patient dashboard content, exact
+    breakpoints and action rules are synthetic conventions. Existing React/metric rendering stays public;
+    claims processing is outside scope.
+- ru_id: RU-005
+  name: Sequential onboarding
+  content: Start an ordered non-empty onboarding flow from supplied text steps at index 0, complete=false.
+    Display the current step and completed-step count; clicking Next step advances exactly once. At index=number
+    of steps show completion and remove the Next control. Keep steps/index/complete in state and the action
+    result; further advances are idempotent. Reject empty or invalid flows.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for sequential onboarding.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: index.html
+    inputs:
+      data: window.DASHBOARD_DATA supplies synthetic metrics and onboarding_steps
+      actions: Actual buttons plus window.dashboard.dispatch(action)
+    output:
+      type: dom
+      meaning: Rendered cards, chart bars, section content and onboarding steps; snapshot() exposes a
+        copy of state
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Client supported broad UI redesign and onboarding improvements; patient dashboard content, exact
+    breakpoints and action rules are synthetic conventions. Existing React/metric rendering stays public;
+    claims processing is outside scope.

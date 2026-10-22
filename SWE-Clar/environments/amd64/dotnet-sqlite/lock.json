@@ -1,0 +1,51 @@
+{
+  "platform": "linux/amd64",
+  "base_profile": "dotnet-sql",
+  "source_profile": "dotnet-sqlite",
+  "wheels": [],
+  "archives": [],
+  "packages": [
+    {
+      "filename": "microsoft.data.sqlite.8.0.11.nupkg",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.data.sqlite/8.0.11/microsoft.data.sqlite.8.0.11.nupkg",
+      "sha256": "e794d086924390bec8e061f571660d12bd60349ee9a878665f33c6a2c796b058",
+      "bytes": 34875
+    },
+    {
+      "filename": "microsoft.data.sqlite.core.8.0.11.nupkg",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.data.sqlite.core/8.0.11/microsoft.data.sqlite.core.8.0.11.nupkg",
+      "sha256": "6d8cb1393b2cef8115cfedf26e6825d757f35f40a8dc25596c20f1bf6e32d3f1",
+      "bytes": 294862
+    },
+    {
+      "filename": "sqlitepclraw.bundle_e_sqlite3.2.1.6.nupkg",
+      "url": "https://api.nuget.org/v3-flatcontainer/sqlitepclraw.bundle_e_sqlite3/2.1.6/sqlitepclraw.bundle_e_sqlite3.2.1.6.nupkg",
+      "sha256": "7590ff6d9b185e33aee3a647e58ff0821d2e8473aa2310be4bed1e70a86bef5f",
+      "bytes": 37656
+    },
+    {
+      "filename": "sqlitepclraw.core.2.1.6.nupkg",
+      "url": "https://api.nuget.org/v3-flatcontainer/sqlitepclraw.core/2.1.6/sqlitepclraw.core.2.1.6.nupkg",
+      "sha256": "4715a39b9d8f766315f7c7600f2d010a917df3cf81b2c45952000b2efed31ff1",
+      "bytes": 34519
+    },
+    {
+      "filename": "sqlitepclraw.lib.e_sqlite3.2.1.6.nupkg",
+      "url": "https://api.nuget.org/v3-flatcontainer/sqlitepclraw.lib.e_sqlite3/2.1.6/sqlitepclraw.lib.e_sqlite3.2.1.6.nupkg",
+      "sha256": "b87b7977e48552449de960fb4e0d09ddef1e568c72fc533fb783c091cf4f253d",
+      "bytes": 16588105
+    },
+    {
+      "filename": "sqlitepclraw.provider.e_sqlite3.2.1.6.nupkg",
+      "url": "https://api.nuget.org/v3-flatcontainer/sqlitepclraw.provider.e_sqlite3/2.1.6/sqlitepclraw.provider.e_sqlite3.2.1.6.nupkg",
+      "sha256": "cc773f619b1def6797948f1b6b5b6fe7c1d9594222ca325ac6ad8208fd6141ef",
+      "bytes": 58749
+    },
+    {
+      "filename": "system.memory.4.5.3.nupkg",
+      "url": "https://api.nuget.org/v3-flatcontainer/system.memory/4.5.3/system.memory.4.5.3.nupkg",
+      "sha256": "0af97b45b45b46ef6a2b37910568dabd492c793da3859054595d523e2a545859",
+      "bytes": 154054
+    }
+  ]
+}

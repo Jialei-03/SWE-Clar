@@ -1,0 +1,10 @@
+{
+  "platform": "linux/amd64",
+  "base": {
+    "profile": "python-web",
+    "arg": "BASE_IMAGE"
+  },
+  "wheels": [],
+  "deb_packages": [],
+  "npm_lock": "ui/package-lock.json"
+}

@@ -1,0 +1,1 @@
+Independent gates exercise the pure command interface via public UID1000 worker and actual transactional SQLite CLI across fresh/concurrent processes. Pending commands do not execute external refunds/email. Exact nested shapes are checked only where the declared requirements specify them; metadata and unspecified errors remain flexible.

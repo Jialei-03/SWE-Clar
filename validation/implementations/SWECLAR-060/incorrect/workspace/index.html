@@ -1,0 +1,29 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Creature arena</title>
+<style>body{font:16px system-ui;max-width:900px;margin:1rem auto;padding:1rem;background:#182327;color:#edf2e5}button,select{font:inherit;padding:8px;margin:4px}canvas{width:100%;max-width:800px;background:#31473c;border:2px solid #a4bc92}section{margin:12px 0}.slot{display:inline-block;padding:12px;border:1px solid #c3d2b1;margin:4px}pre{white-space:pre-wrap}</style>
+<h1>Creature arena</h1><p>Move the player with arrow keys. Use the controls to fight, collect loot and combine creatures. All art and records are synthetic.</p>
+<canvas id="arena" width="800" height="320" aria-label="Playable creature arena" tabindex="0"></canvas>
+<div><button id="attack">Use strike</button><button id="drop">Roll sample loot</button><button id="pickup">Pick up sample loot</button><button id="reset">Reset arena</button></div>
+<section><h2>Inventory</h2><div id="inventory"></div></section>
+<section><h2>Creatures</h2><div id="creatures"></div><button id="encyclopedia">Open encyclopedia</button><select id="recipe" aria-label="Fusion recipe"></select><button id="fuse">Fuse</button></section>
+<pre id="status" role="status">Loading arena</pre>
+<script>
+const el=id=>document.getElementById(id),canvas=el('arena'),ctx=canvas.getContext('2d');let state={},x=130,y=160;const keys=new Set();
+const now=()=>Date.now()/1000;
+function render(){
+ el('inventory').replaceChildren();const inventory=state.inventories?.player||{capacity:0,slots:[]};
+ for(let i=0;i<inventory.capacity;i++){const item=inventory.slots[i],slot=document.createElement('span');slot.className='slot';slot.textContent=item?`${item.item_id} × ${item.quantity}`:'Empty';el('inventory').append(slot);}
+ el('creatures').textContent=(state.creatures?.player||[]).join(', ');
+ el('status').textContent=JSON.stringify(state.error||state.result||{ready:true},null,2);
+}
+async function action(value){const response=await fetch('/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)});state=await response.json();render();return state;}
+el('attack').onclick=()=>action({type:'use_skill',source_id:'player',target_id:'enemy',skill_id:'strike'});
+el('drop').onclick=()=>action({type:'roll_drop',enemy_id:'enemy',drop_id:'sample',roll:0,chance:1,owner_id:'player',now:now(),item:{item_id:'fragment',stackable:true,stack_limit:3}});
+el('pickup').onclick=()=>action({type:'pickup',drop_id:'sample',user_id:'player',now:now()});
+el('reset').onclick=async()=>{state=await(await fetch('/reset',{method:'POST'})).json();x=130;y=160;render();};
+el('encyclopedia').onclick=async()=>{const result=await action({type:'encyclopedia'});el('recipe').replaceChildren();for(const row of result.result?.recipes||[]){const option=document.createElement('option');option.value=row.recipe_id;option.textContent=`${row.inputs.join(' + ')} → ${row.result}`;el('recipe').append(option);}};
+el('fuse').onclick=()=>action({type:'fuse',user_id:'player',recipe_id:el('recipe').value});
+canvas.addEventListener('keydown',e=>{if(e.key.startsWith('Arrow')){e.preventDefault();keys.add(e.key);}});canvas.addEventListener('keyup',e=>keys.delete(e.key));canvas.addEventListener('blur',()=>keys.clear());
+function creature(px,py,row,color,label){if(!row)return;ctx.fillStyle=color;ctx.beginPath();ctx.arc(px,py,27,0,Math.PI*2);ctx.fill();ctx.fillStyle='#111';ctx.fillRect(px-28,py-44,56,8);ctx.fillStyle='#d7ed91';ctx.fillRect(px-28,py-44,56*Math.min(1,Math.max(0,row.hp)/20),8);ctx.fillStyle='white';ctx.font='16px sans-serif';ctx.fillText(`${label}: ${row.hp} HP`,px-44,py+53);}
+function frame(){x=Math.max(35,Math.min(765,x+(keys.has('ArrowRight')?3:0)-(keys.has('ArrowLeft')?3:0)));y=Math.max(55,Math.min(250,y+(keys.has('ArrowDown')?3:0)-(keys.has('ArrowUp')?3:0)));ctx.clearRect(0,0,800,320);creature(x,y,state.combatants?.player,'#72a9ce','Player');creature(640,160,state.combatants?.enemy,'#bf735f','Enemy');let i=0;for(const drop of Object.values(state.drops||{})){if(drop.picked||drop.expired)continue;ctx.fillStyle='#ffd85a';ctx.fillRect(370+i*25,210,15,15);i++;}requestAnimationFrame(frame);}
+fetch('/state').then(r=>r.json()).then(value=>{state=value;render();});requestAnimationFrame(frame);
+</script></html>

@@ -1,0 +1,12 @@
+const {chromium}=require(process.env.PLAYWRIGHT_NODE_MODULE||'/usr/local/lib/python3.12/dist-packages/playwright/driver/package');
+(async()=>{const browser=await chromium.launch({headless:true,executablePath:process.env.INSPECTION_BROWSER_WRAPPER,env:{PATH:process.env.PATH,HOME:process.env.INSPECTION_BROWSER_HOME,ARENA_BROWSER_BINARY:chromium.executablePath()}});try{
+ const page=await browser.newPage({viewport:{width:1024,height:900}});page.setDefaultTimeout(5000);await page.route('**/*',route=>route.request().url().startsWith('http://127.0.0.1:')?route.continue():route.abort());await page.goto(process.argv[2]);
+ await page.locator('#access-code').fill('synthetic-admin');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.locator('#workspace').waitFor({state:'visible'});const mode=process.env.INSPECTION_PROBE_MODE;let result={};
+ const streets=()=>page.locator('#street option').allTextContents();
+ if(mode==='select'){result.first=await streets();await page.getByRole('combobox',{name:'Community',exact:true}).selectOption('Community B');result.second=await streets();}
+ if(mode==='create'){await page.getByLabel('Residence',{exact:true}).fill('Synthetic browser unit');await page.getByLabel('Inspection ID',{exact:true}).fill('browser-created');await page.getByRole('button',{name:'Create inspection',exact:true}).click();await page.locator('[data-id="browser-created"]').waitFor();result.created=true;await page.reload();await page.locator('#access-code').fill('synthetic-admin');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.locator('[data-id="browser-created"]').waitFor();result.persisted=true;}
+ if(mode==='delete'){await page.locator('[data-id="seed-open"]').getByRole('button',{name:'Delete',exact:true}).click();await page.locator('[data-id="seed-open"]').waitFor({state:'detached'});result.deleted=true;}
+ if(mode==='report'){await page.getByRole('combobox',{name:'Community',exact:true}).selectOption('Community B');await page.getByRole('button',{name:'Generate report',exact:true}).click();await page.waitForFunction(()=>document.getElementById('summary').innerText.length>0);result.summary=await page.locator('#summary').innerText();}
+ if(process.env.INSPECTION_QA_OUTPUT){require('fs').mkdirSync(process.env.INSPECTION_QA_OUTPUT,{recursive:true});await page.screenshot({path:process.env.INSPECTION_QA_OUTPUT+'/'+mode+'.png',fullPage:true});}
+ console.log(JSON.stringify(result));
+ }finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});

@@ -1,0 +1,9 @@
+# Evaluator contract
+
+Run in the prepared MongoDB/browser environment using the protected benchmark identity. The benchmark provisions a fresh authenticated loopback replica set and one restricted database account per gate. Application code and browser content run as UID 1000. Management credentials remain outside the candidate environment. Environment preparation and health checks precede the candidate budget; the candidate does not install or repair MongoDB.
+
+Gates correspond to the five requirement units: persistence and protected APIs; migration and rollback; authentication; scoped modules; parent views and chat. The browser checks actual visibility and stale-response isolation. Layout overflow is diagnostic only because the current requirements do not specify responsive layout. Additional response metadata and unspecified record ordering are allowed.
+
+RU-003 executable checks cover invalid credentials, valid and invalid sessions, persistence across restart, plaintext PIN storage and exposure of independently recognized scrypt salts/verifiers from the supplied construction. Unrelated long display metadata is allowed. Other credential constructions need separate exposure review. They do not prescribe credential field names, a session collection name, or token encoding. They do not prove a password derivation algorithm is suitable, salts are independent, or tokens have sufficient entropy. Those properties require the separate release credential audit; a green executable gate alone is insufficient to approve this requirement's security properties. Audit evidence remains outside the dataset.
+
+The maintained runtime keeps hidden evaluator files under a protected mount. Missing evaluator helpers and browser startup failures invalidate the run; they are not candidate business failures.

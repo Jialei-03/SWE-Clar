@@ -1,0 +1,152 @@
+schema_version: 1
+task_id: SWECLAR-030
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Local family policy and account deletion service
+requirement_units:
+- ru_id: RU-001
+  name: Control workflow entry point
+  content: "Preserve the protocol, persistence and input invariants stated above. The toolchain and service startup are not information to be clarified."
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for control workflow entry point.
+  test_interface:
+    type: api
+    entry:
+      language: python
+      file: server.py
+    inputs:
+      protocol: See raw/starter_code/README.md
+    output:
+      type: dict
+      meaning: Actual HTTP state and durable storage effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/control_contract.py
+  notes: Independently reconstructed local policy service. Linking cardinality, protocol, replay rules
+    and deletion scope are benchmark decisions, not quoted client confirmation. No native interception
+    or external push delivery is claimed.
+- ru_id: RU-002
+  name: Self-protect and parent-child modes
+  content: "configure_mode(user_id,device_id,mode[,child_id]). self binds the user's own device; parent_child requires a parent identity, a child identity and a matching child.parent_id. A device cannot be bound twice, each child may own at most one device, and cross-family linking is rejected with link_denied. A successfully configured device includes owner_id/mode, and parent-child mode also includes parent_id. The existing starter behavior is a regression requirement."
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for self-protect and parent-child modes.
+  test_interface:
+    type: api
+    entry:
+      language: python
+      file: server.py
+    inputs:
+      protocol: See raw/starter_code/README.md
+    output:
+      type: dict
+      meaning: Actual HTTP state and durable storage effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/control_contract.py
+  notes: Independently reconstructed local policy service. Linking cardinality, protocol, replay rules
+    and deletion scope are benchmark decisions, not quoted client confirmation. No native interception
+    or external push delivery is claimed.
+- ru_id: RU-003
+  name: Website and application restrictions
+  content: "set_policy(actor_id,device_id,blocked_domains,blocked_apps,app_daily_limits) fully replaces that device's policy; for self only the owner, and for parent-child only the parent, may set it; anyone else gets policy_denied. Domains are ASCII hosts without a URL/path; matching ignores case and one trailing dot and matches the domain itself or subdomains at a dot boundary; near-miss strings do not match. App IDs are case-sensitive. Limits and used_minutes are finite non-negative numbers (bool is not accepted). A blocked app or used_minutes >= the limit is denied, everything else is allowed; a missing policy allows by default. check_access(device_id,event_id,target_type,target[,used_minutes]) supports the two types domain/app; an app with no supplied usage is treated as 0. Invalid input returns invalid_policy/invalid_access_check, and an unknown device returns invalid_access_check. allowed is a boolean, and reason is blocked_domain/blocked_app/daily_limit/allowed. The basic field types and error codes are in the public README; they are not hidden business puzzles."
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for website and application restrictions.
+  test_interface:
+    type: api
+    entry:
+      language: python
+      file: server.py
+    inputs:
+      protocol: See raw/starter_code/README.md
+    output:
+      type: dict
+      meaning: Actual HTTP state and durable storage effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/control_contract.py
+  notes: Independently reconstructed local policy service. Linking cardinality, protocol, replay rules
+    and deletion scope are benchmark decisions, not quoted client confirmation. No native interception
+    or external push delivery is claimed.
+- ru_id: RU-004
+  name: Blocked-attempt evidence and reports
+  content: "Each denied event produces one activity with fields event_id/device_id/target_type/target/reason; parent-child devices additionally produce notifications with fields event_id/device_id/parent_id/reason, representing a local notification queue that does not require external delivery. event_id is globally unique across denial records; a retry with the same device/target_type/normalized target/used_minutes is not appended again and returns the original decision; the same ID with different content is event_conflict and leaves state unchanged. Allowed events are not recorded. report(parent_id,device_id) returns that device's activity only to the parent linked to the device; otherwise report_denied. Do not reject additional fields by requiring exact dictionary equality."
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for blocked-attempt evidence and reports.
+  test_interface:
+    type: api
+    entry:
+      language: python
+      file: server.py
+    inputs:
+      protocol: See raw/starter_code/README.md
+    output:
+      type: dict
+      meaning: Actual HTTP state and durable storage effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/control_contract.py
+  notes: Independently reconstructed local policy service. Linking cardinality, protocol, replay rules
+    and deletion scope are benchmark decisions, not quoted client confirmation. No native interception
+    or external push delivery is claimed.
+- ru_id: RU-005
+  name: Account deletion
+  content: "delete_account(user_id); a nonexistent user returns account_missing. Delete the user's profile, the devices the user owns or controls together with those devices' policies/activity/notifications, and family links pointing to the user; keep the profiles of the user's child users but remove their parent_id. Other family data is retained. Remove existing audit records whose subject equals the deleted user_id, and append type=account_deleted,subject=redacted with no user/device identifiers. Both the returned state and the storage after restart must reflect the deletion. Forensic-level erasure of SQLite free pages is not required; the database file is not published customer data."
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for account deletion.
+  test_interface:
+    type: api
+    entry:
+      language: python
+      file: server.py
+    inputs:
+      protocol: See raw/starter_code/README.md
+    output:
+      type: dict
+      meaning: Actual HTTP state and durable storage effects
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/control_contract.py
+  notes: Independently reconstructed local policy service. Linking cardinality, protocol, replay rules
+    and deletion scope are benchmark decisions, not quoted client confirmation. No native interception
+    or external push delivery is claimed.

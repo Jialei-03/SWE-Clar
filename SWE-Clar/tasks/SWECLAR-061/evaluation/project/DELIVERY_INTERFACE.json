@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-061",
+  "readme": "# Content report web repair\n\nWork in `/workspace`. Python3.12.3, Pillow12.3.0 and ReportLab4.4.9 are preinstalled in python-report; protected tests additionally use prepared Playwright/Chromium and pypdf6.10.0. No installation or external credentials are required. Build: `python -m compileall -q .`. Public tests: `python /public_tests/smoke.py`. Before the task budget the benchmark prepares `runtime/config.json`, a local signed-receipt provider and scratch storage. Start: `SAAS_CONFIG=runtime/config.json SAAS_DATABASE=runtime/reports.sqlite PORT=8080 python server.py`; stdout reports the port. Open `http://127.0.0.1:8080/` (also the HTTP health smoke). Logs go to stderr; prepared provider log is `runtime/provider.log`. Restart the application with the same database to retain data; for a fresh attempt, use a new runtime/database and provider. Runtime files are excluded from deliverable source. CPU2, RAM2GiB, processes256, workspace256MiB; loopback networking only.\n\nThe existing authenticated account, signed subscription receipt, room/content/report and browser workflow is the starting point. Upload currently fails; complete it. Reconcile the conflicting UI and service trial export/share behavior with the synthetic client. Retain existing normal behavior. Native apps, OCR, external publication and real payment processing are out of scope. Application export/share restrictions cannot prevent screenshots or copying displayed content.\n\nConfiguration: `plans:{plan_id:{amount,currency}}`, `provider` (local fixture origin), `provider_key` (hex HMAC key). POST /register and /login take string email,password (password length >=8) and return a token and account id. Email trims whitespace and lowercases; login verifies salted scrypt credentials. The existing `Store.verifier(password,salt_hex)` helper returns the hex scrypt derivation with n=16384,r=8,p=1 and is a public regression interface. Send Authorization: Bearer token on authenticated requests. Logout revokes the session; all rooms, content, reports and binary assets are owner-scoped. Additional JSON metadata and alternative error wording are allowed. Unless an exact code is stated, invalid actions must return an HTTP4xx rejection; successful requests may use any suitable HTTP2xx.\n\nGET /me,/rooms,/content,/report/{id},/assets/{id},/export/{id}; POST /trial {},/activate {payment_id},/rooms {id,name},/content {id,room,title,details},/edit {id,title,details},/complete {id},/assets {id,content,kind,data},/share {id},/logout {}. `data` is base64 image bytes, kind image or receipt. The stored JPEG must respect EXIF orientation and omit private metadata while retaining pixels and content association; completed reports remain editable and accept more images. PDF export returns actual PDF content; the share endpoint returns a local copy of the report title/details. These interfaces already exist and must keep working.\n\nOne trial per account and signed receipt validation are supplied regression behavior. GET {provider}/receipts/{payment_id} returns `{payload:{id,user,plan,status,amount,currency},signature}`; HMAC-SHA256 signs sorted compact JSON with provider_key. Activation matches a known plan, account, payment ID, paid status, amount and currency; successful replays do not duplicate records. The prepared development provider also accepts POST /issue with `{id,user,plan}` to create a synthetic receipt from configured plans. This is a local fixture, not a purchase. To inspect available development plans, read runtime/config.json. Clarify trial share/print entitlement; the UI's disabled controls are an existing clue rather than a secret specification.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "server.py",
+        "function": "Store.act",
+        "signature": "Store.act(authenticated_user,path,action) -> record"
+      },
+      "inputs": {
+        "path": "documented HTTP action",
+        "action": "synthetic request data",
+        "authenticated_user": "server-owned account"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "persisted SaaS action result"
+      },
+      "operations": []
+    }
+  ]
+}

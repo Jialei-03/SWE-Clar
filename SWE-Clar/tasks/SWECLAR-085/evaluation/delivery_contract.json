@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-085",
+  "public": {
+    "readme": "# Browser radio component\nRun `python server.py` (PORT defaults to 8765), then visit http://127.0.0.1:8765. Run `python /public_tests/smoke.py` for a real Chromium/audio smoke check. No npm installation or external service is required.\n\nThe existing project fetches schedule/recent JSON over HTTP and plays synthetic WAV recordings using one HTML audio element. A linear station uses `/api/live` to get a current offset into a 90-second synthetic programme; playing/resuming a station must catch up to that offset (within 1 second). This is a finite local linear-programme simulation, not HLS or a radio hardware certification. Recent programmes start at zero. Keep selection on pause, remove its playing highlight, and replace the old source when selecting another programme.\n\nKeep these public DOM interfaces: `#schedule`, `#recent` with `[data-id]` buttons; `#audio`; `#selected`; `#pause`, `#resume`; `#refresh-schedule`, `#refresh-recent`; timer `#seconds`, `#set-timer`, `#cancel-timer`, `#show-timer`, `#remaining`. The `playing` CSS class identifies the active item. HTTP list rows have id, title, artist, album, live, url. Page refresh replaces only the relevant page from its latest HTTP response. Sleep timers accept positive finite seconds, use elapsed monotonic time, pause at expiry, remain unchanged when displaying remaining time, and cancel completely.\n\nRepair paused highlighting and complete the browser Media Session integration. Ask the client which programme metadata must be published and how selection changes should replace it. Preserve existing functionality. Native CarPlay, Apple APIs, background operation, acoustic output and hardware integration are outside this reconstruction.",
+    "interfaces": [
+      {
+        "type": "web_ui",
+        "entry": {
+          "language": "javascript",
+          "file": "app.js",
+          "function": "browser UI",
+          "signature": "HTTP and documented DOM"
+        },
+        "inputs": {
+          "programme": "synthetic HTTP record"
+        },
+        "output": {
+          "type": "object",
+          "meaning": "actual audio, browser metadata and rendered DOM"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "web_ui",
+      "entry": {
+        "language": "javascript",
+        "file": "app.js",
+        "function": "browser UI",
+        "signature": "HTTP and documented DOM"
+      },
+      "inputs": {
+        "programme": "synthetic HTTP record"
+      },
+      "output": {
+        "type": "object",
+        "meaning": "actual audio, browser metadata and rendered DOM"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "web_ui",
+      "entry": {
+        "language": "javascript",
+        "file": "app.js",
+        "function": "browser UI",
+        "signature": "HTTP and documented DOM"
+      },
+      "inputs": {
+        "programme": "synthetic HTTP record"
+      },
+      "output": {
+        "type": "object",
+        "meaning": "actual audio, browser metadata and rendered DOM"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "web_ui",
+      "entry": {
+        "language": "javascript",
+        "file": "app.js",
+        "function": "browser UI",
+        "signature": "HTTP and documented DOM"
+      },
+      "inputs": {
+        "programme": "synthetic HTTP record"
+      },
+      "output": {
+        "type": "object",
+        "meaning": "actual audio, browser metadata and rendered DOM"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "web_ui",
+      "entry": {
+        "language": "javascript",
+        "file": "app.js",
+        "function": "browser UI",
+        "signature": "HTTP and documented DOM"
+      },
+      "inputs": {
+        "programme": "synthetic HTTP record"
+      },
+      "output": {
+        "type": "object",
+        "meaning": "actual audio, browser metadata and rendered DOM"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "web_ui",
+      "entry": {
+        "language": "javascript",
+        "file": "app.js",
+        "function": "browser UI",
+        "signature": "HTTP and documented DOM"
+      },
+      "inputs": {
+        "programme": "synthetic HTTP record"
+      },
+      "output": {
+        "type": "object",
+        "meaning": "actual audio, browser metadata and rendered DOM"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "84d781d418f152630c3ee5ba7fc3659f27efaba038f9ba7f29ca4ab10fe2d84b",
+  "test_sources_sha256": {
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "45aab87f8b05171653456a8f42492cac2dc452823297e96857f66006b9c5fb9d",
+    "evaluation/tests/source_test.sh": "94a45b79fe024e0838da5076d0819d0c67c78517c689c7a5c7c5481c96e774f5",
+    "evaluation/tests/test_solution.py": "bb9099007c3e9d06e440b790cee17071146b771ce4afc70830307b4f5ae14a12"
+  },
+  "public_environment_sha256": "3dadfaf2aed558d1312cf33c56f3fa9ebaa402dcb7ac122b81b61482c514f5de",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

@@ -1,0 +1,209 @@
+schema_version: 1
+task_id: SWECLAR-004
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent local social/business discovery and interaction application
+requirement_units:
+- ru_id: RU-001
+  name: Persistent offline application
+  content: Complete the supplied independent browser/HTTP/SQLite application using the public README command
+    and API/page contracts. Preserve real login, per-token sessions, profile editing, HTTP operations
+    and SQLite persistence. Initialize synthetic fixtures only on a new database; a restart with the same
+    database preserves accounts, profiles, sessions and stored business activity. All new sessions have
+    distinct opaque tokens. Logout invalidates only that token. Every protected API requires the authenticated
+    server-side identity, never a client-supplied actor override. Do not expose password/hash/token data
+    or arbitrary local files. No original platform, customer account, external network or dependency installation
+    is required. Input validation, error shapes and browser observation IDs are public engineering requirements.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern persistent offline application?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python app.py --db network.sqlite --fixtures fixtures/demo.json --port 8000
+      runtime: Prepared Python/SQLite/Chromium, loopback only
+    inputs:
+      http: Public README endpoint schemas
+      fixtures: Independent synthetic accounts, connections and issued receipt catalog
+    output:
+      http: JSON data and persistent business effects
+      browser: Actual profile/discovery, interaction and membership controls
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business category is source-grounded privately. All code, fixtures, names, exact policies and
+    interfaces are independently reconstructed. No original record or source ID is distributed.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/network_contract.py
+- ru_id: RU-002
+  name: Editable profiles and discovery interface
+  content: Profile edits apply only to the logged-in account; enforce the README interest/coordinate/role/radius
+    schemas with no mutation after invalid requests. The actual browser edits profiles, requests matching,
+    renders server-ordered cards and exposes the connection, message, group, post and membership controls
+    defined in the README. Display text literally and keep controls usable at narrow and wide viewports.
+    Message/post failures preserve the entered content; successful submission clears it. Logout clears
+    private lists and session state. These browser/HTTP interfaces and the synthetic plane coordinate
+    system are independent benchmark choices.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern editable profiles and discovery interface?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python app.py --db network.sqlite --fixtures fixtures/demo.json --port 8000
+      runtime: Prepared Python/SQLite/Chromium, loopback only
+    inputs:
+      http: Public README endpoint schemas
+      fixtures: Independent synthetic accounts, connections and issued receipt catalog
+    output:
+      http: JSON data and persistent business effects
+      browser: Actual profile/discovery, interaction and membership controls
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business category is source-grounded privately. All code, fixtures, names, exact policies and
+    interfaces are independently reconstructed. No original record or source ID is distributed.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/network_contract.py
+- ru_id: RU-003
+  name: Interest and relationship ranking
+  content: For each candidate calculate Euclidean distance from current x/y coordinates, shared distinct-interest
+    count, and shortest path through accepted undirected connections. Remove an edge if either endpoint
+    blocks the other. Only paths of up to six edges count; disconnected or longer paths have degree 7.
+    Exclude the actor, any candidate blocked in either direction, candidates farther than the radius (equal
+    distance is included), and candidates failing the requested role filter. Zero shared interests remain
+    eligible. Sort by descending shared count, ascending degree, ascending full unrounded distance, then
+    ascending ID in ordinary string order. Return full numeric distance and exact integer counts; do not
+    use a user-supplied degree field, pending requests, rounded distances or a fixed account list. Profile
+    updates, accepted connections, block/unblock and changed radius/filter affect the next query. These
+    exact scoring and graph rules are independently chosen, not original customer statements.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern interest and relationship ranking?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python app.py --db network.sqlite --fixtures fixtures/demo.json --port 8000
+      runtime: Prepared Python/SQLite/Chromium, loopback only
+    inputs:
+      http: Public README endpoint schemas
+      fixtures: Independent synthetic accounts, connections and issued receipt catalog
+    output:
+      http: JSON data and persistent business effects
+      browser: Actual profile/discovery, interaction and membership controls
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business category is source-grounded privately. All code, fixtures, names, exact policies and
+    interfaces are independently reconstructed. No original record or source ID is distributed.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/network_contract.py
+- ru_id: RU-004
+  name: Connections and group permissions
+  content: 'There is at most one connection record per unordered pair. Request creates a pending connection
+    without accepting it; re-request by either side leaves its state unchanged. Only the opposite recipient
+    of the original request may accept it. Requester self-approval or acceptance without a request is
+    denied; re-acceptance by that recipient is idempotent. Both directions of blocking deny new requests/acceptance
+    and messages. Only accepted unblocked pairs may exchange messages, whose sender comes from the session
+    and whose trimmed content is stored. Messages are visible only to sender/recipient and hidden from
+    both while either blocks the other. Unblocking restores visibility of retained messages and existing
+    connections; block never deletes the relationship or messages.
+
+
+    Creating a group makes the actor its owner and first member. Only that owner may invite any existing
+    account, without a connection prerequisite, provided owner and target do not block each other. Repeated
+    invitation is idempotent. Only members unblocked with the owner may post. Only such members may like
+    a visible post, and neither liker nor author may block the other. One like per account/post, including
+    retries. Denied writes leave all stored objects/counts unchanged. A dashboard includes only that account''s
+    connections without blocked counterparts, groups in which it is a member and unblocked with the owner,
+    posts of those groups whose authors are unblocked with it, and its own unblocked messages. All these
+    policies are enforced server-side even for hand-written HTTP requests. Multiple distinct messages/posts
+    remain distinct. Permissions and visibility change immediately after block/unblock; no duplicate invitations
+    or likes are created by retries. These are independent business conventions.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern connections and group permissions?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python app.py --db network.sqlite --fixtures fixtures/demo.json --port 8000
+      runtime: Prepared Python/SQLite/Chromium, loopback only
+    inputs:
+      http: Public README endpoint schemas
+      fixtures: Independent synthetic accounts, connections and issued receipt catalog
+    output:
+      http: JSON data and persistent business effects
+      browser: Actual profile/discovery, interaction and membership controls
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business category is source-grounded privately. All code, fixtures, names, exact policies and
+    interfaces are independently reconstructed. No original record or source ID is distributed.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/network_contract.py
+- ru_id: RU-005
+  name: Membership receipt redemption and featured posts
+  content: 'Receipts come only from the preissued fixture catalog and are identified by receipt_id. An
+    account may redeem only its own receipt and an allowed exact plan: user accounts permit free/plus;
+    business accounts permit free/local/regional/global. Unknown receipts, another account''s receipt
+    and a plan not allowed for the account''s role return HTTP 403 with error.code=denied, without recording consumption or changing
+    plan. Every account starts free and has exactly one active plan. First redemption atomically records
+    that receipt and replaces the active plan. Replaying a previously consumed receipt is successful but
+    does not restore its old plan, including after a later downgrade or upgrade and under concurrent identical
+    redemption. Plan and consumption survive process restart. Public client fields cannot substitute another
+    plan or subject.
+
+
+    A featured post requires normal group posting permission and a currently paid business plan (local,
+    regional or global). Free business accounts and all user accounts, including plus, cannot create featured
+    posts. Nonfeatured posts remain allowed under group permissions. Downgrade prevents future featured
+    creation but does not rewrite or remove already published posts. The browser reflects the returned
+    current plan and the actual published featured flag. This is a synthetic offline membership workflow,
+    not real payment processing or original commercial pricing.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern membership receipt redemption and featured posts?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python app.py --db network.sqlite --fixtures fixtures/demo.json --port 8000
+      runtime: Prepared Python/SQLite/Chromium, loopback only
+    inputs:
+      http: Public README endpoint schemas
+      fixtures: Independent synthetic accounts, connections and issued receipt catalog
+    output:
+      http: JSON data and persistent business effects
+      browser: Actual profile/discovery, interaction and membership controls
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business category is source-grounded privately. All code, fixtures, names, exact policies and
+    interfaces are independently reconstructed. No original record or source ID is distributed.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/network_contract.py

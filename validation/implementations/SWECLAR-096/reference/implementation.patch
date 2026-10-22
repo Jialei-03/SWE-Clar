@@ -1,0 +1,578 @@
+diff --git a/calculator.py b/calculator.py
+index 1bed6646cd71ee0928615a69054804f9a7a6c977..7fcb62bf2e875383d85dcd7cdfebe30f0be5d80b 100644
+--- a/calculator.py
++++ b/calculator.py
+@@ -1,17 +1,132 @@
+-from decimal import Decimal,InvalidOperation,ROUND_HALF_UP
++"""Backend calculations for the area calculator.
++
++The browser-facing service deliberately keeps the calculation here.  The
++numbers are converted to :class:`~decimal.Decimal` values before arithmetic so
++that the documented half-up rounding rule does not depend on binary floating
++point rounding.
++"""
++
++from decimal import Decimal, DecimalException, ROUND_HALF_UP, localcontext
+ import math
+-FIELDS=('land_area_sqft','site_area_sqft','plot_ratio')
+-def calculate(values):
+-    if not isinstance(values,dict):raise ValueError('invalid_input')
+-    numbers={}
+-    for key in FIELDS:
+-        value=values.get(key)
+-        if not isinstance(value,(int,float)) or isinstance(value,bool) or not math.isfinite(value) or value<0:raise ValueError('invalid_input')
+-        numbers[key]=Decimal(str(value))
++
++
++FIELDS = ("land_area_sqft", "site_area_sqft", "plot_ratio")
++_AREA_CONVERSION = Decimal("0.092903")
++_TWO_DECIMAL_PLACES = Decimal("0.01")
++
++
++def _invalid_input() -> ValueError:
++    return ValueError("invalid_input")
++
++
++def _to_decimal(value: object) -> Decimal:
++    """Validate a JSON-style number and return its exact decimal spelling.
++
++    ``bool`` is an ``int`` subclass in Python, so it has to be rejected before
++    the normal integer/float check.  Using ``str`` for floats gives the decimal
++    representation supplied by a JSON client rather than introducing the
++    binary representation of the float into the benchmark calculation.
++    """
++
++    if isinstance(value, bool) or not isinstance(value, (int, float)):
++        raise _invalid_input()
++
++    if isinstance(value, float):
++        if not math.isfinite(value):
++            raise _invalid_input()
++        decimal_value = Decimal(str(value))
++    else:
++        # Decimal(int) is exact and does not use math.isfinite(), which can
++        # overflow while coercing a very large Python integer to a float.
++        decimal_value = Decimal(value)
++
++    if not decimal_value.is_finite() or decimal_value < 0:
++        raise _invalid_input()
++    return decimal_value
++
++
++def _precision_for(numbers: tuple[Decimal, Decimal, Decimal]) -> int:
++    """Choose enough decimal context precision for the requested operations.
++
++    Normal form values need only a small context, but JSON/Python integers and
++    finite scientific-notation floats can have many digits.  A dynamic context
++    avoids rounding an intermediate value merely because the process-wide
++    Decimal precision is small.  The final conversion to a JSON float still
++    rejects an output that cannot be represented finitely.
++    """
++
++    land, site, ratio = numbers
++    values = (land, site, ratio)
++
++    # The coefficient lengths cover significant digits.  The adjusted
++    # exponents cover values such as Decimal("1e308") whose coefficient is only
++    # one digit but whose quantized form has many integer places.
++    coefficient_budget = sum(len(value.as_tuple().digits) for value in values) + 32
++    adjusted_values = [value.adjusted() if not value.is_zero() else 0 for value in values]
++
++    # The largest possible adjusted exponent of the addition and multiplication
++    # intermediates, with a little room for carries and the two decimal places
++    # added by quantize().
++    sum_adjusted = max(adjusted_values[0], adjusted_values[1]) + 2
++    gross_adjusted = adjusted_values[0] + adjusted_values[2] + 2
++    converted_adjusted = max(adjusted_values[0], adjusted_values[1]) + 2
++    integer_place_budget = max(1, sum_adjusted, gross_adjusted, converted_adjusted) + 8
++
++    return max(64, coefficient_budget, integer_place_budget)
++
++
++def _rounded_float(value: Decimal) -> float:
++    """Round a Decimal half-up to two places and require a finite JSON number."""
++
++    rounded = value.quantize(_TWO_DECIMAL_PLACES, rounding=ROUND_HALF_UP)
++    number = float(rounded)
++    if not math.isfinite(number):
++        raise _invalid_input()
++    # Avoid exposing negative zero for a mathematically zero result.
++    return 0.0 if rounded.is_zero() else number
++
++
++def calculate(values: dict) -> dict:
++    """Calculate the area summary for one request.
++
++    A fresh result tree is returned for every call.  Only the three documented
++    fields are read from ``values``; no input object is modified.
++
++    Raises:
++        ValueError: with ``"invalid_input"`` for missing, invalid, non-finite,
++            or unrepresentable input/output values.
++    """
++
++    if not isinstance(values, dict):
++        raise _invalid_input()
++
+     try:
+-        rounded=lambda x:float(x.quantize(Decimal('0.01'),rounding=ROUND_HALF_UP))
+-        converted={key.removesuffix('_sqft')+'_sqm':rounded(numbers[key]*Decimal('0.092903')) for key in FIELDS[:2]}
+-        result={'gross_floor_area_sqft':rounded((numbers['land_area_sqft'])*numbers['plot_ratio'])}
+-        if not all(math.isfinite(x) for x in [*converted.values(),*result.values()]):raise ValueError('invalid_input')
+-    except (InvalidOperation,OverflowError):raise ValueError('invalid_input')
+-    return {'inputs':{key:values[key] for key in FIELDS},'converted':converted,'result':result,'summary':{**converted,**result}}
++        if any(field not in values for field in FIELDS):
++            raise _invalid_input()
++
++        numbers = tuple(_to_decimal(values[field]) for field in FIELDS)
++        land_area, site_area, plot_ratio = numbers
++
++        with localcontext() as context:
++            context.prec = _precision_for(numbers)
++            converted = {
++                "land_area_sqm": _rounded_float(land_area * _AREA_CONVERSION),
++                "site_area_sqm": _rounded_float(site_area * _AREA_CONVERSION),
++            }
++            gross_floor_area = _rounded_float((land_area + site_area) * plot_ratio)
++
++        result = {"gross_floor_area_sqft": gross_floor_area}
++        # Rebuild every mapping rather than returning a reference to a caller's
++        # mapping.  The values are JSON-compatible primitive numbers.
++        inputs = {field: values[field] for field in FIELDS}
++        summary = {**converted, **result}
++        return {
++            "inputs": inputs,
++            "converted": converted,
++            "result": result,
++            "summary": summary,
++        }
++    except (DecimalException, OverflowError, ValueError):
++        # Keep the public validation error stable even when Decimal reports an
++        # invalid operation or float conversion overflow.
++        raise _invalid_input() from None
+diff --git a/report.py b/report.py
+index a7ab31b25cd1bc9410f654f582b815006c6bcdf0..f74422b485570c6415015906e016e593beac2062 100644
+--- a/report.py
++++ b/report.py
+@@ -1,4 +1,82 @@
++"""PDF report generation for the area calculator."""
++
++from io import BytesIO
++
++from reportlab.lib.pagesizes import letter
++from reportlab.pdfgen import canvas
++
+ from calculator import calculate
+-def report_pdf(values):
+-    calculate(values)
+-    raise ValueError('report_not_implemented')
++
++
++def _original_number(value: object) -> str:
++    """Render an already validated input without changing its displayed value."""
++
++    # repr is unambiguous for floats (including scientific notation) and str is
++    # the natural representation for JSON integers.
++    return repr(value) if isinstance(value, float) else str(value)
++
++
++def _amount(value: float) -> str:
++    """Render a backend-rounded amount with the documented two places."""
++
++    return f"{value:.2f}"
++
++
++def report_pdf(values: dict) -> bytes:
++    """Return a valid PDF containing the calculation for ``values``.
++
++    Validation and all arithmetic are delegated to ``calculate`` so a report
++    cannot contain values different from the calculation endpoint.  The
++    returned object is the PDF byte stream itself, not a JSON manifest.
++    """
++
++    calculated = calculate(values)
++    inputs = calculated["inputs"]
++    converted = calculated["converted"]
++    result = calculated["result"]
++
++    output = BytesIO()
++    # Uncompressed content keeps the small report straightforward to inspect
++    # while remaining a normal, valid PDF for browser/PDF-reader downloads.
++    document = canvas.Canvas(output, pagesize=letter, pageCompression=0)
++    document.setTitle("Area calculation report")
++
++    _, height = letter
++    left = 54
++    y = height - 54
++    line_height = 20
++
++    lines = [
++        ("Area calculation report", True),
++        ("", False),
++        ("Original inputs", True),
++        (
++            f"Land area (square feet): {_original_number(inputs['land_area_sqft'])}",
++            False,
++        ),
++        (
++            f"Site area (square feet): {_original_number(inputs['site_area_sqft'])}",
++            False,
++        ),
++        (f"Plot ratio: {_original_number(inputs['plot_ratio'])}", False),
++        ("", False),
++        ("Calculated values", True),
++        (f"Land area (square metres): {_amount(converted['land_area_sqm'])}", False),
++        (f"Site area (square metres): {_amount(converted['site_area_sqm'])}", False),
++        (
++            f"Gross floor area (square feet): {_amount(result['gross_floor_area_sqft'])}",
++            False,
++        ),
++    ]
++
++    for text, heading in lines:
++        if heading:
++            document.setFont("Helvetica-Bold", 13)
++        else:
++            document.setFont("Helvetica", 11)
++        document.drawString(left, y, text)
++        y -= line_height
++
++    document.showPage()
++    document.save()
++    return output.getvalue()
+diff --git a/server.py b/server.py
+index e07fc2ff2cda1f8cf8d9b949e6d45ba10680e6ac..594e5cace141c5cc00eba0736bc97647f5a2a9c8 100644
+--- a/server.py
++++ b/server.py
+@@ -1,29 +1,123 @@
+-from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
++"""Small loopback HTTP service for the browser calculator."""
++
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++import json
++import os
+ from pathlib import Path
+-import os,json
++from urllib.parse import urlsplit
++
+ from calculator import calculate
+ from report import report_pdf
+-ROOT=Path(__file__).parent/'web'
++
++
++ROOT = Path(__file__).parent / "web"
++MAX_BODY_BYTES = 1024 * 1024
++
++
+ class Handler(BaseHTTPRequestHandler):
+-    def log_message(self,*args):pass
+-    def send(self,status,body,kind='application/json'):
+-        data=json.dumps(body,allow_nan=False).encode() if kind=='application/json' else body
+-        self.send_response(status);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(data)));self.send_header('Cache-Control','no-store')
+-        if kind=='application/pdf':self.send_header('Content-Disposition','attachment; filename="area-report.pdf"')
+-        self.end_headers();self.wfile.write(data)
++    """Serve only the documented browser assets and calculation endpoints."""
++
++    # HTTP/1.0 keeps each response self-contained and works well with the
++    # simple fetch clients used by the component.
++    protocol_version = "HTTP/1.0"
++
++    def log_message(self, *_args):
++        # Keep the startup JSON on stdout easy for the launcher to consume.
++        pass
++
++    def _send(self, status: int, body, content_type: str = "application/json") -> None:
++        if content_type == "application/json":
++            data = json.dumps(body, allow_nan=False, separators=(",", ":")).encode("utf-8")
++        else:
++            data = body if isinstance(body, bytes) else bytes(body)
++
++        self.send_response(status)
++        self.send_header("Content-Type", content_type)
++        self.send_header("Content-Length", str(len(data)))
++        self.send_header("Cache-Control", "no-store")
++        self.send_header("X-Content-Type-Options", "nosniff")
++        if content_type == "application/pdf":
++            self.send_header("Content-Disposition", 'attachment; filename="area-report.pdf"')
++        self.end_headers()
++        self.wfile.write(data)
++
++    @staticmethod
++    def _route(path: str) -> str:
++        # Ignore a query string while retaining an exact allowlist of routes.
++        return urlsplit(path).path
++
+     def do_GET(self):
+-        paths={'/':('index.html','text/html; charset=utf-8'),'/app.js':('app.js','text/javascript'),'/style.css':('style.css','text/css')}
+-        if self.path not in paths:return self.send(404,{'error':'not_found'})
+-        file,mime=paths[self.path];self.send(200,(ROOT/file).read_bytes(),mime)
++        assets = {
++            "/": ("index.html", "text/html; charset=utf-8"),
++            "/app.js": ("app.js", "text/javascript; charset=utf-8"),
++            "/style.css": ("style.css", "text/css; charset=utf-8"),
++        }
++        route = self._route(self.path)
++        asset = assets.get(route)
++        if asset is None:
++            self._send(404, {"error": "not_found"})
++            return
++
++        filename, content_type = asset
++        try:
++            body = (ROOT / filename).read_bytes()
++        except OSError:
++            # This is an internal deployment problem, not a reason to expose a
++            # filesystem path or source file in an HTTP response.
++            self._send(404, {"error": "not_found"})
++            return
++        self._send(200, body, content_type)
++
++    def _read_json_body(self):
++        header = self.headers.get("Content-Length")
++        try:
++            size = int(header) if header is not None else 0
++        except (TypeError, ValueError):
++            raise ValueError("invalid_input") from None
++
++        if size <= 0 or size > MAX_BODY_BYTES:
++            raise ValueError("invalid_input")
++
++        body = self.rfile.read(size)
++        if len(body) != size:
++            raise ValueError("invalid_input")
++        try:
++            return json.loads(body.decode("utf-8"))
++        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
++            raise ValueError("invalid_input") from None
++
+     def do_POST(self):
+-        if self.path not in {'/calculate','/report'}:return self.send(404,{'error':'not_found'})
++        route = self._route(self.path)
++        if route not in {"/calculate", "/report"}:
++            self._send(404, {"error": "not_found"})
++            return
++
+         try:
+-            size=int(self.headers.get('Content-Length',0))
+-            if size<=0 or size>8192:raise ValueError('invalid_input')
+-            values=json.loads(self.rfile.read(size));result=calculate(values)
+-            if self.path=='/calculate':return self.send(200,result)
+-            return self.send(200,report_pdf(values),'application/pdf')
+-        except (ValueError,TypeError,OverflowError):return self.send(400,{'error':'invalid_input'})
+-class Server(ThreadingHTTPServer):request_queue_size=32
+-if __name__=='__main__':
+-    server=Server(('127.0.0.1',int(os.environ.get('PORT',0))),Handler);print(json.dumps({'port':server.server_port}),flush=True);server.serve_forever()
++            values = self._read_json_body()
++            calculated = calculate(values)
++            if route == "/calculate":
++                self._send(200, calculated)
++                return
++
++            # report_pdf validates/calculates from this request's values and
++            # returns the actual PDF bytes.  No result is kept in shared state.
++            self._send(200, report_pdf(values), "application/pdf")
++        except (ValueError, TypeError, OverflowError):
++            # In particular, do not send a partial JSON result or PDF for an
++            # invalid request.
++            self._send(400, {"error": "invalid_input"})
++
++
++class Server(ThreadingHTTPServer):
++    request_queue_size = 32
++
++
++if __name__ == "__main__":
++    server = Server(("127.0.0.1", int(os.environ.get("PORT", 0))), Handler)
++    print(json.dumps({"port": server.server_port}), flush=True)
++    try:
++        server.serve_forever()
++    except KeyboardInterrupt:
++        pass
++    finally:
++        server.server_close()
+diff --git a/web/app.js b/web/app.js
+index f0059f65a14994d9a98fefd82f10b2bee111be0b..5bf1686fa1e047a0128c2279fe907a9d86b57b44 100644
+--- a/web/app.js
++++ b/web/app.js
+@@ -1,6 +1,106 @@
+-const form=document.getElementById('calculator'),results=document.getElementById('results'),error=document.getElementById('error');let saved=null;let generation=0;
+-form.addEventListener('input',()=>{generation++;saved=null;results.hidden=true;});
+-const labels={land_area_sqm:'Land area in square metres',site_area_sqm:'Site area in square metres',gross_floor_area_sqft:'Gross floor area in square feet'};
+-form.onsubmit=async event=>{event.preventDefault();const current=++generation;try{const values=Object.fromEntries([...new FormData(form)].map(([key,value])=>[key,Number(value)]));const response=await fetch('/calculate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values)});const data=await response.json();if(current!==generation)return;if(!response.ok)throw Error(data.error);saved=data.inputs;const list=document.getElementById('summary');list.replaceChildren();for(const [key,value] of Object.entries(data.summary)){const term=document.createElement('dt'),definition=document.createElement('dd');term.textContent=labels[key];definition.dataset.field=key;definition.textContent=Number(value).toFixed(2);list.append(term,definition);}results.hidden=false;error.textContent='';}catch(e){if(current!==generation)return;saved=null;results.hidden=true;error.textContent='Please check the input values';}};
+-document.getElementById('reset').onclick=()=>{if(!confirm('Clear all inputs and results?'))return;generation++;HTMLFormElement.prototype.reset.call(form);saved=null;results.hidden=true;document.getElementById('summary').replaceChildren();error.textContent='Values cleared';};
+-document.getElementById('download').onclick=async()=>{if(!saved)return;try{const response=await fetch('/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(saved)});if(!response.ok)throw Error('report failed');const url=URL.createObjectURL(await response.blob());const link=document.createElement('a');link.href=url;link.download='area-report.pdf';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){error.textContent='Unable to generate report';}};
++const form = document.getElementById('calculator');
++const results = document.getElementById('results');
++const error = document.getElementById('error');
++const summary = document.getElementById('summary');
++const download = document.getElementById('download');
++const reset = document.getElementById('reset');
++
++let savedValues = null;
++let generation = 0;
++
++const labels = {
++  land_area_sqm: 'Land area in square metres',
++  site_area_sqm: 'Site area in square metres',
++  gross_floor_area_sqft: 'Gross floor area in square feet',
++};
++
++function setReportAccess(enabled) {
++  download.disabled = !enabled;
++}
++
++function clearResults(message = '') {
++  savedValues = null;
++  results.hidden = true;
++  summary.replaceChildren();
++  setReportAccess(false);
++  error.textContent = message;
++}
++
++// Editing an input invalidates the displayed calculation.  The next
++// successful response is the only thing that can re-enable report download.
++form.addEventListener('input', () => {
++  generation += 1;
++  clearResults();
++});
++
++form.addEventListener('submit', async (event) => {
++  event.preventDefault();
++  const currentGeneration = ++generation;
++  clearResults();
++
++  try {
++    const values = Object.fromEntries(
++      [...new FormData(form)].map(([key, value]) => [key, Number(value)]),
++    );
++    const response = await fetch('/calculate', {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify(values),
++    });
++    const data = await response.json();
++
++    if (currentGeneration !== generation) return;
++    if (!response.ok) throw new Error(data.error || 'invalid_input');
++
++    savedValues = { ...data.inputs };
++    summary.replaceChildren();
++    for (const [key, value] of Object.entries(data.summary)) {
++      const term = document.createElement('dt');
++      const definition = document.createElement('dd');
++      term.textContent = labels[key] || key;
++      definition.dataset.field = key;
++      definition.textContent = Number(value).toFixed(2);
++      summary.append(term, definition);
++    }
++    results.hidden = false;
++    setReportAccess(true);
++    error.textContent = '';
++  } catch (_error) {
++    if (currentGeneration !== generation) return;
++    clearResults('Please check the input values');
++  }
++});
++
++reset.addEventListener('click', () => {
++  if (!window.confirm('Clear all inputs and results?')) return;
++
++  generation += 1;
++  HTMLFormElement.prototype.reset.call(form);
++  clearResults('Values cleared');
++});
++
++download.addEventListener('click', async () => {
++  if (!savedValues || download.disabled) return;
++
++  const currentGeneration = generation;
++  try {
++    const response = await fetch('/report', {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify(savedValues),
++    });
++    if (!response.ok) throw new Error('report failed');
++
++    const blob = await response.blob();
++    if (currentGeneration !== generation || !savedValues) return;
++
++    const url = URL.createObjectURL(blob);
++    const link = document.createElement('a');
++    link.href = url;
++    link.download = 'area-report.pdf';
++    link.click();
++    setTimeout(() => URL.revokeObjectURL(url), 1000);
++  } catch (_error) {
++    if (currentGeneration === generation) error.textContent = 'Unable to generate report';
++  }
++});
+diff --git a/web/index.html b/web/index.html
+index 2f11d0d26c67b776760cc3a7889a4d838af76b3c..701da16a597b2e46c7c60242cf4764445a30671e 100644
+--- a/web/index.html
++++ b/web/index.html
+@@ -1 +1,40 @@
+-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Area calculator</title><link rel="stylesheet" href="/style.css"></head><body><main><p class="eyebrow">Sample planning tool</p><h1>Area calculator</h1><form id="calculator"><label>Land area in square feet<input name="land_area_sqft" type="number" min="0" step="any" required></label><label>Site area in square feet<input name="site_area_sqft" type="number" min="0" step="any" required></label><label>Plot ratio<input name="plot_ratio" type="number" min="0" step="any" required></label><div class="actions"><button>Calculate</button><button type="button" id="reset">Reset</button></div></form><p id="error" role="alert"></p><section id="results" hidden><h2>Calculation summary</h2><dl id="summary"></dl><button id="download">Download PDF</button></section></main><script src="/app.js"></script></body></html>
++<!doctype html>
++<html lang="en">
++  <head>
++    <meta charset="utf-8">
++    <meta name="viewport" content="width=device-width, initial-scale=1">
++    <title>Area calculator</title>
++    <link rel="stylesheet" href="/style.css">
++  </head>
++  <body>
++    <main>
++      <p class="eyebrow">Sample planning tool</p>
++      <h1>Area calculator</h1>
++      <form id="calculator">
++        <label>
++          Land area in square feet
++          <input name="land_area_sqft" type="number" min="0" step="any" required>
++        </label>
++        <label>
++          Site area in square feet
++          <input name="site_area_sqft" type="number" min="0" step="any" required>
++        </label>
++        <label>
++          Plot ratio
++          <input name="plot_ratio" type="number" min="0" step="any" required>
++        </label>
++        <div class="actions">
++          <button type="submit">Calculate</button>
++          <button type="button" id="reset">Reset</button>
++        </div>
++      </form>
++      <p id="error" role="alert" aria-live="polite"></p>
++      <section id="results" hidden>
++        <h2>Calculation summary</h2>
++        <dl id="summary"></dl>
++        <button type="button" id="download" disabled>Download PDF</button>
++      </section>
++    </main>
++    <script src="/app.js"></script>
++  </body>
++</html>
+diff --git a/web/style.css b/web/style.css
+index 7549b5f768e85de884ec84701e9222b02f32797b..dda817971322600c20a6940c9209b5db0dfdff58 100644
+--- a/web/style.css
++++ b/web/style.css
+@@ -1 +1,17 @@
+-*{box-sizing:border-box}body{font:17px/1.5 system-ui,sans-serif;background:#f5f5ef;color:#293832;margin:0}main{max-width:780px;margin:50px auto;padding:0 24px}.eyebrow{text-transform:uppercase;font-size:12px;letter-spacing:.1em}h1{font-size:42px}form,section{background:white;border:1px solid #d8dfd6;padding:26px}label{display:block;margin-bottom:18px}input{display:block;width:100%;font:inherit;padding:10px;margin-top:6px;border:1px solid #9aab9a}button{font:inherit;padding:10px 18px;background:#34583f;color:white;border:0;cursor:pointer}.actions{display:flex;gap:12px}#reset{background:#e2e8df;color:#293832}dl{display:grid;grid-template-columns:1fr auto;gap:12px}dd{font-weight:600;margin:0}#results[hidden]{display:none}@media(max-width:600px){main{margin:24px auto;padding:0 14px}h1{font-size:34px}form,section{padding:18px}dl{grid-template-columns:1fr;gap:4px}dd{margin-bottom:16px}}
++*{box-sizing:border-box}
++body{font:17px/1.5 system-ui,sans-serif;background:#f5f5ef;color:#293832;margin:0}
++main{max-width:780px;margin:50px auto;padding:0 24px}
++.eyebrow{text-transform:uppercase;font-size:12px;letter-spacing:.1em}
++h1{font-size:42px;line-height:1.15}
++form,section{background:white;border:1px solid #d8dfd6;padding:26px}
++label{display:block;margin-bottom:18px}
++input{display:block;width:100%;font:inherit;padding:10px;margin-top:6px;border:1px solid #9aab9a}
++button{font:inherit;padding:10px 18px;background:#34583f;color:white;border:0;cursor:pointer}
++button:disabled{background:#a9b5aa;color:#eef1ec;cursor:not-allowed}
++.actions{display:flex;gap:12px;flex-wrap:wrap}
++#reset{background:#e2e8df;color:#293832}
++#error{min-height:1.5em;color:#8a3026}
++dl{display:grid;grid-template-columns:1fr auto;gap:12px}
++dd{font-weight:600;margin:0}
++#results[hidden]{display:none}
++@media(max-width:600px){main{margin:24px auto;padding:0 14px}h1{font-size:34px}form,section{padding:18px}dl{grid-template-columns:1fr;gap:4px}dd{margin-bottom:16px}}

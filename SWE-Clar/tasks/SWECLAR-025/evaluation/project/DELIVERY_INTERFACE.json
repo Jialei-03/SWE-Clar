@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-025",
+  "readme": "# Inspection records component\n\nRepair this independently authored PHP/SQLite and JavaScript component. Community selection and creation are working regressions; complete deletion and community reporting after clarifying the business rules. The task is this inspection-record module, not a full property-management system or PDF generator.\n\nThe shared `php-document` environment provides PHP 8.3, PDO SQLite, Python and Chromium. The benchmark prepares `/workspace/runtime/config.json` before your budget starts. It contains synthetic communities, initial inspections and access codes. Work in `/workspace` and start:\n\n```\nINSPECTION_CONFIG=/workspace/runtime/config.json INSPECTION_DB=/workspace/runtime/records.sqlite PHP_CLI_SERVER_WORKERS=4 php -S 127.0.0.1:8000 -t web router.php\n```\n\nOpen `http://127.0.0.1:8000/`. Development access codes are `demo-admin`, `demo-inspector`, and `demo-office`; they map to the corresponding roles. Stop with Ctrl-C. Restart preserves the database. The benchmark reset restores the starter and gives you fresh runtime storage. Run visible regressions with `python /public_tests/test_public.py`. No external service or credentials are required.\n\nGET `/api/context` and POST `/api/command` use `Authorization: Bearer <access-code>`. Context returns `role`, `communities` (community to street arrays) and `inspections`. Each inspection exposes `id`, `community`, `street`, `residence`, `status`. Commands: `create` takes those address fields and a supplied ID; `delete` takes an ID; `report` takes a community. Creation returns `result.id` and `result.status`; deletion returns `result.deleted`; reports return `result.total` and `result.by_status`. Operation errors use `error.code`. Clarify permission, report, status and error policies with the client.\n\nPreserve accessible form labels and the existing interaction controls. Inspection rows use `data-id` equal to their record ID and the report output uses `id=\"summary\"`; these public browser hooks do not require a particular tag or layout. Internal PHP functions, SQL tables and implementation choices are unrestricted. Fixtures are supplied by the benchmark and must not be changed. Runtime files belong under `/workspace/runtime` and are excluded from the submitted code patch.\n\nAll records, communities, residences, code and access codes are synthetic. Original client code, screenshots and documents are not provided. PHP/SQLite, access-code roles and the exact acceptance policies are benchmark conventions.\n\nAccessible controls retain the names `Community`, `Street`, `Residence`, and `Inspection ID`; button names are `Sign in`, `Create inspection`, `Delete`, and `Generate report`. HTML indentation and surrounding whitespace do not change these names. Preserve the existing `access-code` input and `workspace` visibility container. Browser automation locates the Community combobox by its normalized accessible name, not raw label-node whitespace or a required tag layout.",
+  "interfaces": [
+    {
+      "type": "command",
+      "entry": {
+        "language": "PHP and JavaScript",
+        "file": "router.php",
+        "command": "php -S 127.0.0.1:8000 -t web router.php"
+      },
+      "inputs": {
+        "transport": "Authenticated HTTP JSON and actual browser form",
+        "contract": "README.md"
+      },
+      "output": {
+        "type": "inspection_records",
+        "meaning": "Community and street context"
+      },
+      "operations": []
+    },
+    {
+      "type": "command",
+      "entry": {
+        "language": "PHP and JavaScript",
+        "file": "router.php",
+        "command": "php -S 127.0.0.1:8000 -t web router.php"
+      },
+      "inputs": {
+        "transport": "Authenticated HTTP JSON and actual browser form",
+        "contract": "README.md"
+      },
+      "output": {
+        "type": "inspection_records",
+        "meaning": "Inspection creation"
+      },
+      "operations": []
+    }
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-049",
+  "public": {
+    "readme": "# Local intake service\n\nUse `python server.py --db /tmp/intake.sqlite --port 8080` from /workspace.\nGET /health and POST /events use loopback HTTP. Run public checks with\n`python /public_tests/test_public.py`. Stop the server and remove the chosen SQLite\nfile to reset; restarts otherwise preserve data. Python standard library only.\nThe schema and records are synthetic; outbox entries do not send real messages.\nRepair intake replay, cleanup and route stabilization while retaining match/notice behavior.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_mentor_event",
+          "signature": "process_mentor_event(database_path,event) -> dict"
+        },
+        "inputs": {
+          "database_path": "Dedicated SQLite file using supplied schema",
+          "event": "Intake, cleanup, stabilization, match, notice or snapshot event"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "result/error and real database effects; same events supported through POST /events"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_mentor_event",
+        "signature": "process_mentor_event(database_path,event) -> dict"
+      },
+      "inputs": {
+        "database_path": "Dedicated SQLite file using supplied schema",
+        "event": "Intake, cleanup, stabilization, match, notice or snapshot event"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "result/error and real database effects; same events supported through POST /events"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_mentor_event",
+        "signature": "process_mentor_event(database_path,event) -> dict"
+      },
+      "inputs": {
+        "database_path": "Dedicated SQLite file using supplied schema",
+        "event": "Intake, cleanup, stabilization, match, notice or snapshot event"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "result/error and real database effects; same events supported through POST /events"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_mentor_event",
+        "signature": "process_mentor_event(database_path,event) -> dict"
+      },
+      "inputs": {
+        "database_path": "Dedicated SQLite file using supplied schema",
+        "event": "Intake, cleanup, stabilization, match, notice or snapshot event"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "result/error and real database effects; same events supported through POST /events"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_mentor_event",
+        "signature": "process_mentor_event(database_path,event) -> dict"
+      },
+      "inputs": {
+        "database_path": "Dedicated SQLite file using supplied schema",
+        "event": "Intake, cleanup, stabilization, match, notice or snapshot event"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "result/error and real database effects; same events supported through POST /events"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_mentor_event",
+        "signature": "process_mentor_event(database_path,event) -> dict"
+      },
+      "inputs": {
+        "database_path": "Dedicated SQLite file using supplied schema",
+        "event": "Intake, cleanup, stabilization, match, notice or snapshot event"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "result/error and real database effects; same events supported through POST /events"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "71a98cf38a7805d2de4aaf65e72713f2aa39c2f597a3329e016cf0cf4a865fdd",
+  "test_sources_sha256": {
+    "evaluation/tests/candidate_proxy.py": "7ab963d193e93c78fde305cca8f541bea86205b1cfdc840022674e1305b4e3a2",
+    "evaluation/tests/conftest.py": "1c0a6735eeacaac86b27e60b080a1fede6f494f3c549b161b98b8f29e291de57",
+    "evaluation/tests/evaluate.py": "ce57c364b72ae891ad44c6aadbdf88dfe43810734a13f249ace277c05384fa42",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "4353a7c9d067afe81405de6f10dc8c6f3745a3c2553f95c7b0ed12a8a60819ce"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

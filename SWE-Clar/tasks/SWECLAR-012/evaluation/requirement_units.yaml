@@ -1,0 +1,394 @@
+schema_version: 1
+task_id: SWECLAR-012
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Extend a running Flutter client and local Python HTTP/SQLite service with complete patient
+  booking, authorized cancellation and atomic rescheduling. Preserve working login, clinic/provider selection,
+  staff slot publishing, HTTP transport, actual Flutter rendering and database persistence.
+requirement_units:
+- ru_id: RU-001
+  name: Authenticated Flutter and persistent service foundation
+  content: "The supplied application must build and render in the prepared engine and communicate with\
+    \ the actual local HTTP service and SQLite database. Preserve real login, logout, authenticated profile/catalog\
+    \ and client error handling.\n\nOnly correct fixture credentials can create a session. Unknown/incorrect\
+    \ credentials receive 401 invalid_credentials. Protected endpoints require a valid bearer token. Identity,\
+    \ role and staff clinic come exclusively from that authenticated session, never caller-supplied role\
+    \ or patient_id fields.\n\nPersist accounts with salted password hashes and sessions with token digests,\
+    \ not cleartext credentials/tokens. Tokens use at least 32 bytes of secure randomness; multiple sessions\
+    \ remain independent. Existing sessions survive service restart and logged-out sessions stay invalid.\n\
+    \nCatalog is the synthetic clinics/providers plus the current supplied clock. Do not return the user\
+    \ directory, password hashes, tokens or other users' appointment details through catalog/auth responses.\n\
+    \nActual Flutter controls support login, catalog selection, navigation and logout; no overflow at\
+    \ the default 390x844 viewport. Errors are visible; logout clears appointment/availability data and\
+    \ role-specific controls. Public regression tests exercise a fresh login and real rendered content,\
+    \ not flags alone.\n\nPublic environment and delivery contracts:\n{\n  \"environment\": {\n    \"\
+    profile\": \"flutter-component\",\n    \"workdir\": \"/workspace\",\n    \"prepare_owner\": \"benchmark\
+    \ before candidate budget\",\n    \"dependencies\": \"Prepared Python standard library/SQLite, Flutter\
+    \ 3.47.2 and Dart 3.13.2, flutter/flutter_test SDK packages, protected offline package cache and fonts.\
+    \ Use Dart HttpClient, already included in the SDK.\",\n    \"resources\": {\n      \"cpus\": 2,\n\
+    \      \"memory_mb\": 2048,\n      \"pids\": 256,\n      \"workspace_mb\": 512,\n      \"temporary_mb\"\
+    : 1024,\n      \"network\": \"loopback only\"\n    },\n    \"backend_command\": \"python server/main.py\
+    \ --fixture fixtures/clinic.json --db /tmp/clinic/store.sqlite --clock-file fixtures/clock.json --port\
+    \ 8081\",\n    \"backend_addresses\": \"127.0.0.1:8081 by default; all clients accept an explicit\
+    \ origin, and all test service instances receive unused loopback ports.\",\n    \"preview_command\"\
+    : \"python /public_tests/run_clinic.py --script session.json --output /tmp/clinic-preview\",\n   \
+    \ \"public_test_command\": \"python /public_tests/test_public.py\",\n    \"build_command\": \"flutter\
+    \ analyze --no-pub\",\n    \"flutter_test_command\": \"flutter test --no-pub\",\n    \"reset\": \"\
+    Stop the particular service, remove that instance's SQLite database and SQLite sidecar files, then\
+    \ restart with the same supplied fixture. Preview invocations create isolated instances and never\
+    \ reuse an earlier invocation's data unless explicitly documented as a restart within that session.\"\
+    ,\n    \"clock\": \"The public clock JSON is {now_ms: integer UTC epoch milliseconds}. The service\
+    \ reads it for each transaction. Evaluation supplies a readable benchmark-owned clock with a protected\
+    \ parent directory; candidates receive the path and must not modify it. Test clock changes are deliberate\
+    \ operations by the benchmark. Clock access and format are public infrastructure.\",\n    \"readiness\"\
+    : \"A protected environment preflight is independent of candidate code. It checks Flutter rendering,\
+    \ real HTTP/SQLite roundtrip across restarts, protected SDK/cache and unprivileged execution. Public\
+    \ task tests then check the candidate foundation. These two outcomes are kept distinct.\"\n  },\n\
+    \  \"interfaces\": {\n    \"fixture\": {\n      \"clinics\": \"List of {id,label}\",\n      \"providers\"\
+    : \"List of {id,clinic_id,label}; provider belongs to one clinic\",\n      \"users\": \"List of {id,username,password,label,role,clinic_id};\
+    \ role is patient or staff, patient clinic_id is null, staff has one clinic_id\",\n      \"slots\"\
+    : \"List of {id,provider_id,start_ms}; initial unoccupied slots, end_ms is start_ms plus 1800000\"\
+    ,\n      \"initialization\": \"First service creation imports the synthetic fixture. Restart with\
+    \ an existing database must retain state and must not reseed/reset it. Fixture identities are unique;\
+    \ labels are display text rather than policy keys.\"\n    },\n    \"wire\": {\n      \"transport\"\
+    : \"JSON over loopback HTTP. Write endpoints accept a JSON object encoded in UTF-8, maximum 32768\
+    \ bytes. The provided Dart client sends Content-Length. Missing/invalid length, malformed JSON and\
+    \ non-object bodies receive 400. Protected paths use Authorization: Bearer <opaque session token>.\
+    \ All business replies are JSON.\",\n      \"identifier\": \"Caller-supplied slot IDs and request/operation\
+    \ IDs must match [A-Za-z0-9][A-Za-z0-9_-]{0,63}. Fixture IDs use this same form. Server-created appointment\
+    \ IDs are opaque nonempty strings; tests do not assume a UUID or token encoding.\",\n      \"time\"\
+    : \"start_ms, end_ms, created_at_ms and updated_at_ms are JSON integers in UTC milliseconds; booleans\
+    \ are not integers. Slot starts are exact minute boundaries in [0, 4102444800000], with end inside\
+    \ that same range. Fixed duration is 1800000 ms. Browser/local timezone or host wall clock cannot\
+    \ substitute for the provided clock.\",\n      \"errors\": \"Error object {error: stable_code}. Standard\
+    \ outcomes are 400 invalid_request, 401 unauthenticated or invalid_credentials, 403 forbidden, 404\
+    \ not_found, 409 conflict and 500 storage_error. Additional human-readable fields may be returned\
+    \ without exposing other users' records. Unknown/foreign appointment identifiers share 404 not_found\
+    \ after authentication and syntactic validation.\",\n      \"success\": \"Responses may contain extra\
+    \ non-sensitive fields. Required structures and fields below must remain compatible; object key ordering\
+    \ and opaque ID spelling are unconstrained.\"\n    },\n    \"routes\": [\n      \"GET /health -> 200\
+    \ {ok:true}; infrastructure readiness only\",\n      \"POST /api/login {username,password} -> 200\
+    \ {token,user}; user contains id,label,role,clinic_id\",\n      \"POST /api/logout {} -> 200 {ok:true};\
+    \ invalidate only the presented authenticated session\",\n      \"GET /api/me -> 200 {user}\",\n \
+    \     \"GET /api/catalog -> 200 {clinics,providers,now_ms}; authenticated synthetic catalog, no users/passwords/tokens\"\
+    ,\n      \"POST /api/slots {id,provider_id,start_ms} -> 201 {slot}\",\n      \"GET /api/slots?clinic_id=<id>[&provider_id=<id>]\
+    \ -> 200 {slots}; clinic_id required, provider filter optional\",\n      \"POST /api/book {request_id,slot_id}\
+    \ -> 201 {appointment} on new booking, 200 on identical replay\",\n      \"GET /api/appointments ->\
+    \ 200 {appointments}\",\n      \"GET /api/appointments/<id> -> 200 {appointment}\",\n      \"POST\
+    \ /api/appointments/<id>/cancel {reason} -> 200 {appointment}\",\n      \"POST /api/appointments/<id>/move\
+    \ {operation_id,to_slot_id,expected_revision} -> 200 {appointment}\"\n    ],\n    \"objects\": {\n\
+    \      \"slot\": \"{id,clinic_id,provider_id,start_ms,end_ms}; scheduling availability excludes occupied\
+    \ or nonfuture slots\",\n      \"appointment\": \"{id,patient_id,clinic_id,provider_id,slot_id,start_ms,end_ms,status,revision,cancel_reason,created_at_ms,updated_at_ms};\
+    \ status is active or cancelled; cancel_reason is null until cancelled\",\n      \"list_order\": \"\
+    Appointments sorted by current start_ms ascending, then appointment id lexicographically; slots sorted\
+    \ by start_ms ascending, then slot id lexicographically. Both histories include past and cancelled\
+    \ appointments within the authorized scope.\"\n    },\n    \"flutter\": {\n      \"entry\": \"lib/clinic.dart\
+    \ exports ClinicController({required String origin}) extending ChangeNotifier, Future<void> settle()\
+    \ to await all initiated requests, bool busy, String? error, and ClinicApp({required ClinicController\
+    \ controller}). Controller.dispose() closes transport. The driver initializes the controller and mounts\
+    \ the real widget tree; business work is driven through the published controls.\",\n      \"keys\"\
+    : [\n        \"login-username\",\n        \"login-password\",\n        \"login-submit\",\n       \
+    \ \"logout\",\n        \"nav-availability\",\n        \"nav-appointments\",\n        \"nav-publish\"\
+    ,\n        \"clinic-select\",\n        \"provider-select\",\n        \"availability-refresh\",\n \
+    \       \"slot-id\",\n        \"slot-start\",\n        \"publish-submit\",\n        \"appointments-refresh\"\
+    ,\n        \"cancel-reason\",\n        \"cancel-submit\",\n        \"move-slot-select\",\n       \
+    \ \"move-submit\",\n        \"dialog-close\"\n      ],\n      \"dynamic_keys\": [\n        \"slot-<slot_id>\"\
+    ,\n        \"book-<slot_id>\",\n        \"appointment-<appointment_id>\",\n        \"cancel-<appointment_id>\"\
+    ,\n        \"move-<appointment_id>\",\n        \"<select_key>-option-<value>\"\n      ],\n      \"\
+    interaction\": \"Use actual text inputs, buttons, dropdowns, navigation and scrollable appointment/slot\
+    \ cards. Selecting a clinic clears any incompatible provider selection. After successful mutations\
+    \ refresh relevant server data and show the returned appointment state. Display readable UTC times,\
+    \ clinic/provider labels and appointment status. Errors must be visible and must not display a failed\
+    \ operation as successful. No exact decorative text, colors or internal widget layout is required.\"\
+    ,\n      \"forms\": \"Publishing accepts slot id, provider selection and start_ms in a numeric text\
+    \ field explicitly labeled UTC milliseconds. Book buttons require no manually invented request ID:\
+    \ the client generates one per booking intent. Cancellation dialog accepts a reason. Move dialog selects\
+    \ an available target slot and submits the displayed appointment revision with a generated operation\
+    \ ID.\",\n      \"adapter\": \"Public driver operations: mount, enter_text(key,text), tap(key), select(key,value),\
+    \ inspect, capture(name), reopen_client, restart_backend, set_clock(now_ms), api(method,path,body,token),\
+    \ parallel_api(requests), drop_next_response(path), release_response. Infrastructure/fault operations\
+    \ run in the manager; candidate widgets never receive hidden expected values. API results and UI observations\
+    \ are evidence, not self-certified correctness. Screenshots are actual rendered PNGs. Inputs and fault\
+    \ capabilities are identical for public and hidden execution; hidden assertions remain in the evaluator.\"\
+    ,\n      \"session_policy\": \"Logout clears the rendered user-specific state. Reopen_client starts\
+    \ logged out; no long-term device token storage is required. Backend restart retains valid sessions.\
+    \ New preview invocation starts a new backend/database and no prior login state.\"\n    }\n  }\n}"
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for authenticated flutter and persistent service foundation.
+  test_interface:
+    type: command
+    entry:
+      language: Dart and Python
+      file: lib/clinic.dart
+      command: python /public_tests/run_clinic.py --script session.json --output /tmp/clinic-preview
+    inputs:
+      transport: Authenticated loopback HTTP, synthetic fixtures and real Flutter controls
+      contract: README.md and /public_tests/README.md
+    output:
+      type: flutter_application_and_http_service
+      meaning: Actual rendered scheduling UI, authenticated JSON responses and durable SQLite appointments
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/clinic_contract.py
+  notes: The business scenario motivates the application category. Exact rules, source code and fixtures
+    are independently authored; visibility fields describe benchmark disclosure, not original customer
+    statements. Already disclosed; explain the existing application and infrastructure. Do not reveal
+    other hidden business requirements unless asked about them.
+- ru_id: RU-002
+  name: Staff slot publication and filtered availability
+  content: 'Only staff may publish slots for providers belonging to their own clinic; patients and cross-clinic
+    staff receive 403 forbidden. Unknown provider receives 404 not_found after role validation.
+
+
+    A new slot must have a valid unique id, valid UTC-minute start strictly greater than now_ms and a
+    30-minute end within the public supported time range. Invalid id/time is 400 invalid_request. Duplicate
+    slot id or overlapping interval for the same provider is 409 conflict. Intervals are half-open, so
+    adjacent slots are allowed. Cancelled bookings never delete the underlying slot and therefore do not
+    permit duplicate/overlapping slot creation.
+
+
+    Availability returns future slots (start_ms > now_ms) with no active booking, within the required
+    clinic and optional provider filter. Unknown filter id is 404; an existing provider from another clinic
+    is 400 invalid_request. Sort by start_ms then slot id. Existing clinics with no matching slots return
+    an empty list.
+
+
+    Staff publish through a real Flutter form; patients see real clinic/provider-filtered availability.
+    Refresh reflects committed backend changes. Invalid submission and permission errors are shown without
+    an optimistic fake slot. The supplied starter already implements this complete regression surface.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for staff slot publication and filtered availability.
+  test_interface:
+    type: command
+    entry:
+      language: Dart and Python
+      file: lib/clinic.dart
+      command: python /public_tests/run_clinic.py --script session.json --output /tmp/clinic-preview
+    inputs:
+      transport: Authenticated loopback HTTP, synthetic fixtures and real Flutter controls
+      contract: README.md and /public_tests/README.md
+    output:
+      type: flutter_application_and_http_service
+      meaning: Actual rendered scheduling UI, authenticated JSON responses and durable SQLite appointments
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/clinic_contract.py
+  notes: The business scenario motivates the application category. Exact rules, source code and fixtures
+    are independently authored; visibility fields describe benchmark disclosure, not original customer
+    statements. Already disclosed. Clarify UTC boundaries, slot publication roles, filtering and error
+    meanings as requested.
+- ru_id: RU-003
+  name: Atomic booking, request replay and private histories
+  content: 'Only a patient can create a booking, always for that authenticated patient. A new request
+    requires an existing future unoccupied slot. Unknown slot is 404; nonfuture or occupied slot is 409.
+    Staff booking is 403. No additional patient-overlap or clinic-membership restriction applies.
+
+
+    Creation, occupancy and the patient''s request_id replay record commit in one SQLite transaction.
+    Concurrent attempts for one slot produce exactly one active booking. Repeated identical requests by
+    the same patient return the same appointment with its CURRENT fields and 200, including after move/cancel
+    or after the slot becomes past. A request_id reused by that patient for a different ORIGINAL slot
+    receives 409 even if that slot is available. Different patients may use the same request_id independently.
+
+
+    New appointments have status active, revision 1, cancel_reason null, creation/update times equal to
+    the transaction''s now_ms and the selected slot''s clinic/provider/time. Appointment IDs are globally
+    unique and opaque.
+
+
+    Patient list/detail exposes only that patient''s appointments. Staff list/detail exposes all appointments
+    in the staff member''s own clinic. Other authenticated users receive the same 404 for a foreign appointment
+    as for an unknown appointment. Lists include cancelled/past appointments, ordered by current start_ms
+    then id. No list/query/body parameter can widen the session''s scope.
+
+
+    Real Flutter booking and appointment cards must reflect committed server state, including errors and
+    status. The booking intent''s generated request_id is reused when an HTTP response is lost and the
+    user retries the same pending action, until success or explicit abandonment/selection of another action.
+    Double taps while pending must not create multiple intents. No requirement to persist an unacknowledged
+    intent across a fresh client process.
+
+
+    Storage failures must return a non-success response and retain the pre-operation state; no partial
+    booking or replay key may remain. Durable booking, replay behavior and private history survive service
+    restart.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for atomic booking, request replay and private histories.
+  test_interface:
+    type: command
+    entry:
+      language: Dart and Python
+      file: lib/clinic.dart
+      command: python /public_tests/run_clinic.py --script session.json --output /tmp/clinic-preview
+    inputs:
+      transport: Authenticated loopback HTTP, synthetic fixtures and real Flutter controls
+      contract: README.md and /public_tests/README.md
+    output:
+      type: flutter_application_and_http_service
+      meaning: Actual rendered scheduling UI, authenticated JSON responses and durable SQLite appointments
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/clinic_contract.py
+  notes: The business scenario motivates the application category. Exact rules, source code and fixtures
+    are independently authored; visibility fields describe benchmark disclosure, not original customer
+    statements. Disclose relevant patient/staff roles, concurrency, idempotency and private-history rules
+    when asked about booking, retries, ownership or histories. Explain concrete edge cases; do not supply
+    implementation code or evaluator inputs.
+- ru_id: RU-004
+  name: Authorized cancellation and slot reopening
+  content: 'The owning patient or staff in the appointment''s clinic may cancel. Other authenticated callers
+    receive 404 not_found. Syntactically valid but unknown appointment IDs also receive 404.
+
+
+    Reason must be a JSON string; strip leading/trailing Unicode whitespace and require 1..200 Unicode
+    codepoints after trimming, otherwise 400. Validate the supplied reason before applying or replaying
+    cancellation.
+
+
+    First cancellation of an active appointment requires current start_ms > now_ms, sets status cancelled,
+    stores the trimmed reason, increments revision once and sets updated_at_ms to now_ms. The appointment
+    remains in history and its slot becomes available if still future. Creation time and current slot
+    are unchanged.
+
+
+    Cancellation of an already cancelled appointment with another VALID reason is an idempotent 200 replay:
+    preserve the first reason, revision, timestamps and state even after the slot becomes past. Cancellation
+    of an active appointment at or after start is 409. Replay must not accidentally free a slot occupied
+    by a later different booking.
+
+
+    Commit cancellation and release of occupancy atomically. Concurrent cancellations preserve exactly
+    one first reason/revision increment. Storage failure leaves all appointment/availability data unchanged;
+    successful behavior persists across restart.
+
+
+    The Flutter cancel dialog is reachable for authorized active appointments, requires a reason and refreshes
+    status/availability on success. Rejection leaves the prior displayed record intact and displays the
+    error. Cancelled records remain visible in the appointment list.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for authorized cancellation and slot reopening.
+  test_interface:
+    type: command
+    entry:
+      language: Dart and Python
+      file: lib/clinic.dart
+      command: python /public_tests/run_clinic.py --script session.json --output /tmp/clinic-preview
+    inputs:
+      transport: Authenticated loopback HTTP, synthetic fixtures and real Flutter controls
+      contract: README.md and /public_tests/README.md
+    output:
+      type: flutter_application_and_http_service
+      meaning: Actual rendered scheduling UI, authenticated JSON responses and durable SQLite appointments
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/clinic_contract.py
+  notes: The business scenario motivates the application category. Exact rules, source code and fixtures
+    are independently authored; visibility fields describe benchmark disclosure, not original customer
+    statements. Disclose ownership, staff authority, cancellation deadline, reason validation, replay
+    and retained-history behavior when asked about cancellation or its effects.
+- ru_id: RU-005
+  name: Atomic rescheduling, revisions and retry behavior
+  content: 'The owning patient or staff in the same clinic may move an appointment; all other authenticated
+    callers receive 404. Input includes a valid operation_id, existing target slot id and positive integer
+    expected_revision (booleans excluded).
+
+
+    For a NEW move operation, the appointment must be active, its current start and target start must
+    both be strictly greater than now_ms, and expected_revision must equal its current revision. The target
+    must be a different unoccupied slot for the SAME provider and clinic. Unknown target is 404; same
+    slot, foreign provider, nonfuture, occupied, cancelled appointment or stale revision is 409. Rejected
+    operations reserve neither an operation_id nor a slot.
+
+
+    Release old occupancy, claim target occupancy, update the appointment''s slot/start/end, increment
+    revision exactly once, set updated_at_ms to now_ms and write the replay record in one transaction.
+    Preserve appointment id, patient, clinic/provider, created_at_ms and null cancel_reason.
+
+
+    Replay keys are scoped to authenticated actor plus operation_id, across that actor''s appointments.
+    Record the original appointment id, target slot and expected revision. An exact authorized replay
+    returns the same appointment''s CURRENT fields with 200, even if a later move/cancel/time change occurred.
+    Reuse with a different appointment, target or original expected_revision is 409. Different actors
+    may use the same operation_id independently; authorization is checked before lookup or disclosure.
+
+
+    Concurrent move attempts with the same expected revision permit at most one new commit. Concurrent
+    move/book to the same target leaves at most one occupant. A move racing a cancellation must yield
+    a state consistent with one legal serial order: cancelled appointments occupy no slot, active appointments
+    occupy exactly their current slot. Lost replies, restarts and retries do not duplicate revision increments
+    or reapply an old move.
+
+
+    Storage failure must leave old occupancy, new occupancy, appointment revision/timestamps and replay
+    records unchanged. The same failed operation may be retried successfully once storage recovers.
+
+
+    The Flutter move dialog lists available slots for the appointment''s provider, submits the displayed
+    revision and a generated operation_id, shows updated times on success and preserves the prior displayed
+    appointment on failure. Reuse the operation_id and original payload for a retry after a lost response;
+    double taps while pending do not create competing intents. After a conflict, refresh the appointment
+    before allowing a newly selected action. No persistent device intent storage is required across a
+    fresh client process.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for atomic rescheduling, revisions and retry behavior.
+  test_interface:
+    type: command
+    entry:
+      language: Dart and Python
+      file: lib/clinic.dart
+      command: python /public_tests/run_clinic.py --script session.json --output /tmp/clinic-preview
+    inputs:
+      transport: Authenticated loopback HTTP, synthetic fixtures and real Flutter controls
+      contract: README.md and /public_tests/README.md
+    output:
+      type: flutter_application_and_http_service
+      meaning: Actual rendered scheduling UI, authenticated JSON responses and durable SQLite appointments
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/clinic_contract.py
+  notes: The business scenario motivates the application category. Exact rules, source code and fixtures
+    are independently authored; visibility fields describe benchmark disclosure, not original customer
+    statements. Disclose move permissions, same-provider constraint, future boundary, revision conflict,
+    transaction/replay behavior and UI retry expectations when asked about rescheduling, concurrent edits
+    or retries.

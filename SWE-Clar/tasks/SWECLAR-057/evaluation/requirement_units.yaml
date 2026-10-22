@@ -1,0 +1,184 @@
+schema_version: 1
+task_id: SWECLAR-057
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual Flutter login, guarded navigation, service booking and notification interface
+requirement_units:
+- ru_id: RU-001
+  name: Mobile action entry point
+  content: 'Complete the supplied runnable Flutter application component: preserve actual login/service/page
+    rendering and connect user gestures to the ServiceController and ServiceApi. Use a new internal copy
+    of supplied notification data. Headless widget tests must observe visible UI changes, not only state
+    fields; HttpServiceApi must perform actual local HTTP requests. Stable widget keys and ServiceController
+    public fields/methods are the automation surface. Extra response metadata is allowed; no exact layout,
+    color or arbitrary identifier convention is required.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for mobile action entry point.
+  test_interface:
+    type: command
+    entry:
+      language: dart
+      file: lib/service_app.dart
+      command: flutter test
+      signature: 'ServiceApp(controller: ServiceController(ServiceApi))'
+    inputs:
+      api: ServiceApi or HttpServiceApi(baseUrl) with synthetic responses
+      notifications: Notification map keyed by ID
+    output:
+      type: flutter_widgets
+      meaning: Rendered interface, controller state and actual HTTP requests
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/flutter_contract.py
+  notes: Synthetic Flutter component and local HTTP contract. Actual rendering and request behavior are
+    assessed; no physical device, external account or app-store deployment required.
+- ru_id: RU-002
+  name: Authentication and guarded navigation
+  content: The login form sends username/password through ServiceApi.login; HttpServiceApi uses POST /login
+    JSON. A successful user with nonempty id and GET /services catalog opens dashboard. Invalid responses
+    leave login state unchanged and show api_failed. Protected navigation rejects unauthenticated users
+    with authentication_required. Logout clears the user and appointments and visibly returns to login.
+    Navigable routes are login, dashboard, appointments and notifications; unknown routes return unknown_route.
+    A request started before logout must not later restore the user or append an appointment after logout.
+    Concurrent busy operations are ignored. Logout immediately resets busy. A login request invalidated
+    by logout must not change user, route or error later.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for authentication and guarded navigation.
+  test_interface:
+    type: command
+    entry:
+      language: dart
+      file: lib/service_app.dart
+      command: flutter test
+      signature: 'ServiceApp(controller: ServiceController(ServiceApi))'
+    inputs:
+      api: ServiceApi or HttpServiceApi(baseUrl) with synthetic responses
+      notifications: Notification map keyed by ID
+    output:
+      type: flutter_widgets
+      meaning: Rendered interface, controller state and actual HTTP requests
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/flutter_contract.py
+  notes: Synthetic Flutter component and local HTTP contract. Actual rendering and request behavior are
+    assessed; no physical device, external account or app-store deployment required.
+- ru_id: RU-003
+  name: Service and appointment flow
+  content: Service catalog entries have id, title and available_slots (string array). Render each service
+    and actionable slot controls. For an authenticated user, booking a known available service/slot calls
+    ServiceApi.book; HttpServiceApi actually POSTs /appointments JSON {service_id,slot}. Accept a response
+    only with a nonempty unique id and the same service_id/slot, store it under that id and visibly open
+    the appointments page. Book at most once per service/slot and avoid concurrent duplicate requests
+    while busy.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for service and appointment flow.
+  test_interface:
+    type: command
+    entry:
+      language: dart
+      file: lib/service_app.dart
+      command: flutter test
+      signature: 'ServiceApp(controller: ServiceController(ServiceApi))'
+    inputs:
+      api: ServiceApi or HttpServiceApi(baseUrl) with synthetic responses
+      notifications: Notification map keyed by ID
+    output:
+      type: flutter_widgets
+      meaning: Rendered interface, controller state and actual HTTP requests
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/flutter_contract.py
+  notes: Synthetic Flutter component and local HTTP contract. Actual rendering and request behavior are
+    assessed; no physical device, external account or app-store deployment required.
+- ru_id: RU-004
+  name: API-style failure handling
+  content: Unknown services, unavailable slots and duplicates return unknown_service, unavailable_slot
+    or duplicate_appointment respectively before sending requests. Transport failures, non-2xx responses
+    or malformed appointment responses show api_failed without inserting an appointment or navigating
+    away. Inputs and existing successful appointments must remain intact; failed requests can be retried.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for api-style failure handling.
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      language: dart
+      file: lib/service_app.dart
+      command: flutter test
+      signature: 'ServiceApp(controller: ServiceController(ServiceApi))'
+    inputs:
+      api: ServiceApi or HttpServiceApi(baseUrl) with synthetic responses
+      notifications: Notification map keyed by ID
+    output:
+      type: flutter_widgets
+      meaning: Rendered interface, controller state and actual HTTP requests
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/flutter_contract.py
+  notes: Synthetic Flutter component and local HTTP contract. Actual rendering and request behavior are
+    assessed; no physical device, external account or app-store deployment required.
+- ru_id: RU-005
+  name: Notification lifecycle
+  content: Notifications are keyed by ID with read boolean, destination route and optional title. Tapping
+    a known notification marks only it read and visibly opens its destination; unknown IDs return unknown_notification.
+    Require authentication and reject unknown destinations without changing notification data.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for notification lifecycle.
+  test_interface:
+    type: command
+    entry:
+      language: dart
+      file: lib/service_app.dart
+      command: flutter test
+      signature: 'ServiceApp(controller: ServiceController(ServiceApi))'
+    inputs:
+      api: ServiceApi or HttpServiceApi(baseUrl) with synthetic responses
+      notifications: Notification map keyed by ID
+    output:
+      type: flutter_widgets
+      meaning: Rendered interface, controller state and actual HTTP requests
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/flutter_contract.py
+  notes: Synthetic Flutter component and local HTTP contract. Actual rendering and request behavior are
+    assessed; no physical device, external account or app-store deployment required.

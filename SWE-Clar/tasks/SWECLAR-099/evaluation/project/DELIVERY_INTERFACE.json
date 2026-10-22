@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-099",
+  "readme": "# Photo request component\n\nAn independently reconstructed browser photo-chat component and Python/Pillow/SQLite HTTP service. The benchmark supplies Linux Chromium and dependencies. No native device, camera, contact-directory access, notification delivery, external account or macOS service is needed.\n\nStart `python /public_tests/demo.py`, then open its printed loopback URL. Synthetic users user-a through user-e use synthetic-passphrase. Select a room, create an Ask/Duo/Challenge request, sign in as a recipient, select a request, wait three seconds, and upload a supplied JPEG. Refresh renders decoded photos. Test helpers supply synthetic images; no personal photos are necessary.\n\nPublic interface: server.py binds PORT to loopback and prints the actual integer port; PHOTO_CONFIG, PHOTO_DATABASE and PHOTO_ASSETS specify fixture/configuration and writable state. GET / serves index.html. Keep the documented accessible form labels and actions for browser automation; internal functions and layout techniques may change.\n\nHTTP JSON: POST /login {user,password} returns token. Authenticated requests use Authorization: Bearer token. GET /rooms, /requests?room=ID, /timeline?room=ID and /contacts return arrays. POST /requests accepts id, room, mode and caption; identical retries are idempotent and conflicts fail. Ask/Challenge target other members, Duo includes the sender. POST /open {request} begins a three-second server countdown; POST /respond {request,image} uploads base64 JPEG. Server timestamps determine eligibility within the 60-second window; later photos remain ordinary timeline entries. Images are decoded/re-encoded to remove metadata. GET /photos/ID requires membership. POST /contact {numbers} matches only selected numbers (+international or 00 prefix; spaces/hyphens/parentheses ignored), returns added users or a local invite action. GET /route?room=ID&request=ID validates both IDs and membership. SQLite and photo files must survive restart.\n\nThe browser provides login, room selection, request creation/opening, JPEG upload, selected-contact matching, request routing, timeline and a two-column group image grid. Only eligible images appear in the group grid. Clarify any unspecified placement of an incomplete row. These are component-level browser functions, not a full production messenger.\n\n## Public browser automation interface\n\nThe existing DOM IDs are stable evaluation interfaces: `#login`, `#room`, `#create`, `#requests`, `#selected`, `#upload`, `#contact`, `#contact-result`, `#route`, `#route-result`, `#timeline`, `#grid` and `#status`. Preserve the corresponding existing form control names (`user`, `password`, `mode`, `caption`, `image`, `numbers`, `request`) and accessible button names. Request entries are actionable buttons; timeline/grid photos expose real `img` elements with captions in `figure`/`figcaption`. These hooks let the evaluator interact with the component and measure rendered image geometry. Internal functions, data structures and CSS techniques may differ; no particular centering implementation is required.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "server.py",
+        "function": "Store.act",
+        "signature": "Store.act(authenticated_user,path,action) -> persisted record"
+      },
+      "inputs": {
+        "authenticated_user": "server-owned session identity",
+        "path": "documented HTTP endpoint",
+        "action": "synthetic request body"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Actual persisted result observed through HTTP, storage and rendered browser interfaces"
+      },
+      "operations": []
+    }
+  ]
+}

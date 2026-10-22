@@ -1,0 +1,190 @@
+schema_version: 1
+task_id: SWECLAR-093
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual Flutter inbox/cart widgets with authenticated HTTP/WebSocket backend
+requirement_units:
+- ru_id: RU-001
+  name: Mobile workflow entry point
+  content: Complete the supplied Flutter UI and Node backend. HttpShopApi must use real GET /catalog,/inbox,/cart,
+    POST /actions and authenticated WebSocket /events. The initial screen loads catalog, existing inbox
+    and cart. Authenticate Bearer tokens through the provided session fixture and scope user operations
+    to that identity. Configured initial records and caller objects are not mutated by the UI controller.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for mobile workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: dart
+      file: lib/controller.dart
+      function: ShopController
+      signature: ShopController(ShopApi api)
+    inputs:
+      api: HttpShopApi(base,token)
+      actions: load/channel/change and realtime stream events
+    output:
+      type: dict
+      meaning: Actual HTTP/WebSocket effects and rendered Flutter inbox/cart state.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/flutter_contract.py
+  notes: The source explicitly requests realtime mobile delivery without refresh and Flutter cart repair.
+    Flutter widgets and actual WebSockets preserve that task type. The Node service, JSON contract, cents
+    representation and synthetic fixtures are reconstruction choices; no original Laravel/Vue code, credentials
+    or client identifiers are included.
+- ru_id: RU-002
+  name: Realtime subscriptions
+  content: subscribe and unsubscribe accept a nonempty channel string for the authenticated known user.
+    Subscription replay is idempotent; removing one subscription preserves other channels and other users.
+    Deliver only to users subscribed at publication time. The Flutter subscribe/unsubscribe controls call
+    the backend.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for realtime subscriptions.
+  test_interface:
+    type: function
+    entry:
+      language: dart
+      file: lib/controller.dart
+      function: ShopController
+      signature: ShopController(ShopApi api)
+    inputs:
+      api: HttpShopApi(base,token)
+      actions: load/channel/change and realtime stream events
+    output:
+      type: dict
+      meaning: Actual HTTP/WebSocket effects and rendered Flutter inbox/cart state.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/flutter_contract.py
+  notes: The source explicitly requests realtime mobile delivery without refresh and Flutter cart repair.
+    Flutter widgets and actual WebSockets preserve that task type. The Node service, JSON contract, cents
+    representation and synthetic fixtures are reconstruction choices; no original Laravel/Vue code, credentials
+    or client identifiers are included.
+- ru_id: RU-003
+  name: Push without refresh
+  content: A manager publish action with a unique nonempty notification ID, channel and title immediately
+    appends one record to each subscribed inbox and sends it over every active authenticated WebSocket
+    for that user. The Flutter inbox displays incoming records and unread count without manual refresh
+    or polling. Exact replay is idempotent; conflicting ID reuse is rejected. Duplicate stream records
+    do not duplicate the Flutter inbox. Nonmanagers may not publish.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for push without refresh.
+  test_interface:
+    type: function
+    entry:
+      language: dart
+      file: lib/controller.dart
+      function: ShopController
+      signature: ShopController(ShopApi api)
+    inputs:
+      api: HttpShopApi(base,token)
+      actions: load/channel/change and realtime stream events
+    output:
+      type: dict
+      meaning: Actual HTTP/WebSocket effects and rendered Flutter inbox/cart state.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/flutter_contract.py
+  notes: The source explicitly requests realtime mobile delivery without refresh and Flutter cart repair.
+    Flutter widgets and actual WebSockets preserve that task type. The Node service, JSON contract, cents
+    representation and synthetic fixtures are reconstruction choices; no original Laravel/Vue code, credentials
+    or client identifiers are included.
+- ru_id: RU-004
+  name: Cart operations
+  content: Cart add/remove actions take a known product_id and positive safe integer quantity. Merge repeated
+    additions, subtract removals without going below zero and remove zero-quantity lines. Prices come
+    only from server products.price_cents, ignoring caller price fields. Return lines (product_id,quantity,price_cents,line_total_cents)
+    and total_cents, with no unsafe integer overflow. Flutter renders the returned line quantities and
+    totals after actual cart requests and preserves the current cart if an update fails.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for cart operations.
+  test_interface:
+    type: function
+    entry:
+      language: dart
+      file: lib/controller.dart
+      function: ShopController
+      signature: ShopController(ShopApi api)
+    inputs:
+      api: HttpShopApi(base,token)
+      actions: load/channel/change and realtime stream events
+    output:
+      type: dict
+      meaning: Actual HTTP/WebSocket effects and rendered Flutter inbox/cart state.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/flutter_contract.py
+  notes: The source explicitly requests realtime mobile delivery without refresh and Flutter cart repair.
+    Flutter widgets and actual WebSockets preserve that task type. The Node service, JSON contract, cents
+    representation and synthetic fixtures are reconstruction choices; no original Laravel/Vue code, credentials
+    or client identifiers are included.
+- ru_id: RU-005
+  name: Safe failures
+  content: Reject invalid authentication, unknown products, empty channels, invalid quantities (including
+    bool,fraction,zero,negative or unsafe integer) and unsupported actions with structured errors and
+    no partial cart/subscription changes. Unknown users cannot connect to /events or use HTTP APIs. Invalid
+    Flutter actions show an error without changing prior successful cart data; channel/user isolation
+    must remain intact.
+  requirement_category: refinement
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for safe failures.
+  test_interface:
+    type: function
+    entry:
+      language: dart
+      file: lib/controller.dart
+      function: ShopController
+      signature: ShopController(ShopApi api)
+    inputs:
+      api: HttpShopApi(base,token)
+      actions: load/channel/change and realtime stream events
+    output:
+      type: dict
+      meaning: Actual HTTP/WebSocket effects and rendered Flutter inbox/cart state.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/flutter_contract.py
+  notes: The source explicitly requests realtime mobile delivery without refresh and Flutter cart repair.
+    Flutter widgets and actual WebSockets preserve that task type. The Node service, JSON contract, cents
+    representation and synthetic fixtures are reconstruction choices; no original Laravel/Vue code, credentials
+    or client identifiers are included.

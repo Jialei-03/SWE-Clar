@@ -1,0 +1,1362 @@
+diff --git a/common.py b/common.py
+index f6acd984e5829a2490ed1a6f96e2118e67327882..bc3e365211e641103c900f9830668a91ade50f20 100644
+--- a/common.py
++++ b/common.py
+@@ -1,15 +1,48 @@
+-"""Public HTTP validation helpers; workflow decisions live in marketplace.py."""
++"""Small validation and error helpers shared by the HTTP application."""
+ import re
++
++
+ class Problem(Exception):
+- def __init__(self,status,code):self.status=status;self.code=code
++    def __init__(self, status, code):
++        self.status = status
++        self.code = code
++        super().__init__(code)
++
++
++def require(condition, code="invalid", status=400):
++    if not condition:
++        raise Problem(status, code)
++
++
++def fields(value, names):
++    """Require a JSON object with exactly the named fields."""
++    require(isinstance(value, dict) and set(value) == set(names))
++
++
++def optional_fields(value, allowed, required=()):
++    """Validate a query object represented by a dict of single values."""
++    require(isinstance(value, dict))
++    require(set(value).issubset(set(allowed)))
++    require(set(required).issubset(set(value)))
++
++
++_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
++
++
++def ident(value):
++    return isinstance(value, str) and _ID_RE.fullmatch(value) is not None
++
+ 
+-def require(condition,code='invalid',status=400):
+- if not condition:raise Problem(status,code)
++def timestamp(value):
++    # bool is an int subclass, but it is not a public timestamp.
++    return type(value) is int and 0 <= value <= 253402300799999
+ 
+-def fields(value,names):require(isinstance(value,dict) and set(value)==set(names))
+-def ident(value):return isinstance(value,str) and re.fullmatch(r'[A-Za-z0-9_-]{1,64}',value) is not None
+-def timestamp(value):return type(value) is int and 0<=value<=253402300799999
+ 
+-def text(value,limit,nonempty=True,trim=True):
+- require(isinstance(value,str));result=value.strip() if trim else value
+- require(len(result)<=limit and (bool(result) or not nonempty));return result
++def text(value, limit, nonempty=True, trim=True):
++    require(isinstance(value, str))
++    # JSON can spell an unpaired UTF-16 surrogate even though it is not a
++    # Unicode scalar value and cannot be persisted or rendered as UTF-8.
++    require(not any(0xD800 <= ord(character) <= 0xDFFF for character in value))
++    result = value.strip() if trim else value
++    require(len(result) <= limit and (bool(result) or not nonempty))
++    return result
+diff --git a/control_algorithms.py b/control_algorithms.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..bf399bc567946d5b0bd010fc73393cd8896555d6
+--- /dev/null
++++ b/control_algorithms.py
+@@ -0,0 +1,12 @@
++def stable_order(values, key=None):
++    rows=[((key(value) if key else value), value) for value in values]
++    def merge_sort(items):
++        if len(items)<2: return items
++        middle=len(items)//2
++        left,right=merge_sort(items[:middle]),merge_sort(items[middle:])
++        result=[];i=j=0
++        while i<len(left) and j<len(right):
++            if right[j][0]<left[i][0]: result.append(right[j]);j+=1
++            else: result.append(left[i]);i+=1
++        return result+left[i:]+right[j:]
++    return [row[1] for row in merge_sort(rows)]
+diff --git a/marketplace.py b/marketplace.py
+index 3e295680200ff2463b574c007cfcc7b036d0ecff..9bce634fda2413ec45f5c5c0d732dc29cdb61ccc 100644
+--- a/marketplace.py
++++ b/marketplace.py
+@@ -1,27 +1,723 @@
+-"""Working profile/contact baseline. Complete hiring workflows after clarification."""
+-from common import Problem,require,fields,ident,text
++"""Business workflows for the local synthetic hiring marketplace."""
++import base64
++import binascii
++import csv
++import datetime as _datetime
++import hashlib
++import io
++import json
++import re
++import sqlite3
++
++from common import Problem, fields, ident, optional_fields, require, text, timestamp
+ from storage import public_user
+ 
+-def relationships(db,user):
+- return [dict(r) for r in db.execute('SELECT * FROM relationships WHERE actor_id=? OR target_id=? ORDER BY kind,actor_id,target_id',(user['id'],user['id']))]
+-
+-def dispatch(db,user,method,path,query,body):
+- if method=='GET' and path=='/api/profiles':
+-  fields(query,[]);return {'profiles':[public_user(r) for r in db.execute('SELECT * FROM users ORDER BY id')]}
+- if method=='PUT' and path=='/api/profile':
+-  fields(body,['name','bio']);name=text(body['name'],120);bio=text(body['bio'],2000,False,False);db.execute('UPDATE users SET name=?,bio=? WHERE id=?',(name,bio,user['id']));return {'user':public_user(db.execute('SELECT * FROM users WHERE id=?',(user['id'],)).fetchone())}
+- if method=='GET' and path=='/api/relationships':
+-  fields(query,[]);return {'relationships':relationships(db,user)}
+- if method=='POST' and path=='/api/relationships':
+-  fields(body,['target_id','kind','enabled']);require(ident(body['target_id']) and body['kind'] in ['follow','connect'] and type(body['enabled']) is bool)
+-  target=db.execute('SELECT * FROM users WHERE id=?',(body['target_id'],)).fetchone();require(target is not None,'not_found',404);require(target['id']!=user['id'])
+-  valid=(body['kind']=='follow' and target['role']=='employer') or (body['kind']=='connect' and user['role']==target['role']=='employee');require(valid,'denied',403)
+-  ids=sorted([user['id'],target['id']]) if body['kind']=='connect' else [user['id'],target['id']]
+-  if body['enabled']:db.execute('INSERT OR IGNORE INTO relationships VALUES(?,?,?)',(*ids,body['kind']))
+-  else:db.execute('DELETE FROM relationships WHERE actor_id=? AND target_id=? AND kind=?',(*ids,body['kind']))
+-  return {'relationships':relationships(db,user)}
+- return hiring_dispatch(db,user,method,path,query,body)
+-
+-def hiring_dispatch(db,user,method,path,query,body):
+- # TODO: implement the clarified job, file, application, interview and analytics workflows.
+- raise Problem(501,'workflow_not_implemented')
++
++_JOB_COLUMNS = (
++    "job_id",
++    "employer_id",
++    "title",
++    "description",
++    "category",
++    "location",
++    "active",
++)
++_FILENAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}\.txt\Z", re.IGNORECASE)
++_QUERY_INT_RE = re.compile(r"-?[0-9]+\Z")
++_MAX_INTERVIEW_MS = 8 * 60 * 60 * 1000
++
++
++def _job_public(row):
++    return {
++        "job_id": row["job_id"],
++        "employer_id": row["employer_id"],
++        "title": row["title"],
++        "description": row["description"],
++        "category": row["category"],
++        "location": row["location"],
++        "active": bool(row["active"]),
++    }
++
++
++def _job_row(db, job_id):
++    return db.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
++
++
++def _clock_ms(db):
++    row = db.execute("SELECT value FROM meta WHERE key='clock_ms'").fetchone()
++    require(row is not None, "storage_unavailable", 503)
++    try:
++        value = json.loads(row["value"])
++    except (TypeError, ValueError, json.JSONDecodeError):
++        raise Problem(503, "storage_unavailable")
++    require(timestamp(value), "storage_unavailable", 503)
++    return value
++
++
++def relationships(db, user):
++    rows = db.execute(
++        """SELECT actor_id,target_id,kind FROM relationships
++           WHERE actor_id=? OR target_id=?
++           ORDER BY kind,actor_id,target_id""",
++        (user["id"], user["id"]),
++    )
++    return [dict(row) for row in rows]
++
++
++def _application_row(db, application_id):
++    return db.execute(
++        """SELECT a.application_id,a.job_id,a.employee_id,a.resume_id,a.status,
++                  j.employer_id,j.title AS job_title
++           FROM applications AS a
++           JOIN jobs AS j ON j.job_id=a.job_id
++           WHERE a.application_id=?""",
++        (application_id,),
++    ).fetchone()
++
++
++def _application_public(row):
++    return {
++        "application_id": row["application_id"],
++        "job_id": row["job_id"],
++        "employee_id": row["employee_id"],
++        "employer_id": row["employer_id"],
++        "job_title": row["job_title"],
++        "resume_id": row["resume_id"],
++        "status": row["status"],
++    }
++
++
++def _interview_public(row, participants=None):
++    return {
++        **({"participants": list(participants)} if participants is not None else {}),
++        "interview_id": row["interview_id"],
++        "application_id": row["application_id"],
++        "start_ms": row["start_ms"],
++        "end_ms": row["end_ms"],
++    }
++
++
++def _query_timestamp(value):
++    require(isinstance(value, str) and _QUERY_INT_RE.fullmatch(value) is not None)
++    try:
++        result = int(value, 10)
++    except (TypeError, ValueError, OverflowError):
++        raise Problem(400, "invalid")
++    require(timestamp(result))
++    return result
++
++
++def _period(query):
++    has_start = "start_ms" in query
++    has_end = "end_ms" in query
++    require(has_start == has_end)
++    if not has_start:
++        return None
++    start = _query_timestamp(query["start_ms"])
++    end = _query_timestamp(query["end_ms"])
++    require(start <= end)
++    return start, end
++
++
++def _job_fields(body, active=False):
++    names = ["job_id", "title", "description", "category", "location"]
++    if active:
++        names.append("active")
++    fields(body, names)
++    require(ident(body["job_id"]))
++    result = {
++        "job_id": body["job_id"],
++        "title": text(body["title"], 160),
++        "description": text(body["description"], 10000),
++        "category": text(body["category"], 80),
++        "location": text(body["location"], 80),
++    }
++    if active:
++        require(type(body["active"]) is bool)
++        result["active"] = body["active"]
++    return result
++
++
++def _bookmark_jobs(db, user_id):
++    rows = db.execute(
++        """SELECT j.* FROM bookmarks AS b
++           JOIN jobs AS j ON j.job_id=b.job_id
++           WHERE b.employee_id=? ORDER BY j.job_id""",
++        (user_id,),
++    )
++    return [_job_public(row) for row in rows]
++
++
++def _resume_public(row):
++    return {
++        "resume_id": row["resume_id"],
++        "filename": row["filename"],
++        "size_bytes": row["size_bytes"],
++        "sha256": row["sha256"],
++    }
++
++
++def _decode_resume(body):
++    require(isinstance(body["filename"], str))
++    filename = body["filename"]
++    require(
++        filename.isascii()
++        and 1 <= len(filename) <= 80
++        and _FILENAME_RE.fullmatch(filename) is not None
++    )
++    encoded = body["content_base64"]
++    require(isinstance(encoded, str))
++    try:
++        raw = encoded.encode("ascii")
++        content = base64.b64decode(raw, validate=True)
++    except (UnicodeEncodeError, binascii.Error, ValueError):
++        raise Problem(400, "invalid")
++    # Re-encoding rejects noncanonical padding and alternate spellings.
++    require(base64.b64encode(content).decode("ascii") == encoded)
++    require(1 <= len(content) <= 262144)
++    require(b"\x00" not in content)
++    try:
++        content.decode("utf-8")
++    except UnicodeDecodeError:
++        raise Problem(400, "invalid")
++    return filename, content
++
++
++def _analytics_data(db, job_id, period):
++    params = [job_id]
++    sql = "SELECT viewer_id,timestamp_ms FROM views WHERE job_id=?"
++    if period is not None:
++        sql += " AND timestamp_ms>=? AND timestamp_ms<=?"
++        params.extend(period)
++    rows = list(db.execute(sql, params))
++    by_day = {}
++    all_viewers = set()
++    for row in rows:
++        timestamp_value = row["timestamp_ms"]
++        day = (
++            _datetime.datetime(1970, 1, 1, tzinfo=_datetime.timezone.utc)
++            + _datetime.timedelta(milliseconds=timestamp_value)
++        ).date().isoformat()
++        record = by_day.setdefault(day, {"views": 0, "viewers": set()})
++        record["views"] += 1
++        record["viewers"].add(row["viewer_id"])
++        all_viewers.add(row["viewer_id"])
++    daily = [
++        {
++            "day": day,
++            "views": by_day[day]["views"],
++            "unique_viewers": len(by_day[day]["viewers"]),
++        }
++        for day in __import__('control_algorithms').stable_order(by_day)
++    ]
++    return {
++        "job_id": job_id,
++        "views": len(rows),
++        "unique_viewers": len(all_viewers),
++        "by_day": daily,
++    }
++
++
++def _analytics_csv(data):
++    output = io.StringIO(newline="")
++    writer = csv.writer(output, lineterminator="\n")
++    writer.writerow(("day", "views", "unique_viewers"))
++    for row in data["by_day"]:
++        writer.writerow((row["day"], row["views"], row["unique_viewers"]))
++    return output.getvalue().encode("utf-8")
++
++
++def _dispatch_profiles_and_relationships(db, user, method, path, query, body):
++    if method == "GET" and path == "/api/profiles":
++        fields(query, [])
++        return {
++            "profiles": [
++                public_user(row)
++                for row in db.execute("SELECT * FROM users ORDER BY id")
++            ]
++        }
++
++    if method == "PUT" and path == "/api/profile":
++        fields(body, ["name", "bio"])
++        name = text(body["name"], 120)
++        # Biography whitespace and markup are data, not formatting.
++        bio = text(body["bio"], 2000, nonempty=False, trim=False)
++        db.execute("UPDATE users SET name=?,bio=? WHERE id=?", (name, bio, user["id"]))
++        return {
++            "user": public_user(
++                db.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
++            )
++        }
++
++    if method == "GET" and path == "/api/relationships":
++        fields(query, [])
++        return {"relationships": relationships(db, user)}
++
++    if method == "POST" and path == "/api/relationships":
++        fields(body, ["target_id", "kind", "enabled"])
++        require(ident(body["target_id"]))
++        require(body["kind"] in ("follow", "connect"))
++        require(type(body["enabled"]) is bool)
++        target = db.execute("SELECT * FROM users WHERE id=?", (body["target_id"],)).fetchone()
++        require(target is not None, "not_found", 404)
++        require(target["id"] != user["id"])
++        valid = (
++            body["kind"] == "follow" and target["role"] == "employer"
++        ) or (
++            body["kind"] == "connect"
++            and user["role"] == "employee"
++            and target["role"] == "employee"
++        )
++        require(valid, "forbidden", 403)
++        if body["kind"] == "connect":
++            actor_id, target_id = sorted((user["id"], target["id"]))
++        else:
++            actor_id, target_id = user["id"], target["id"]
++        if body["enabled"]:
++            db.execute(
++                "INSERT OR IGNORE INTO relationships(actor_id,target_id,kind) VALUES(?,?,?)",
++                (actor_id, target_id, body["kind"]),
++            )
++        else:
++            db.execute(
++                "DELETE FROM relationships WHERE actor_id=? AND target_id=? AND kind=?",
++                (actor_id, target_id, body["kind"]),
++            )
++        return {"relationships": relationships(db, user)}
++
++    return None
++
++
++def _dispatch_jobs(db, user, method, path, query, body):
++    if method == "GET" and path == "/api/jobs":
++        optional_fields(query, ("q", "category", "location"))
++        q = query.get("q", "").strip().casefold()
++        category = query.get("category", "").strip().casefold()
++        location = query.get("location", "").strip().casefold()
++        if user["role"] == "employer":
++            rows = db.execute(
++                "SELECT * FROM jobs WHERE employer_id=? ORDER BY job_id", (user["id"],)
++            )
++        else:
++            rows = db.execute("SELECT * FROM jobs WHERE active=1 ORDER BY job_id")
++        result = []
++        for row in rows:
++            if q and not (
++                q in row["title"].casefold()
++                or q in row["description"].casefold()
++            ):
++                continue
++            if category and row["category"].strip().casefold() != category:
++                continue
++            if location and row["location"].strip().casefold() != location:
++                continue
++            result.append(_job_public(row))
++        return {"jobs": result}
++
++    if method == "POST" and path == "/api/jobs":
++        value = _job_fields(body)
++        require(user["role"] == "employer", "forbidden", 403)
++        require(_job_row(db, value["job_id"]) is None, "conflict", 409)
++        db.execute(
++            """INSERT INTO jobs
++               (job_id,employer_id,title,description,category,location,active)
++               VALUES(?,?,?,?,?,?,1)""",
++            (
++                value["job_id"],
++                user["id"],
++                value["title"],
++                value["description"],
++                value["category"],
++                value["location"],
++            ),
++        )
++        return {"job": _job_public(_job_row(db, value["job_id"]))}
++
++    if method == "PUT" and path == "/api/jobs":
++        value = _job_fields(body, active=True)
++        row = _job_row(db, value["job_id"])
++        require(row is not None, "not_found", 404)
++        require(user["role"] == "employer", "forbidden", 403)
++        require(row["employer_id"] == user["id"], "forbidden", 403)
++        db.execute(
++            """UPDATE jobs SET title=?,description=?,category=?,location=?,active=?
++               WHERE job_id=?""",
++            (
++                value["title"],
++                value["description"],
++                value["category"],
++                value["location"],
++                int(value["active"]),
++                value["job_id"],
++            ),
++        )
++        return {"job": _job_public(_job_row(db, value["job_id"]))}
++
++    if method == "GET" and path == "/api/job":
++        fields(query, ["job_id"])
++        require(ident(query["job_id"]))
++        row = _job_row(db, query["job_id"])
++        require(row is not None, "not_found", 404)
++        allowed = row["employer_id"] == user["id"] or (
++            user["role"] == "employee" and bool(row["active"])
++        )
++        require(allowed, "forbidden", 403)
++        return {"job": _job_public(row)}
++
++    if method == "GET" and path == "/api/bookmarks":
++        fields(query, [])
++        require(user["role"] == "employee", "forbidden", 403)
++        return {"jobs": _bookmark_jobs(db, user["id"])}
++
++    if method == "POST" and path == "/api/bookmarks":
++        fields(body, ["job_id", "enabled"])
++        require(user["role"] == "employee", "forbidden", 403)
++        require(ident(body["job_id"]))
++        require(type(body["enabled"]) is bool)
++        row = _job_row(db, body["job_id"])
++        require(row is not None, "not_found", 404)
++        if body["enabled"]:
++            require(bool(row["active"]), "conflict", 409)
++            db.execute(
++                "INSERT OR IGNORE INTO bookmarks(employee_id,job_id) VALUES(?,?)",
++                (user["id"], body["job_id"]),
++            )
++        else:
++            db.execute(
++                "DELETE FROM bookmarks WHERE employee_id=? AND job_id=?",
++                (user["id"], body["job_id"]),
++            )
++        return {"jobs": _bookmark_jobs(db, user["id"])}
++
++    return None
++
++
++def _dispatch_resumes(db, user, method, path, query, body):
++    if method == "POST" and path == "/api/resumes":
++        fields(body, ["resume_id", "filename", "content_base64"])
++        require(user["role"] == "employee", "forbidden", 403)
++        require(ident(body["resume_id"]))
++        filename, content = _decode_resume(body)
++        existing = db.execute(
++            "SELECT * FROM resumes WHERE resume_id=?", (body["resume_id"],)
++        ).fetchone()
++        if existing is not None:
++            same = (
++                existing["owner_id"] == user["id"]
++                and existing["filename"] == filename
++                and bytes(existing["content"]) == content
++            )
++            require(same, "conflict", 409)
++            return {"resume": _resume_public(existing), "duplicate": True}
++        digest = hashlib.sha256(content).hexdigest()
++        db.execute(
++            """INSERT INTO resumes
++               (resume_id,owner_id,filename,content,size_bytes,sha256)
++               VALUES(?,?,?,?,?,?)""",
++            (
++                body["resume_id"],
++                user["id"],
++                filename,
++                sqlite3.Binary(content),
++                len(content),
++                digest,
++            ),
++        )
++        row = db.execute(
++            "SELECT * FROM resumes WHERE resume_id=?", (body["resume_id"],)
++        ).fetchone()
++        return {"resume": _resume_public(row), "duplicate": False}
++
++    if method == "GET" and path == "/api/resume":
++        fields(query, ["resume_id"])
++        require(ident(query["resume_id"]))
++        row = db.execute(
++            "SELECT * FROM resumes WHERE resume_id=?", (query["resume_id"],)
++        ).fetchone()
++        # A nonexistent identifier is intentionally indistinguishable from a
++        # resume owned by another account at this endpoint.
++        require(row is not None, "forbidden", 403)
++        allowed = row["owner_id"] == user["id"]
++        if not allowed and user["role"] == "employer":
++            allowed = (
++                db.execute(
++                    """SELECT 1 FROM applications AS a
++                       JOIN jobs AS j ON j.job_id=a.job_id
++                       WHERE a.resume_id=? AND j.employer_id=? LIMIT 1""",
++                    (query["resume_id"], user["id"]),
++                ).fetchone()
++                is not None
++            )
++        require(allowed, "forbidden", 403)
++        return (bytes(row["content"]), "text/plain", row["filename"])
++
++    return None
++
++
++def _dispatch_applications(db, user, method, path, query, body):
++    if method == "GET" and path == "/api/applications":
++        fields(query, [])
++        if user["role"] == "employee":
++            rows = db.execute(
++                """SELECT a.application_id,a.job_id,a.employee_id,a.resume_id,a.status,
++                          j.employer_id,j.title AS job_title
++                   FROM applications AS a JOIN jobs AS j ON j.job_id=a.job_id
++                   WHERE a.employee_id=? ORDER BY a.application_id""",
++                (user["id"],),
++            )
++        else:
++            rows = db.execute(
++                """SELECT a.application_id,a.job_id,a.employee_id,a.resume_id,a.status,
++                          j.employer_id,j.title AS job_title
++                   FROM applications AS a JOIN jobs AS j ON j.job_id=a.job_id
++                   WHERE j.employer_id=? ORDER BY a.application_id""",
++                (user["id"],),
++            )
++        return {"applications": [_application_public(row) for row in rows]}
++
++    if method == "POST" and path == "/api/applications":
++        fields(body, ["application_id", "job_id", "resume_id"])
++        require(user["role"] == "employee", "forbidden", 403)
++        require(ident(body["application_id"]) and ident(body["job_id"]))
++        resume_id = body["resume_id"]
++        require(resume_id is None or ident(resume_id))
++
++        existing_id = db.execute(
++            "SELECT * FROM applications WHERE application_id=?",
++            (body["application_id"],),
++        ).fetchone()
++        if existing_id is not None:
++            same = (
++                existing_id["job_id"] == body["job_id"]
++                and existing_id["employee_id"] == user["id"]
++                and existing_id["resume_id"] == resume_id
++            )
++            require(same, "conflict", 409)
++            return {
++                "application": _application_public(
++                    _application_row(db, body["application_id"])
++                ),
++                "duplicate": True,
++            }
++
++        pair = db.execute(
++            "SELECT application_id FROM applications WHERE job_id=? AND employee_id=?",
++            (body["job_id"], user["id"]),
++        ).fetchone()
++        require(pair is None, "conflict", 409)
++
++        if resume_id is not None:
++            resume = db.execute(
++                "SELECT owner_id FROM resumes WHERE resume_id=?", (resume_id,)
++            ).fetchone()
++            require(resume is not None and resume["owner_id"] == user["id"], "forbidden", 403)
++
++        job = _job_row(db, body["job_id"])
++        require(job is not None, "not_found", 404)
++        require(bool(job["active"]), "conflict", 409)
++        db.execute(
++            """INSERT INTO applications
++               (application_id,job_id,employee_id,resume_id,status)
++               VALUES(?,?,?,?,?)""",
++            (body["application_id"], body["job_id"], user["id"], resume_id, "applied"),
++        )
++        return {
++            "application": _application_public(
++                _application_row(db, body["application_id"])
++            ),
++            "duplicate": False,
++        }
++
++    return None
++
++
++def _dispatch_rejection(db, user, method, path, query, body):
++    if method == "POST" and path == "/api/reject":
++        fields(body, ["application_id"])
++        require(ident(body["application_id"]))
++        require(user["role"] == "employer", "forbidden", 403)
++        row = _application_row(db, body["application_id"])
++        # This endpoint intentionally does not reveal whether another
++        # employer's or nonexistent application exists.
++        require(row is not None and row["employer_id"] == user["id"], "forbidden", 403)
++        db.execute("DELETE FROM interviews WHERE application_id=?", (body["application_id"],))
++        db.execute(
++            "UPDATE applications SET status='rejected' WHERE application_id=?",
++            (body["application_id"],),
++        )
++        return {"application": _application_public(_application_row(db, body["application_id"]))}
++    return None
++
++
++def _dispatch_interviews(db, user, method, path, query, body):
++    if method == "POST" and path == "/api/interviews":
++        fields(body, ["interview_id", "application_id", "start_ms", "end_ms"])
++        require(ident(body["interview_id"]) and ident(body["application_id"]))
++        require(timestamp(body["start_ms"]) and timestamp(body["end_ms"]))
++        require(body["end_ms"] > body["start_ms"])
++        require(body["start_ms"] >= _clock_ms(db))
++        require(body["end_ms"] - body["start_ms"] <= _MAX_INTERVIEW_MS)
++        require(user["role"] == "employer", "forbidden", 403)
++
++        app = _application_row(db, body["application_id"])
++        require(app is not None and app["employer_id"] == user["id"], "forbidden", 403)
++
++        existing_id = db.execute(
++            "SELECT * FROM interviews WHERE interview_id=?", (body["interview_id"],)
++        ).fetchone()
++        if existing_id is not None:
++            same = (
++                existing_id["application_id"] == body["application_id"]
++                and existing_id["start_ms"] == body["start_ms"]
++                and existing_id["end_ms"] == body["end_ms"]
++            )
++            require(same, "conflict", 409)
++            return {
++                "interview": _interview_public(existing_id, [app["employer_id"], app["employee_id"]]),
++                "duplicate": True,
++            }
++
++        scheduled = db.execute(
++            "SELECT * FROM interviews WHERE application_id=?",
++            (body["application_id"],),
++        ).fetchone()
++        require(scheduled is None, "conflict", 409)
++        require(app["status"] != "rejected", "conflict", 409)
++
++        overlap = db.execute(
++            """SELECT 1
++               FROM interviews AS i
++               JOIN applications AS a ON a.application_id=i.application_id
++               JOIN jobs AS j ON j.job_id=a.job_id
++               WHERE (j.employer_id=? OR a.employee_id=?)
++                 AND i.start_ms < ? AND i.end_ms > ?
++               LIMIT 1""",
++            (
++                user["id"],
++                app["employee_id"],
++                body["end_ms"],
++                body["start_ms"],
++            ),
++        ).fetchone()
++        require(overlap is None, "conflict", 409)
++        db.execute(
++            "INSERT INTO interviews(interview_id,application_id,start_ms,end_ms) VALUES(?,?,?,?)",
++            (
++                body["interview_id"],
++                body["application_id"],
++                body["start_ms"],
++                body["end_ms"],
++            ),
++        )
++        db.execute(
++            "UPDATE applications SET status='scheduled' WHERE application_id=?",
++            (body["application_id"],),
++        )
++        row = db.execute(
++            "SELECT * FROM interviews WHERE interview_id=?", (body["interview_id"],)
++        ).fetchone()
++        return {"interview": _interview_public(row, [app["employer_id"], app["employee_id"]]), "duplicate": False}
++
++    if method == "GET" and path == "/api/calendar":
++        fields(query, [])
++        if user["role"] == "employee":
++            where, value = "a.employee_id=?", user["id"]
++        else:
++            where, value = "j.employer_id=?", user["id"]
++        rows = db.execute(
++            f"""SELECT i.interview_id,i.application_id,i.start_ms,i.end_ms,
++                         a.job_id,a.employee_id,j.employer_id,j.title AS job_title
++                    FROM interviews AS i
++                    JOIN applications AS a ON a.application_id=i.application_id
++                    JOIN jobs AS j ON j.job_id=a.job_id
++                   WHERE {where}
++                   ORDER BY i.start_ms,i.interview_id""",
++            (value,),
++        )
++        result = []
++        for row in rows:
++            result.append(
++                {
++                    "interview_id": row["interview_id"],
++                    "application_id": row["application_id"],
++                    "job_id": row["job_id"],
++                    "job_title": row["job_title"],
++                    "participants": [row["employer_id"], row["employee_id"]],
++                    "start_ms": row["start_ms"],
++                    "end_ms": row["end_ms"],
++                }
++            )
++        return {"interviews": result}
++
++    return None
++
++
++def _dispatch_views_and_analytics(db, user, method, path, query, body):
++    if method == "POST" and path == "/api/views":
++        fields(body, ["event_id", "job_id", "timestamp_ms"])
++        require(ident(body["event_id"]) and ident(body["job_id"]))
++        require(timestamp(body["timestamp_ms"]))
++        require(user["role"] == "employee", "forbidden", 403)
++
++        existing = db.execute(
++            """SELECT * FROM views WHERE viewer_id=? AND event_id=?""",
++            (user["id"], body["event_id"]),
++        ).fetchone()
++        if existing is not None:
++            same = (
++                existing["job_id"] == body["job_id"]
++                and existing["timestamp_ms"] == body["timestamp_ms"]
++            )
++            require(same, "conflict", 409)
++            return {"accepted": True, "duplicate": True}
++
++        job = _job_row(db, body["job_id"])
++        require(job is not None and bool(job["active"]), "not_found", 404)
++        db.execute(
++            "INSERT INTO views(viewer_id,event_id,job_id,timestamp_ms) VALUES(?,?,?,?)",
++            (user["id"], body["event_id"], body["job_id"], body["timestamp_ms"]),
++        )
++        return {"accepted": True, "duplicate": False}
++
++    if method in ("GET",) and path in ("/api/analytics", "/api/analytics.csv"):
++        optional_fields(query, ("job_id", "start_ms", "end_ms"), required=("job_id",))
++        require(ident(query["job_id"]))
++        require(user["role"] == "employer", "forbidden", 403)
++        job = _job_row(db, query["job_id"])
++        require(job is not None and job["employer_id"] == user["id"], "forbidden", 403)
++        data = _analytics_data(db, query["job_id"], _period(query))
++        if path == "/api/analytics":
++            return data
++        return (_analytics_csv(data), "text/csv", "job-views.csv")
++
++    return None
++
++
++def hiring_dispatch(db, user, method, path, query, body):
++    """Dispatch all authenticated public endpoints."""
++    result = _dispatch_profiles_and_relationships(db, user, method, path, query, body)
++    if result is not None:
++        return result
++    result = _dispatch_jobs(db, user, method, path, query, body)
++    if result is not None:
++        return result
++    result = _dispatch_resumes(db, user, method, path, query, body)
++    if result is not None:
++        return result
++    result = _dispatch_applications(db, user, method, path, query, body)
++    if result is not None:
++        return result
++    result = _dispatch_rejection(db, user, method, path, query, body)
++    if result is not None:
++        return result
++    result = _dispatch_interviews(db, user, method, path, query, body)
++    if result is not None:
++        return result
++    result = _dispatch_views_and_analytics(db, user, method, path, query, body)
++    if result is not None:
++        return result
++    raise Problem(404, "not_found")
++
++
++def dispatch(db, user, method, path, query, body):
++    return hiring_dispatch(db, user, method, path, query, body)
+diff --git a/server.py b/server.py
+index 516f8845f830f4f4e858a0cfee47ba70a4ab6d02..b99421fa89c2adbee2f8e591b5d4fe177b26b590 100644
+--- a/server.py
++++ b/server.py
+@@ -1,59 +1,189 @@
+ """Actual local HTTP hiring application; no production services or original assets."""
+-import argparse,hmac,json,secrets,sqlite3
+-from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
++import argparse
++import hmac
++import json
++import secrets
++import sqlite3
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
+-from urllib.parse import urlparse,parse_qs
+-from common import Problem,require,fields
+-from storage import connect,initialize,password_hash,public_user
++from urllib.parse import parse_qs, urlparse
++
++from common import Problem, fields, ident, require
++from storage import connect, initialize, password_hash, public_user
+ import marketplace
+ 
++
++def _object_without_duplicate_keys(pairs):
++    result = {}
++    for key, value in pairs:
++        if key in result:
++            raise ValueError("duplicate JSON field")
++        result[key] = value
++    return result
++
++
+ class Handler(BaseHTTPRequestHandler):
+- def log_message(self,*args):pass
+- def send(self,status,payload,kind='application/json',filename=None):
+-  data=json.dumps(payload,ensure_ascii=False,allow_nan=False).encode() if kind=='application/json' else payload
+-  self.send_response(status);self.send_header('Content-Type',kind+'; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)))
+-  if filename:self.send_header('Content-Disposition','attachment; filename="'+filename+'"')
+-  self.end_headers();self.wfile.write(data)
+- def do_GET(self):self.handle_request()
+- def do_POST(self):self.handle_request()
+- def do_PUT(self):self.handle_request()
+- def handle_request(self):
+-  try:
+-   route=urlparse(self.path);path=route.path
+-   static={'/':('index.html','text/html'),'/ui.js':('ui.js','text/javascript'),'/style.css':('style.css','text/css')}
+-   if self.command=='GET' and path in static:
+-    name,kind=static[path];self.send(200,(Path(__file__).parent/'web'/name).read_bytes(),kind);return
+-   if self.command=='GET' and path=='/health':self.send(200,{'ok':True});return
+-   body={}
+-   if self.command in ['POST','PUT']:
+-    size=int(self.headers.get('Content-Length','0'));require(0<size<=400000);body=json.loads(self.rfile.read(size),parse_constant=lambda _:None);require(isinstance(body,dict))
+-   query=parse_qs(route.query,keep_blank_values=True);require(all(len(v)==1 for v in query.values()));query={k:v[0] for k,v in query.items()}
+-   with connect(self.server.db) as db:
+-    db.execute('BEGIN IMMEDIATE');result=self.dispatch(db,path,query,body)
+-   if isinstance(result,tuple):data,kind,filename=result;self.send(200,data,kind,filename)
+-   else:self.send(200,result)
+-  except Problem as error:self.send(error.status,{'error':{'code':error.code}})
+-  except (ValueError,TypeError,UnicodeError):self.send(400,{'error':{'code':'invalid'}})
+-  except sqlite3.Error:self.send(503,{'error':{'code':'storage_unavailable'}})
+- def dispatch(self,db,path,query,body):
+-  method=self.command
+-  if method=='POST' and path=='/api/login':
+-   fields(query,[]);fields(body,['id','password']);require(isinstance(body['id'],str) and isinstance(body['password'],str))
+-   row=db.execute('SELECT * FROM users WHERE id=?',(body['id'],)).fetchone();require(row is not None and hmac.compare_digest(row['password_hash'],password_hash(body['password'],row['password_hash'].split('$')[0])),'unauthorized',401)
+-   token=secrets.token_urlsafe(32);db.execute('INSERT INTO sessions VALUES(?,?)',(token,row['id']));return {'token':token,'user':public_user(row)}
+-  token=self.headers.get('Authorization','');require(token.startswith('Bearer '),'unauthorized',401)
+-  user=db.execute('SELECT users.* FROM users JOIN sessions ON sessions.user_id=users.id WHERE sessions.token=?',(token[7:],)).fetchone();require(user is not None,'unauthorized',401)
+-  if method=='POST' and path=='/api/logout':
+-   fields(query,[]);fields(body,[]);db.execute('DELETE FROM sessions WHERE token=?',(token[7:],));return {'ok':True}
+-  if method=='GET' and path=='/api/me':
+-   fields(query,[]);return {'user':public_user(user),'clock_ms':json.loads(db.execute("SELECT value FROM meta WHERE key='clock_ms'").fetchone()[0])}
+-  if method in ['POST','PUT']:fields(query,[])
+-  return marketplace.dispatch(db,user,method,path,query,body)
++    def log_message(self, *args):
++        # The prepared harness expects ordinary application output to remain
++        # machine-readable; HTTP access logs are not useful here.
++        pass
++
++    def send(self, status, payload, kind="application/json", filename=None):
++        if kind == "application/json":
++            data = json.dumps(
++                payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")
++            ).encode("utf-8")
++        else:
++            data = payload if isinstance(payload, bytes) else str(payload).encode("utf-8")
++        self.send_response(status)
++        self.send_header("Content-Type", kind + "; charset=utf-8")
++        self.send_header("Cache-Control", "no-store")
++        self.send_header("Content-Length", str(len(data)))
++        if filename is not None:
++            # Filenames reaching this method are either fixed names or the
++            # strictly validated ASCII resume basename.
++            self.send_header("Content-Disposition", 'attachment; filename="' + filename + '"')
++        self.end_headers()
++        self.wfile.write(data)
++
++    def do_GET(self):
++        self.handle_request()
++
++    def do_POST(self):
++        self.handle_request()
++
++    def do_PUT(self):
++        self.handle_request()
++
++    def handle_request(self):
++        try:
++            route = urlparse(self.path)
++            path = route.path
++            query_values = parse_qs(route.query, keep_blank_values=True)
++            require(all(len(values) == 1 for values in query_values.values()))
++            query = {key: values[0] for key, values in query_values.items()}
++
++            static = {
++                "/": ("index.html", "text/html"),
++                "/ui.js": ("ui.js", "text/javascript"),
++                "/style.css": ("style.css", "text/css"),
++            }
++            if self.command == "GET" and path in static:
++                name, kind = static[path]
++                self.send(200, (Path(__file__).parent / "web" / name).read_bytes(), kind)
++                return
++            if self.command == "GET" and path == "/health":
++                fields(query, [])
++                self.send(200, {"ok": True})
++                return
++
++            body = {}
++            if self.command in ("POST", "PUT"):
++                try:
++                    size = int(self.headers.get("Content-Length", "0"))
++                except (TypeError, ValueError):
++                    raise Problem(400, "invalid")
++                require(0 < size <= 400000)
++                raw = self.rfile.read(size)
++                # parse_constant turns NaN/Infinity into a value which then
++                # fails the endpoint's ordinary type validation.
++                body = json.loads(
++                    raw.decode("utf-8"),
++                    parse_constant=lambda _: None,
++                    object_pairs_hook=_object_without_duplicate_keys,
++                )
++                require(isinstance(body, dict))
++
++            with connect(self.server.db) as db:
++                # A write lock for every request makes the multi-step workflow
++                # decisions (including conflict checks) one SQLite transaction.
++                db.execute("BEGIN IMMEDIATE")
++                result = self.dispatch(db, path, query, body)
++
++            if isinstance(result, tuple):
++                data, kind, filename = result
++                self.send(200, data, kind, filename)
++            else:
++                self.send(200, result)
++        except Problem as error:
++            self.send(error.status, {"error": {"code": error.code}})
++        except (json.JSONDecodeError, UnicodeError, ValueError, TypeError):
++            self.send(400, {"error": {"code": "invalid"}})
++        except sqlite3.IntegrityError:
++            # All expected uniqueness races are conflicts.  The transaction
++            # context has rolled the failed statement back before this branch.
++            self.send(409, {"error": {"code": "conflict"}})
++        except sqlite3.Error:
++            self.send(503, {"error": {"code": "storage_unavailable"}})
++
++    def dispatch(self, db, path, query, body):
++        method = self.command
++        if method == "POST" and path == "/api/login":
++            fields(query, [])
++            fields(body, ["id", "password"])
++            require(ident(body["id"]) and isinstance(body["password"], str))
++            row = db.execute("SELECT * FROM users WHERE id=?", (body["id"],)).fetchone()
++            valid = False
++            if row is not None:
++                try:
++                    salt = row["password_hash"].split("$", 1)[0]
++                    valid = hmac.compare_digest(
++                        row["password_hash"], password_hash(body["password"], salt)
++                    )
++                except (AttributeError, TypeError, ValueError):
++                    valid = False
++            require(valid, "unauthorized", 401)
++            token = secrets.token_urlsafe(32)
++            db.execute("INSERT INTO sessions(token,user_id) VALUES(?,?)", (token, row["id"]))
++            return {"token": token, "user": public_user(row)}
++
++        token_header = self.headers.get("Authorization", "")
++        require(token_header.startswith("Bearer "), "unauthorized", 401)
++        token = token_header[7:]
++        require(token != "", "unauthorized", 401)
++        user = db.execute(
++            """SELECT users.* FROM users
++               JOIN sessions ON sessions.user_id=users.id
++               WHERE sessions.token=?""",
++            (token,),
++        ).fetchone()
++        require(user is not None, "unauthorized", 401)
++
++        if method in ("POST", "PUT"):
++            fields(query, [])
++        if method == "POST" and path == "/api/logout":
++            fields(body, [])
++            # Only the bearer token used for this request is revoked.
++            db.execute("DELETE FROM sessions WHERE token=?", (token,))
++            return {"ok": True}
++        if method == "GET" and path == "/api/me":
++            fields(query, [])
++            clock_row = db.execute("SELECT value FROM meta WHERE key='clock_ms'").fetchone()
++            require(clock_row is not None, "storage_unavailable", 503)
++            try:
++                clock_ms = json.loads(clock_row["value"])
++            except (TypeError, ValueError, json.JSONDecodeError):
++                raise Problem(503, "storage_unavailable")
++            return {"user": public_user(user), "clock_ms": clock_ms}
++        return marketplace.dispatch(db, user, method, path, query, body)
++
+ 
+ def main():
+- parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=8000);parser.add_argument('--db',type=Path,required=True);parser.add_argument('--fixtures',type=Path,default=Path('fixtures/demo.json'));args=parser.parse_args();initialize(args.db,args.fixtures)
+- server=ThreadingHTTPServer(('127.0.0.1',args.port),Handler);server.daemon_threads=True;server.db=args.db
+- print(json.dumps({'port':server.server_port}),flush=True)
+- try:server.serve_forever()
+- finally:server.server_close()
+-if __name__=='__main__':main()
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--port", type=int, default=8000)
++    parser.add_argument("--db", type=Path, required=True)
++    parser.add_argument("--fixtures", type=Path, default=Path("fixtures/demo.json"))
++    args = parser.parse_args()
++    initialize(args.db, args.fixtures)
++    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
++    server.daemon_threads = True
++    server.db = args.db
++    print(json.dumps({"port": server.server_port}), flush=True)
++    try:
++        server.serve_forever()
++    finally:
++        server.server_close()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/storage.py b/storage.py
+index 3b71f4b1b3c236435106876498ad4d363209b200..3ff7517391ccbd2b7443ac7ea531211d50ac802d 100644
+--- a/storage.py
++++ b/storage.py
+@@ -1,37 +1,212 @@
+-"""Independent synthetic hiring store, including actual resume bytes."""
+-import base64,hashlib,json,secrets,sqlite3
++"""SQLite persistence for the independent local hiring application."""
++import base64
++import binascii
++import hashlib
++import json
++import secrets
++import sqlite3
++
+ 
+ def connect(path):
+- db=sqlite3.connect(path,timeout=15);db.row_factory=sqlite3.Row;db.execute('PRAGMA foreign_keys=ON');return db
+-
+-def password_hash(value,salt=None):
+- salt=salt or secrets.token_hex(16);return salt+'$'+hashlib.pbkdf2_hmac('sha256',value.encode(),salt.encode(),120000).hex()
+-
+-def public_user(row):return {key:row[key] for key in ['id','name','role','bio']}
+-
+-def initialize(path,fixture):
+- with connect(path) as db:
+-  db.execute('PRAGMA journal_mode=WAL')
+-  db.executescript("""
+-  CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+-  CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT,role TEXT,bio TEXT,password_hash TEXT);
+-  CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id));
+-  CREATE TABLE IF NOT EXISTS relationships(actor_id TEXT REFERENCES users(id),target_id TEXT REFERENCES users(id),kind TEXT,PRIMARY KEY(actor_id,target_id,kind));
+-  CREATE TABLE IF NOT EXISTS jobs(job_id TEXT PRIMARY KEY,employer_id TEXT REFERENCES users(id),title TEXT,description TEXT,category TEXT,location TEXT,active INTEGER);
+-  CREATE TABLE IF NOT EXISTS bookmarks(employee_id TEXT REFERENCES users(id),job_id TEXT REFERENCES jobs(job_id),PRIMARY KEY(employee_id,job_id));
+-  CREATE TABLE IF NOT EXISTS resumes(resume_id TEXT PRIMARY KEY,owner_id TEXT REFERENCES users(id),filename TEXT,content BLOB,size_bytes INTEGER,sha256 TEXT);
+-  CREATE TABLE IF NOT EXISTS applications(application_id TEXT PRIMARY KEY,job_id TEXT REFERENCES jobs(job_id),employee_id TEXT REFERENCES users(id),resume_id TEXT REFERENCES resumes(resume_id),status TEXT,UNIQUE(job_id,employee_id));
+-  CREATE TABLE IF NOT EXISTS interviews(interview_id TEXT PRIMARY KEY,application_id TEXT UNIQUE REFERENCES applications(application_id),start_ms INTEGER,end_ms INTEGER);
+-  CREATE TABLE IF NOT EXISTS views(viewer_id TEXT REFERENCES users(id),event_id TEXT,job_id TEXT REFERENCES jobs(job_id),timestamp_ms INTEGER,PRIMARY KEY(viewer_id,event_id));
+-  """)
+-  if db.execute("SELECT 1 FROM meta WHERE key='initialized'").fetchone():return
+-  data=json.loads(fixture.read_text());db.execute('INSERT INTO meta VALUES(?,?)',('clock_ms',json.dumps(data['clock_ms'])))
+-  for r in data['users']:db.execute('INSERT INTO users VALUES(?,?,?,?,?)',(r['id'],r['name'],r['role'],r['bio'],password_hash(r['password'])))
+-  for r in data.get('jobs',[]):db.execute('INSERT INTO jobs VALUES(?,?,?,?,?,?,?)',tuple(r[k] for k in ['job_id','employer_id','title','description','category','location','active']))
+-  for r in data.get('relationships',[]):db.execute('INSERT INTO relationships VALUES(?,?,?)',tuple(r[k] for k in ['actor_id','target_id','kind']))
+-  for r in data.get('resumes',[]):
+-   content=base64.b64decode(r['content_base64']);db.execute('INSERT INTO resumes VALUES(?,?,?,?,?,?)',(r['resume_id'],r['owner_id'],r['filename'],content,len(content),hashlib.sha256(content).hexdigest()))
+-  for r in data.get('applications',[]):db.execute('INSERT INTO applications VALUES(?,?,?,?,?)',tuple(r[k] for k in ['application_id','job_id','employee_id','resume_id','status']))
+-  for r in data.get('interviews',[]):db.execute('INSERT INTO interviews VALUES(?,?,?,?)',tuple(r[k] for k in ['interview_id','application_id','start_ms','end_ms']))
+-  for r in data.get('views',[]):db.execute('INSERT INTO views VALUES(?,?,?,?)',tuple(r[k] for k in ['viewer_id','event_id','job_id','timestamp_ms']))
+-  db.execute("INSERT INTO meta VALUES('initialized','true')")
++    db = sqlite3.connect(path, timeout=15)
++    db.row_factory = sqlite3.Row
++    db.execute("PRAGMA foreign_keys=ON")
++    db.execute("PRAGMA busy_timeout=15000")
++    return db
++
++
++def password_hash(value, salt=None):
++    salt = salt or secrets.token_hex(16)
++    return salt + "$" + hashlib.pbkdf2_hmac(
++        "sha256", value.encode("utf-8"), salt.encode("ascii"), 120000
++    ).hex()
++
++
++def public_user(row):
++    return {key: row[key] for key in ("id", "name", "role", "bio")}
++
++
++def _fixture_bytes(value):
++    """Decode a fixture resume while keeping its exact bytes."""
++    try:
++        encoded = value.encode("ascii")
++        content = base64.b64decode(encoded, validate=True)
++    except (AttributeError, UnicodeEncodeError, binascii.Error, ValueError):
++        raise ValueError("invalid fixture resume")
++    return content
++
++
++def _create_schema(db):
++    # These are deliberately ordinary named SQLite tables: the database is a
++    # first-class part of the local application and is also useful to inspect.
++    db.executescript(
++        """
++        CREATE TABLE IF NOT EXISTS meta(
++            key TEXT PRIMARY KEY,
++            value TEXT NOT NULL
++        );
++        CREATE TABLE IF NOT EXISTS users(
++            id TEXT PRIMARY KEY,
++            name TEXT NOT NULL,
++            role TEXT NOT NULL,
++            bio TEXT NOT NULL,
++            password_hash TEXT NOT NULL
++        );
++        CREATE TABLE IF NOT EXISTS sessions(
++            token TEXT PRIMARY KEY,
++            user_id TEXT NOT NULL REFERENCES users(id)
++        );
++        CREATE TABLE IF NOT EXISTS relationships(
++            actor_id TEXT NOT NULL REFERENCES users(id),
++            target_id TEXT NOT NULL REFERENCES users(id),
++            kind TEXT NOT NULL,
++            PRIMARY KEY(actor_id,target_id,kind)
++        );
++        CREATE TABLE IF NOT EXISTS jobs(
++            job_id TEXT PRIMARY KEY,
++            employer_id TEXT NOT NULL REFERENCES users(id),
++            title TEXT NOT NULL,
++            description TEXT NOT NULL,
++            category TEXT NOT NULL,
++            location TEXT NOT NULL,
++            active INTEGER NOT NULL
++        );
++        CREATE TABLE IF NOT EXISTS bookmarks(
++            employee_id TEXT NOT NULL REFERENCES users(id),
++            job_id TEXT NOT NULL REFERENCES jobs(job_id),
++            PRIMARY KEY(employee_id,job_id)
++        );
++        CREATE TABLE IF NOT EXISTS resumes(
++            resume_id TEXT PRIMARY KEY,
++            owner_id TEXT NOT NULL REFERENCES users(id),
++            filename TEXT NOT NULL,
++            content BLOB NOT NULL,
++            size_bytes INTEGER NOT NULL,
++            sha256 TEXT NOT NULL
++        );
++        CREATE TABLE IF NOT EXISTS applications(
++            application_id TEXT PRIMARY KEY,
++            job_id TEXT NOT NULL REFERENCES jobs(job_id),
++            employee_id TEXT NOT NULL REFERENCES users(id),
++            resume_id TEXT REFERENCES resumes(resume_id),
++            status TEXT NOT NULL,
++            UNIQUE(job_id,employee_id)
++        );
++        CREATE TABLE IF NOT EXISTS interviews(
++            interview_id TEXT PRIMARY KEY,
++            application_id TEXT NOT NULL UNIQUE REFERENCES applications(application_id),
++            start_ms INTEGER NOT NULL,
++            end_ms INTEGER NOT NULL
++        );
++        CREATE TABLE IF NOT EXISTS views(
++            viewer_id TEXT NOT NULL REFERENCES users(id),
++            event_id TEXT NOT NULL,
++            job_id TEXT NOT NULL REFERENCES jobs(job_id),
++            timestamp_ms INTEGER NOT NULL,
++            PRIMARY KEY(viewer_id,event_id)
++        );
++        CREATE INDEX IF NOT EXISTS applications_employee_idx
++            ON applications(employee_id,application_id);
++        CREATE INDEX IF NOT EXISTS applications_resume_idx
++            ON applications(resume_id);
++        CREATE INDEX IF NOT EXISTS interviews_start_idx
++            ON interviews(start_ms,interview_id);
++        CREATE INDEX IF NOT EXISTS views_job_time_idx
++            ON views(job_id,timestamp_ms);
++        """
++    )
++
++
++def initialize(path, fixture):
++    """Create schema and load fixtures exactly once for a new database."""
++    with connect(path) as db:
++        db.execute("PRAGMA journal_mode=WAL")
++        _create_schema(db)
++        if db.execute("SELECT 1 FROM meta WHERE key='initialized'").fetchone():
++            return
++
++        data = json.loads(fixture.read_text(encoding="utf-8"))
++        db.execute(
++            "INSERT OR REPLACE INTO meta(key,value) VALUES('clock_ms',?)",
++            (json.dumps(data["clock_ms"]),),
++        )
++
++        for record in data.get("users", []):
++            db.execute(
++                "INSERT INTO users(id,name,role,bio,password_hash) VALUES(?,?,?,?,?)",
++                (
++                    record["id"],
++                    record["name"],
++                    record["role"],
++                    record["bio"],
++                    password_hash(record["password"]),
++                ),
++            )
++
++        for record in data.get("jobs", []):
++            db.execute(
++                """INSERT INTO jobs
++                   (job_id,employer_id,title,description,category,location,active)
++                   VALUES(?,?,?,?,?,?,?)""",
++                (
++                    record["job_id"],
++                    record["employer_id"],
++                    record["title"],
++                    record["description"],
++                    record["category"],
++                    record["location"],
++                    int(record["active"]),
++                ),
++            )
++
++        for record in data.get("relationships", []):
++            actor, target = record["actor_id"], record["target_id"]
++            if record["kind"] == "connect":
++                actor, target = sorted((actor, target))
++            db.execute(
++                "INSERT OR IGNORE INTO relationships(actor_id,target_id,kind) VALUES(?,?,?)",
++                (actor, target, record["kind"]),
++            )
++
++        for record in data.get("resumes", []):
++            content = _fixture_bytes(record["content_base64"])
++            db.execute(
++                """INSERT INTO resumes
++                   (resume_id,owner_id,filename,content,size_bytes,sha256)
++                   VALUES(?,?,?,?,?,?)""",
++                (
++                    record["resume_id"],
++                    record["owner_id"],
++                    record["filename"],
++                    sqlite3.Binary(content),
++                    len(content),
++                    hashlib.sha256(content).hexdigest(),
++                ),
++            )
++
++        for record in data.get("applications", []):
++            db.execute(
++                """INSERT INTO applications
++                   (application_id,job_id,employee_id,resume_id,status)
++                   VALUES(?,?,?,?,?)""",
++                tuple(record[key] for key in
++                      ("application_id", "job_id", "employee_id", "resume_id", "status")),
++            )
++
++        for record in data.get("interviews", []):
++            db.execute(
++                """INSERT INTO interviews(interview_id,application_id,start_ms,end_ms)
++                   VALUES(?,?,?,?)""",
++                tuple(record[key] for key in
++                      ("interview_id", "application_id", "start_ms", "end_ms")),
++            )
++
++        for record in data.get("views", []):
++            db.execute(
++                """INSERT INTO views(viewer_id,event_id,job_id,timestamp_ms)
++                   VALUES(?,?,?,?)""",
++                tuple(record[key] for key in
++                      ("viewer_id", "event_id", "job_id", "timestamp_ms")),
++            )
++
++        db.execute("INSERT INTO meta(key,value) VALUES('initialized','true')")
+diff --git a/web/ui.js b/web/ui.js
+index ebdf066370b0d75555422b3d3fb78c9ee2c8fa2e..1fa8ae279ef44d3c8581fc48fe3496c0cd1fa29a 100644
+--- a/web/ui.js
++++ b/web/ui.js
+@@ -7,8 +7,8 @@ const employer=()=>user?.role==='employer',employee=()=>user?.role==='employee';
+ const freshId=prefix=>prefix+'-'+crypto.randomUUID();
+ async function api(path,body,method='GET',auth=token){const r=await fetch(path,{method,headers:{...(auth?{Authorization:'Bearer '+auth}:{}),...(body!==undefined?{'Content-Type':'application/json'}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});if(!r.ok){let code='request_failed';try{code=(await r.json()).error.code;}catch{}throw Error(code);}return r.json();}
+ function options(id,rows,value){const s=$(id);s.replaceChildren();for(const r of rows){const o=node('option',r.label);o.value=r.id;s.append(o);}if(rows.some(r=>r.id===value))s.value=value;}
+-function clear(){openSerial++;loadingJob=false;actionSerials={};people=[];jobs=[];apps=[];agenda=[];marks=[];selectedJob=null;selectedApp=null;pendingView=null;jobSerial++;analyticsSerial++;for(const id of ['identity','status','profiles','relationships','jobs','job-detail','bookmarks','applications','calendar','analytics-summary','view-chart','relation-target','analytics-job','view-status','job-status','resume-status','application-status','interview-status','analytics-status'])$(id).replaceChildren();for(const id of ['profile-name','profile-bio','job-id','job-title','job-description','job-category','job-location','resume-id','application-id','interview-id','interview-start','interview-end','analytics-start','analytics-end','resume-file'])$(id).value='';controls();}
+-function controls(){for(const input of $('job-form').querySelectorAll('input,textarea,button'))input.disabled=loadingJob||!employer();$('job-form').hidden=!employer();$('analytics-panel').hidden=!employer();$('upload-resume').disabled=!employee();$('apply').disabled=!employee()||!selectedJob||loadingJob;$('bookmark').disabled=!employee()||!selectedJob||loadingJob;$('schedule').disabled=!employer()||!selectedApp;$('reject').disabled=!employer()||!selectedApp;$('download-resume').disabled=!selectedApp?.resume_id;$('view-retry').disabled=!pendingView;}
++function clear(){openSerial++;loadingJob=false;actionSerials={};people=[];jobs=[];apps=[];agenda=[];marks=[];selectedJob=null;selectedApp=null;pendingView=null;jobSerial++;analyticsSerial++;for(const id of ['identity','status','profiles','relationships','jobs','job-detail','bookmarks','applications','calendar','analytics-summary','view-chart','relation-target','analytics-job','view-status','job-status','resume-status','application-status','interview-status','analytics-status'])$(id).replaceChildren();for(const id of ['profile-name','profile-bio','job-id','job-title','job-description','job-category','job-location','search-q','search-category','search-location','resume-id','application-id','interview-id','interview-start','interview-end','analytics-start','analytics-end','resume-file'])$(id).value='';$('relation-enabled').checked=true;$('job-active').checked=true;$('view-chart').style.width='';$('view-chart').setAttribute('viewBox','0 0 640 240');controls();}
++function controls(){for(const input of $('job-form').querySelectorAll('input,textarea,button'))input.disabled=loadingJob||!employer();$('job-form').hidden=!employer();$('analytics-panel').hidden=!employer();$('upload-resume').disabled=!employee();$('apply').disabled=!employee()||!selectedJob||loadingJob;$('bookmark').disabled=!employee()||!selectedJob||loadingJob;const schedulable=selectedApp&&selectedApp.status!=='rejected'&&selectedApp.status!=='scheduled';$('schedule').disabled=!employer()||!schedulable;$('reject').disabled=!employer()||!selectedApp;$('download-resume').disabled=!selectedApp?.resume_id;$('view-retry').disabled=!pendingView;}
+ async function action(status,operation){const e=epoch,serial=(actionSerials[status]??0)+1;actionSerials[status]=serial;$(status).textContent='Working';try{await operation(e);if(e===epoch&&serial===actionSerials[status])$(status).textContent='Saved';}catch(error){if(e===epoch&&serial===actionSerials[status])$(status).textContent='Failed: '+error.message;}}
+ function showPeople(){$('profiles').replaceChildren();for(const p of people){const a=node('article');a.dataset.profileId=p.id;a.append(node('strong',p.name),node('span',p.id+' · '+p.role),node('p',p.bio));$('profiles').append(a);}if(!people.length)$('profiles').append(node('p','No profiles'));options('relation-target',people.filter(p=>p.id!==user.id).map(p=>({id:p.id,label:p.name+' · '+p.id})),$('relation-target').value);}
+ function showRelations(rows){$('relationships').replaceChildren();for(const r of rows)$('relationships').append(node('p',r.kind+' · '+r.actor_id+' → '+r.target_id));if(!rows.length)$('relationships').append(node('p','No relationships'));}
+@@ -23,12 +23,12 @@ async function loadApps(e=epoch){try{const result=await api('/api/applications')
+ async function loadCalendar(e=epoch){try{const result=await api('/api/calendar');if(e!==epoch)return;agenda=result.interviews;$('calendar').replaceChildren();for(const event of agenda){const a=node('article');a.dataset.interviewId=event.interview_id;a.append(node('strong',event.job_title),node('p',event.participants.join(' / ')),node('p',new Date(event.start_ms).toISOString()+' — '+new Date(event.end_ms).toISOString()));$('calendar').append(a);}if(!agenda.length)$('calendar').append(node('p','No scheduled interviews'));}catch(error){if(e===epoch)$('interview-status').textContent='Agenda unavailable: '+error.message;}}
+ async function refresh(){if(!token)return;const e=epoch;$('status').textContent='Loading';try{await loadBase(e);if(e!==epoch)return;await Promise.all([loadJobs(e),loadMarks(e),loadApps(e),loadCalendar(e)]);if(e===epoch)$('status').textContent='Workspace loaded';}catch(error){if(e===epoch)$('status').textContent='Unable to refresh: '+error.message;}}
+ $('login-form').onsubmit=async event=>{event.preventDefault();const e=++epoch;clear();$('login-status').textContent='Signing in';try{const result=await api('/api/login',{id:$('account').value,password:$('password').value},'POST',null);if(e!==epoch)return;token=result.token;user=result.user;$('login-panel').hidden=true;$('application').hidden=false;$('logout').hidden=false;$('password').value='';$('login-status').textContent='';await refresh();}catch(error){if(e===epoch){token=null;user=null;clear();$('login-status').textContent='Sign in failed: '+error.message;}}};
+-$('logout').onclick=()=>{const prior=token;epoch++;token=null;user=null;clear();$('application').hidden=true;$('logout').hidden=true;$('login-panel').hidden=false;api('/api/logout',{},'POST',prior).catch(()=>{});};
++$('logout').onclick=()=>{const prior=token;epoch++;token=null;user=null;clear();$('account').value='';$('password').value='';$('application').hidden=true;$('logout').hidden=true;$('login-panel').hidden=false;api('/api/logout',{},'POST',prior).catch(()=>{});};
+ $('refresh').onclick=refresh;
+ $('profile-form').onsubmit=e=>{e.preventDefault();action('status',async version=>{await api('/api/profile',{name:$('profile-name').value,bio:$('profile-bio').value},'PUT');if(version===epoch)await loadBase(version);});};
+ $('relationship-form').onsubmit=e=>{e.preventDefault();action('status',async version=>{const r=await api('/api/relationships',{target_id:$('relation-target').value,kind:$('relation-kind').value,enabled:$('relation-enabled').checked},'POST');if(version===epoch)showRelations(r.relationships);});};
+ $('search-form').onsubmit=e=>{e.preventDefault();loadJobs();};
+-$('job-form').onsubmit=e=>{e.preventDefault();action('job-status',async version=>{const id=$('job-id').value||freshId('job'),existing=jobs.some(j=>j.job_id===id);const body={job_id:id,title:$('job-title').value,description:$('job-description').value,category:$('job-category').value,location:$('job-location').value};if(existing)body.active=$('job-active').checked;const r=await api('/api/jobs',body,existing?'PUT':'POST');if(version!==epoch)return;selectedJob=r.job;$('job-id').value=r.job.job_id;await loadJobs(version);});};
++$('job-form').onsubmit=e=>{e.preventDefault();action('job-status',async version=>{const id=$('job-id').value||freshId('job'),existing=jobs.some(j=>j.job_id===id);const body={job_id:id,title:$('job-title').value,description:$('job-description').value,category:$('job-category').value,location:$('job-location').value};if(existing)body.active=$('job-active').checked;const r=await api('/api/jobs',body,existing?'PUT':'POST');if(version!==epoch)return;selectedJob=r.job;$('job-id').value=r.job.job_id;$('job-active').checked=r.job.active;await loadJobs(version);});};
+ $('bookmark').onclick=()=>action('job-status',async e=>{await api('/api/bookmarks',{job_id:selectedJob.job_id,enabled:!marks.some(j=>j.job_id===selectedJob.job_id)},'POST');if(e===epoch)await loadMarks(e);});
+ $('view-retry').onclick=()=>{if(pendingView)submitView(pendingView);};
+ function base64(bytes){let result='';for(let i=0;i<bytes.length;i+=8192)result+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(result);}

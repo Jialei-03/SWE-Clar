@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-082",
+  "readme": "# Classroom audio and session service\n\nRepair the supplied Python session service, local speech adapter and translation connector. `process_class_action(state,action,transcriber=None,translator=None)` is an internal immutable boundary. `python cli.py --db state.sqlite --assets audio-directory init|show|act` initializes once, inspects trusted local state, or reads one action from stdin and atomically saves successful state changes. act prints only result/error. State.users maps synthetic user IDs to teacher/student roles; actor_id is supplied by a trusted application adapter. This CLI is not a public authentication service.\n\nActions include create_class(class_id,code), join(code), start/pause/resume/complete(class_id,clock), question_click(class_id,question_id,elapsed), question_submit(class_id,question_id,text), transcribe(class_id,segment_id,audio_path,elapsed), feedback, post_class_view, add_material and translate. Audio paths are relative to the isolated asset directory. The supplied transcriber interface must read actual audio; caller text is not a transcription.\n\nRuntime: whisper.cpp 1.7.6, its public ggml tiny.en model, Python 3.12. Set WHISPER_BIN, WHISPER_MODEL and optional TRANSLATION_URL. Evaluator audio is independently synthesized English speech, 16 kHz mono PCM WAV, at most 30 seconds per segment; no classroom recording is distributed. The public model and tool are runtime dependencies, not customer assets. Translation uses a local synthetic HTTP provider during tests.\n\nThis reconstructs the audio/session backend component, not the original classroom application UI, production speech service, cloud accounts or live microphone capture. Local English transcription is actually exercised; accuracy in noisy classrooms and other languages is not claimed. Timer clocks and clicked elapsed values are application-supplied fixture values.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_class_action",
+        "signature": "process_class_action(state,action,transcriber=None,translator=None) -> dict"
+      },
+      "inputs": {
+        "state": "Private session state with users/classes/translations",
+        "action": "Supported action with trusted actor_id",
+        "transcriber": "LocalWhisper(binary,model,asset_root)",
+        "translator": "TranslationClient(url)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next session state backed by actual audio transcription or translation I/O where required."
+      },
+      "operations": []
+    }
+  ]
+}

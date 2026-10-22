@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-095",
+  "readme": "# Listening library repair\n\nAn independently authored React web application, Python HTTP service and SQLite store. The source commission explicitly prioritizes the website; this task selects its account/payment/catalog/playback component. No client code, content or payment account is supplied. React 18.3.1, esbuild 0.25.0, Node 22, Python 3.11+. The prepared environment already supplies these dependencies through UI_NODE_MODULES. Run `node build.mjs`, then `python demo.py`; no package download is needed. The demo creates fresh local payment fixtures and synthesized audio in temporary storage. All purchasing here is local, without a real charge.\n\nService configuration: STREAM_CONFIG, STREAM_DATABASE, STREAM_ASSETS. Config contains provider, api_key, receipt_key and catalog:[{id,title,artist,cost,filename}]. Provider API: authenticated GET /accounts?email=..., POST /accounts {email}, GET /receipts/{id}. A receipt is {payload:{transaction_id,payment_id,status,tokens},signature}; signature uses HMAC-SHA256 over sorted compact JSON. Client API: POST /register and /login {email,password}; GET /me,/catalog?q=...,/licenses,/media/{id}; POST /credit {transaction_id},/license {track},/logout {}. Use Authorization: Bearer with the returned local session token. Protocol details, token prices and demo identities are synthetic benchmark conventions.\n\nRepair the existing app rather than substituting JSON playback states. The actual media adapter uses browser audio. ClearKey/CENC DRM, native React Native players, production AWS/payment webhooks and complete OWASP/accessibility certification remain outside the verified component and require separate review. Local authorization is not a DRM implementation. The catalog search ordering is a benchmark convention; no verified source locator specifies that exact order. Native platform scope and later playback changes are not inferred from this web component.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "server.py",
+        "function": "Store.act",
+        "signature": "Store.act(authenticated_user,path,action) -> persisted record"
+      },
+      "inputs": {
+        "authenticated_user": "server-owned session identity",
+        "path": "documented HTTP endpoint",
+        "action": "synthetic request body"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Actual persisted result observed through HTTP, storage and rendered native/web interfaces"
+      },
+      "operations": []
+    }
+  ]
+}

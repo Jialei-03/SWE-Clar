@@ -1,0 +1,185 @@
+schema_version: 1
+task_id: SWECLAR-024
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual local RTMP ingest, HLS media delivery, playable archived MP4, event calendar and
+  searchable video website
+requirement_units:
+- ru_id: RU-001
+  name: Streaming workflow entry point
+  content: Repair the supplied Python/SQLite/MediaMTX component so it handles real synthetic video bytes
+    and preserves existing event/calendar behavior. Start only owned loopback media listeners and clean
+    up child processes. Protect administration and ingest credentials. Do not accept caller-provided playback
+    URLs, stored flags or invented archive metadata as evidence of a recording. The README defines the
+    independently reconstructed runtime boundary.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for streaming workflow entry point.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: STREAM_CONFIG=config.json STREAM_DATABASE=events.sqlite python server.py
+    inputs:
+      transport: Loopback HTTP, direct RTMP synthetic media and browser playback
+      contract: README.md
+    output:
+      type: event_video_service
+      meaning: Streaming workflow entry point
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/stream_contract.py
+  notes: Independently rewritten from the existing task and requirement unit, checked against private
+    source material. Source conversations, identities and mappings are excluded. Detailed runtime, authentication
+    and anonymous-session semantics are benchmark conventions.
+- ru_id: RU-002
+  name: Upcoming event calendar
+  content: Require an event ID configured by the host, a nonempty title and timezone-aware start/end values
+    with end strictly later. Store normalized UTC instants, list future scheduled events chronologically
+    with ID tie-breaking, and omit cancelled or already-started events. Reject invalid edits without partial
+    records. An event may only be cancelled while scheduled.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for upcoming event calendar.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: STREAM_CONFIG=config.json STREAM_DATABASE=events.sqlite python server.py
+    inputs:
+      transport: Loopback HTTP, direct RTMP synthetic media and browser playback
+      contract: README.md
+    output:
+      type: event_video_service
+      meaning: Upcoming event calendar
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/stream_contract.py
+  notes: Independently rewritten from the existing task and requirement unit, checked against private
+    source material. Source conversations, identities and mappings are excluded. Detailed runtime, authentication
+    and anonymous-session semantics are benchmark conventions.
+- ru_id: RU-003
+  name: Direct RTMP stream lifecycle
+  content: 'A scheduled event starts once with its matching private stream key. Open actual direct RTMP
+    ingest with publisher authentication and expose a working HLS endpoint; an incorrect key must fail
+    both the application start request and the actual publisher handshake. Receive synthetic H.264 frames,
+    not a restreamed third-party URL. Ending before start or starting the same live event twice is invalid.
+    The ingest_url is an opaque publisher URL: a derived unguessable path/query capability is allowed
+    instead of the literal configured key. Invalid/tampered publisher credentials and arbitrary unauthenticated
+    paths must be rejected.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for direct rtmp stream lifecycle.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: STREAM_CONFIG=config.json STREAM_DATABASE=events.sqlite python server.py
+    inputs:
+      transport: Loopback HTTP, direct RTMP synthetic media and browser playback
+      contract: README.md
+    output:
+      type: event_video_service
+      meaning: Direct RTMP stream lifecycle
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/stream_contract.py
+  notes: Independently rewritten from the existing task and requirement unit, checked against private
+    source material. Source conversations, identities and mappings are excluded. Detailed runtime, authentication
+    and anonymous-session semantics are benchmark conventions.
+- ru_id: RU-004
+  name: Durable searchable archive
+  content: Ending a live event finalizes a nonempty decodable MP4 and saves exactly one initially private
+    archive record with measured bytes, SHA-256, duration and frame count. An empty/failed stream cannot
+    be published. Publish only existing unchanged media with nonempty index terms. Published title/term/date
+    searches are stable, date range is inclusive-start/exclusive-end, and the website loads actual playable
+    MP4 bytes with HTTP range support. Preserve archives across restart; do not expose private recordings
+    or runtime files.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for durable searchable archive.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: STREAM_CONFIG=config.json STREAM_DATABASE=events.sqlite python server.py
+    inputs:
+      transport: Loopback HTTP, direct RTMP synthetic media and browser playback
+      contract: README.md
+    output:
+      type: event_video_service
+      meaning: Durable searchable archive
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/stream_contract.py
+  notes: Independently rewritten from the existing task and requirement unit, checked against private
+    source material. Source conversations, identities and mappings are excluded. Detailed runtime, authentication
+    and anonymous-session semantics are benchmark conventions.
+- ru_id: RU-005
+  name: Idempotent view counting
+  content: Count a published video at most once per server-issued anonymous viewer/session pair, including
+    concurrent duplicate requests. Different browser sessions count separately. Missing and private recordings
+    never count; ignore caller-invented viewer/session IDs. The page records a view on actual playback.
+    Cookie identity and exact deduplication semantics are disclosed benchmark conventions, not a claim
+    to identify real people.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for idempotent view counting.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: STREAM_CONFIG=config.json STREAM_DATABASE=events.sqlite python server.py
+    inputs:
+      transport: Loopback HTTP, direct RTMP synthetic media and browser playback
+      contract: README.md
+    output:
+      type: event_video_service
+      meaning: Idempotent view counting
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/stream_contract.py
+  notes: Independently rewritten from the existing task and requirement unit, checked against private
+    source material. Source conversations, identities and mappings are excluded. Detailed runtime, authentication
+    and anonymous-session semantics are benchmark conventions.

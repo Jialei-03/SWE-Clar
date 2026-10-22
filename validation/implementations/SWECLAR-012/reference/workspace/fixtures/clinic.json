@@ -1,0 +1,24 @@
+{
+  "clinics": [
+    {"id": "clinic_amber", "label": "Synthetic Clinic Amber"},
+    {"id": "clinic_teal", "label": "Synthetic Clinic Teal"}
+  ],
+  "providers": [
+    {"id": "provider_one", "clinic_id": "clinic_amber", "label": "Synthetic Provider One"},
+    {"id": "provider_two", "clinic_id": "clinic_amber", "label": "Synthetic Provider Two"},
+    {"id": "provider_three", "clinic_id": "clinic_teal", "label": "Synthetic Provider Three"}
+  ],
+  "users": [
+    {"id": "patient_one", "username": "patient.one", "password": "synthetic-patient-one", "label": "Synthetic Patient One", "role": "patient", "clinic_id": null},
+    {"id": "patient_two", "username": "patient.two", "password": "synthetic-patient-two", "label": "Synthetic Patient Two", "role": "patient", "clinic_id": null},
+    {"id": "staff_amber", "username": "staff.amber", "password": "synthetic-staff-amber", "label": "Synthetic Staff Amber", "role": "staff", "clinic_id": "clinic_amber"},
+    {"id": "staff_teal", "username": "staff.teal", "password": "synthetic-staff-teal", "label": "Synthetic Staff Teal", "role": "staff", "clinic_id": "clinic_teal"}
+  ],
+  "slots": [
+    {"id": "slot_one", "provider_id": "provider_one", "start_ms": 2051262000000},
+    {"id": "slot_two", "provider_id": "provider_one", "start_ms": 2051265600000},
+    {"id": "slot_three", "provider_id": "provider_one", "start_ms": 2051269200000},
+    {"id": "slot_four", "provider_id": "provider_two", "start_ms": 2051262000000},
+    {"id": "slot_five", "provider_id": "provider_three", "start_ms": 2051262000000}
+  ]
+}

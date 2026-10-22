@@ -1,0 +1,184 @@
+schema_version: 1
+task_id: SWECLAR-095
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent React/HTTP/SQLite account, local payment protocol, catalog and actual audio
+  component; no native DRM or production certification
+requirement_units:
+- ru_id: RU-001
+  name: Streaming action entry point
+  content: Run the supplied real React web application with HTTP/SQLite storage. Preserve working sign-in,
+    account display, catalog and media controls. Persist accounts, balances and licenses across service
+    restart; do not replace the website with a pure action-state function.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for streaming action entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: server.py
+      function: Store.act
+      signature: Store.act(authenticated_user,path,action) -> persisted record
+    inputs:
+      authenticated_user: server-owned session identity
+      path: documented HTTP endpoint
+      action: synthetic request body
+    output:
+      type: dict
+      meaning: Actual persisted result observed through HTTP, storage and rendered native/web interfaces
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/streaming_contract.py
+  notes: Independent synthetic web component. Exact normalization, catalog, receipt and playback conventions
+    are stated contracts; no native DRM or complete security certification is claimed.
+- ru_id: RU-002
+  name: Modular user registration
+  content: Normalize registration email by trimming and case-folding. Query the independent local payment
+    API, reuse its account if present, otherwise create it, and persist exactly one linked app account.
+    Repeated or concurrent registration cannot duplicate the local user or payment account. Exact normalization
+    and local account schema are benchmark conventions supporting the client-requested modular registration.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for modular user registration.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: server.py
+      function: Store.act
+      signature: Store.act(authenticated_user,path,action) -> persisted record
+    inputs:
+      authenticated_user: server-owned session identity
+      path: documented HTTP endpoint
+      action: synthetic request body
+    output:
+      type: dict
+      meaning: Actual persisted result observed through HTTP, storage and rendered native/web interfaces
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/streaming_contract.py
+  notes: Independent synthetic web component. Exact normalization, catalog, receipt and playback conventions
+    are stated contracts; no native DRM or complete security certification is claimed.
+- ru_id: RU-003
+  name: Catalog search
+  content: Search the supplied catalog by case-insensitive title or artist and return title/ID order;
+    render the returned actual records and keep controls reachable at mobile and desktop widths. This
+    exact search/order is a disclosed reconstruction choice for this independent component; do not claim
+    a specific original search algorithm.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for catalog search.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: server.py
+      function: Store.act
+      signature: Store.act(authenticated_user,path,action) -> persisted record
+    inputs:
+      authenticated_user: server-owned session identity
+      path: documented HTTP endpoint
+      action: synthetic request body
+    output:
+      type: dict
+      meaning: Actual persisted result observed through HTTP, storage and rendered native/web interfaces
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/streaming_contract.py
+  notes: Independent synthetic web component. Exact normalization, catalog, receipt and playback conventions
+    are stated contracts; no native DRM or complete security certification is claimed.
+- ru_id: RU-004
+  name: Confirmed purchase and playback
+  content: Credit tokens only once from a server-verified, paid synthetic receipt bound to the authenticated
+    payment account and transaction. Update the displayed balance after purchase without reloading. Use
+    server-owned track costs; atomically deduct tokens once when licensing a track. Only the licensed
+    user may obtain its actual audio bytes. Actual audio advances, pauses, resumes and rejects backward
+    seeking in the supplied player. Local signed receipts and license accounting are benchmark conventions;
+    native DRM remains pending.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for confirmed purchase and playback.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: server.py
+      function: Store.act
+      signature: Store.act(authenticated_user,path,action) -> persisted record
+    inputs:
+      authenticated_user: server-owned session identity
+      path: documented HTTP endpoint
+      action: synthetic request body
+    output:
+      type: dict
+      meaning: Actual persisted result observed through HTTP, storage and rendered native/web interfaces
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/streaming_contract.py
+  notes: Independent synthetic web component. Exact normalization, catalog, receipt and playback conventions
+    are stated contracts; no native DRM or complete security certification is claimed.
+- ru_id: RU-005
+  name: Release acceptance
+  content: Reject forged or mismatched receipts, unknown tracks, insufficient balances, unauthorized media
+    and revoked sessions without partial writes. Do not expose the configured provider key or receipt
+    key in frontend assets, HTTP records or static file paths. Test real controls and service boundaries;
+    no ready/security-approved flags certify OWASP, SAST/DAST or complete accessibility compliance.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for release acceptance.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: server.py
+      function: Store.act
+      signature: Store.act(authenticated_user,path,action) -> persisted record
+    inputs:
+      authenticated_user: server-owned session identity
+      path: documented HTTP endpoint
+      action: synthetic request body
+    output:
+      type: dict
+      meaning: Actual persisted result observed through HTTP, storage and rendered native/web interfaces
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/streaming_contract.py
+  notes: Independent synthetic web component. Exact normalization, catalog, receipt and playback conventions
+    are stated contracts; no native DRM or complete security certification is claimed.

@@ -1,0 +1,310 @@
+schema_version: 1
+task_id: SWECLAR-053
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Offline rolling price-level calculation and lifecycle tracking component
+requirement_units:
+- ru_id: RU-001
+  name: Deterministic price-level analyzer API
+  content: Provide analyze_levels(bars, lookback, ...) in levels.py. The function must accept completed
+    OHLC bars, require a positive lookback and valid finite prices, run without network or interactive
+    input, and deterministically return active_levels, display_levels, and break_events. Invalid options
+    or malformed bars must raise ValueError.
+  requirement_category: core
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required public entry point, input data, validation behavior, and top-level
+    result fields.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: levels.py
+      function: analyze_levels
+    inputs:
+      bars: list of OHLC dictionaries
+      lookback: positive integer
+      options: keyword arguments
+    output:
+      type: dictionary
+      meaning: active and displayable levels plus break events
+      record_schemas:
+        level:
+          required:
+          - side
+          - price
+          - created_at
+          - status
+          - extends_to
+          additional_properties: true
+        break_event:
+          required:
+          - side
+          - price
+          - index
+          index: zero-based integer index of breaking bar
+          additional_properties: true
+          forbidden_substitution: bar_index does not replace index
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_levels.py
+  pass_rule: all_tests_pass
+  notes: null
+- ru_id: RU-002
+  name: Rolling high and low sources
+  content: At each bar index i from lookback onward, calculate candidate levels from exactly the preceding
+    lookback completed bars, never the current or future bar. With use_close_instead_of_wick=false use
+    the maximum high and minimum low; with it true use the maximum and minimum close. Create the high
+    record before the low record.
+  requirement_category: core
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain which bars and which OHLC fields determine each high and low candidate in both
+    source modes.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: levels.py
+      function: analyze_levels
+    inputs:
+      bars: list of OHLC dictionaries
+      lookback: positive integer
+      use_close_instead_of_wick: boolean
+    output:
+      type: level records
+      meaning: rolling high and low candidates based only on prior completed bars
+      record_schemas:
+        level:
+          required:
+          - side
+          - price
+          - created_at
+          - status
+          - extends_to
+          additional_properties: true
+        break_event:
+          required:
+          - side
+          - price
+          - index
+          index: zero-based integer index of breaking bar
+          additional_properties: true
+          forbidden_substitution: bar_index does not replace index
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_levels.py
+  pass_rule: all_tests_pass
+  notes: null
+- ru_id: RU-003
+  name: Current-level replacement mode
+  content: When keep_past_levels is false, adding a new candidate must deactivate and mark replaced every
+    active level on the same side. Replaced levels are not displayable even when broken levels are requested,
+    so the final active set contains at most one current high and one current low. Earlier broken levels
+    remain displayable when hide_broken_levels is false; replaced records never do. Suppression is checked
+    before replacement; a suppressed candidate does not replace anything.
+  requirement_category: core
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe exactly what happens to earlier same-side levels when past-level retention
+    is disabled.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: levels.py
+      function: analyze_levels
+    inputs:
+      keep_past_levels: false
+    output:
+      type: level records
+      meaning: The active set contains at most one current high and one current low. Earlier broken records
+        remain displayable when hide_broken_levels is false; replaced records are never displayable.
+      record_schemas:
+        level:
+          required:
+          - side
+          - price
+          - created_at
+          - status
+          - extends_to
+          additional_properties: true
+        break_event:
+          required:
+          - side
+          - price
+          - index
+          index: zero-based integer index of breaking bar
+          additional_properties: true
+          forbidden_substitution: bar_index does not replace index
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_levels.py
+  pass_rule: all_tests_pass
+  notes: null
+- ru_id: RU-004
+  name: Retain past levels until price breaks them
+  content: When keep_past_levels is true, retain multiple active levels on the same side rather than replacing
+    them merely because their rolling window has expired. Each retained level remains active until a later
+    price wick strictly breaks it.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the complete lifetime rule for earlier levels when past-level retention is enabled.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: levels.py
+      function: analyze_levels
+    inputs:
+      keep_past_levels: true
+    output:
+      type: active level records
+      meaning: multiple unbroken same-side levels remain active
+      record_schemas:
+        level:
+          required:
+          - side
+          - price
+          - created_at
+          - status
+          - extends_to
+          additional_properties: true
+        break_event:
+          required:
+          - side
+          - price
+          - index
+          index: zero-based integer index of breaking bar
+          additional_properties: true
+          forbidden_substitution: bar_index does not replace index
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_levels.py
+  pass_rule: all_tests_pass
+  notes: null
+- ru_id: RU-005
+  name: Minimum tick separation
+  content: When min_distance_ticks is positive, suppress a same-side candidate whose absolute price distance
+    from any active same-side level is less than or equal to min_distance_ticks multiplied by tick_size.
+    A zero distance setting disables this suppression; tick_size must be positive. Compare the decimal
+    values of JSON numbers so exact decimal tick boundaries remain inclusive.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: State the exact numeric rule used to suppress a nearby candidate level, including the
+    zero setting.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: levels.py
+      function: analyze_levels
+    inputs:
+      min_distance_ticks: non-negative integer
+      tick_size: positive number
+    output:
+      type: level records
+      meaning: candidates within the configured same-side tick buffer are omitted
+      record_schemas:
+        level:
+          required:
+          - side
+          - price
+          - created_at
+          - status
+          - extends_to
+          additional_properties: true
+        break_event:
+          required:
+          - side
+          - price
+          - index
+          index: zero-based integer index of breaking bar
+          additional_properties: true
+          forbidden_substitution: bar_index does not replace index
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_levels.py
+  pass_rule: all_tests_pass
+  notes: null
+- ru_id: RU-006
+  name: Broken-level visibility, extension, and alerts
+  content: A high level breaks only when a later bar high is strictly greater than its price; a low breaks
+    only when a later bar low is strictly smaller. Record one break event with fields side, price, and
+    index (the zero-based breaking bar index). The field name is exactly index, not bar_index; nonconflicting
+    extra metadata is allowed, but never replaces index. Exclude broken levels from display_levels when
+    hide_broken_levels is true and include them when false. Every level records extends_to as created_at
+    plus extend_points. At each index process breaks on existing levels first, then calculate and admit
+    candidates; a newly created level cannot break at its creation index.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Give the precise high/low break conditions and explain the resulting event, display,
+    and extension records.
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: levels.py
+      function: analyze_levels
+    inputs:
+      hide_broken_levels: boolean
+      extend_points: non-negative integer
+    output:
+      type: level and event records
+      meaning: strict breaks are recorded and display filtering and extension are deterministic
+      record_schemas:
+        level:
+          required:
+          - side
+          - price
+          - created_at
+          - status
+          - extends_to
+          additional_properties: true
+        break_event:
+          required:
+          - side
+          - price
+          - index
+          index: zero-based integer index of breaking bar
+          additional_properties: true
+          forbidden_substitution: bar_index does not replace index
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-006-T01
+    file: evaluation/tests/test_levels.py
+  pass_rule: all_tests_pass
+  notes: Later sound-on-touch alerts are outside the selected accepted milestone.

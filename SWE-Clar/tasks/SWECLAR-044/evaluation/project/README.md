@@ -1,0 +1,30 @@
+# Raw-measurement trend ingestion
+
+Complete `process_trend_action(state, action, fetch_text=None)` in solution.py. A sync_source action supplies category_id and a CSV URL. The optional callable(url) returns raw CSV text; without it the supplied reader performs HTTP. Implement measurements.py to parse trend_id, keyword, month (YYYY-MM) and non-negative numeric count columns. The state supplies known categories. A growth value in the action is not authoritative.
+
+Compute growth from the two latest monthly counts as (latest - previous) / previous * 100. Two zero counts produce zero growth; a missing baseline or positive count following zero is insufficient_baseline, not an invented percentage. These raw-format and zero-baseline conventions are explicit benchmark reconstruction choices. Candidate keyword lists are supplied suggestions for curation; no external language model is claimed.
+
+The component performs actual retrieval, CSV parsing and time-series calculations on synthetic measurements. It does not claim access to a private social platform or production subscription service. No customer keywords, analytics exports or credentials are distributed.
+
+## Prepared environment and console
+
+Use `/workspace` in the provided `python-web` environment. Python, SQLite and standard-library HTTP/CSV tools are ready before the task starts. No package installation, external API, model call or credentials are needed. Resources are 2 CPU, 2048 MiB memory, 256 processes and 256 MiB workspace. Networking is local loopback only.
+
+Run `python cli.py --sample-source < example.json` for an end-to-end sample. The supplied console starts a temporary local HTTP CSV source, substitutes its URL, calls the workflow and prints JSON. It shuts down the source automatically. Without `--sample-source`, it reads `{"state": ..., "action": ...}` from stdin and uses the supplied action URL. Preserve these console interfaces and the existing HTTP reader. The parser and workflow are the unfinished coding work.
+
+Run public checks with `python /public_tests/test_public.py`. Each invocation uses temporary state and a fresh local port. There is no persistent service to reset; generated files under `runtime/` are excluded from delivery. Errors appear on stderr. The public smoke check exercises provided adapters and does not certify unfinished trend behavior.
+
+## JSON contract
+
+State collections are `categories` (ID to object), `trends` (ID to trend), `watchlists` (user ID to trend-ID list), `suggestions` (normalized seed to string list), and `generation_log` (category ID to month list). Missing collections start empty. A trend has `trend_id`, `category_id`, `keyword`, `history` (objects with `month` and `count`), `growth` (number or null) and `classification`. Extra nonconflicting fields are allowed.
+
+Action fields are: `sync_source(category_id,url)`, `category_view(category_ids)`, `watch/unwatch(user_id,trend_id)`, `discover(seed)`, `generate_keywords(category_id,month,candidates)`. Queries return a copied state with `result.trends`, `result.trend_ids`, `result.suggestions` or `result.added_ids`, respectively. Errors return the unchanged state with `error.code`; clear stale `result` and `error` on subsequent successful actions. Error code strings other than the explicitly specified `invalid_source` and `fetch_failed` may be any nonempty string.
+
+CSV has exactly `trend_id,keyword,month,count` columns, in any order, using normal CSV quoting and optional UTF-8 BOM. IDs/keywords must be nonempty strings after trimming. Counts are finite nonnegative numbers; months use YYYY-MM with year 0001–9999. Reject duplicate ID/month pairs in one batch and conflicting keywords for the same ID. A source ID must not move an existing trend to another category. Header-only input is an empty successful batch. Preserve unrelated trends and metadata. Updates replace matching monthly counts; they do not add them together. Parser helper return format is internal; the public interface is the workflow and console.
+
+Existing categories and records are valid synthetic state. Ask the client about category selection/order, watch/discovery behavior, and candidate keyword curation. No specific generated ID string or internal algorithm is required.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

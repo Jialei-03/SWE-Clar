@@ -1,0 +1,321 @@
+schema_version: 1
+task_id: SWECLAR-072
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Persistent local refund-command, comment-tree and rolling-rate-limit CLI
+requirement_units:
+- ru_id: RU-001
+  name: Backend command entry point
+  content: Process supported commands into a new JSON-compatible state without mutating the supplied state.
+    Keep command inputs unchanged too. Retain actual SQLite persistence and CLI execution, serializing
+    competing commands atomically. Extra unrelated metadata is permitted.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for backend command entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_backend_command
+      signature: 'process_backend_command(state: dict, command: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - command
+      action_variants:
+        refund:
+          fields:
+          - amount
+          - currency
+          - idempotency_key
+          - order_id
+          - type
+      protocol_fields:
+      - amount
+      - currency
+      - idempotency_key
+      - order_id
+      - type
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Freelancer described these backend modules and client confirmed broader API completion. Exact
+    schema, no-op handling, cycle rules and 3-per-900 limits are synthetic conventions. Pending refund
+    records do not execute external money movement; rate limiting sends no email.
+- ru_id: RU-002
+  name: Local pending refund initiation
+  content: A refund command requires non-empty idempotency_key, order_id, and currency plus a strictly
+    positive numeric amount that is not a boolean. Invalid input returns a non-empty top-level error.code
+    and leaves the top-level refunds array unchanged. Valid input uppercases currency and appends one
+    pending refund object containing exactly the supplied key, order ID, amount, normalized currency,
+    and status.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for shopify refund initiation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_backend_command
+      signature: 'process_backend_command(state: dict, command: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - command
+      action_variants:
+        refund:
+          fields:
+          - amount
+          - currency
+          - idempotency_key
+          - order_id
+          - type
+      protocol_fields:
+      - amount
+      - currency
+      - idempotency_key
+      - order_id
+      - refunds
+      - type
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - error
+      - error.code
+      - refunds
+      required_tokens:
+        error.code:
+        - invalid_refund
+      field_schemas:
+        error.code:
+          type: string
+        refunds:
+          type: array
+          items:
+            type: object
+            required_fields:
+            - amount
+            - currency
+            - idempotency_key
+            - order_id
+            - status
+            properties:
+              amount:
+                type: number
+              currency:
+                type: string
+              idempotency_key:
+                type: string
+              order_id:
+                type: string
+              status:
+                type: string
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Freelancer described these backend modules and client confirmed broader API completion. Exact
+    schema, no-op handling, cycle rules and 3-per-900 limits are synthetic conventions. Pending refund
+    records do not execute external money movement; rate limiting sends no email.
+- ru_id: RU-003
+  name: Refund idempotency
+  content: Repeating a refund idempotency_key never changes refunds or other persistent business state.
+    The transient refund_result returns that key’s existing refund object, including when an older key
+    is replayed after another refund. Do not duplicate the record or replace it with a duplicate-status
+    wrapper. Unrelated metadata is not part of no-op equality.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for refund idempotency.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_backend_command
+      signature: 'process_backend_command(state: dict, command: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - command
+      action_variants:
+        refund:
+          fields:
+          - amount
+          - currency
+          - idempotency_key
+          - order_id
+          - type
+      protocol_fields:
+      - amount
+      - currency
+      - idempotency_key
+      - order_id
+      - type
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - refund_result
+      - refunds
+      - refunds.<index>
+      field_schemas:
+        refunds:
+          type: array
+          items:
+            type: object
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Freelancer described these backend modules and client confirmed broader API completion. Exact
+    schema, no-op handling, cycle rules and 3-per-900 limits are synthetic conventions. Pending refund
+    records do not execute external money movement; rate limiting sends no email.
+- ru_id: RU-004
+  name: Multi-level comments
+  content: comments is a top-level array in insertion order. A comment may have no parent_id or target
+    an existing comment. Reject a missing parent with missing_parent, reject any insertion that would
+    complete a parent cycle with comment_cycle, and leave the array unchanged on rejection. Do not reorder
+    by created_at.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for multi-level comments.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_backend_command
+      signature: 'process_backend_command(state: dict, command: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - command
+      action_variants:
+        comment:
+          fields:
+          - body
+          - created_at
+          - id
+          - parent_id
+          - type
+      protocol_fields:
+      - body
+      - comments
+      - created_at
+      - id
+      - parent_id
+      - type
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - comments
+      - comments.<index>.id
+      - error
+      - error.code
+      required_tokens:
+        error.code:
+        - comment_cycle
+        - missing_parent
+      field_schemas:
+        comments:
+          type: array
+          items:
+            type: object
+        comments.<index>.id:
+          type: string
+        error.code:
+          type: string
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Freelancer described these backend modules and client confirmed broader API completion. Exact
+    schema, no-op handling, cycle rules and 3-per-900 limits are synthetic conventions. Pending refund
+    records do not execute external money movement; rate limiting sends no email.
+- ru_id: RU-005
+  name: Passwordless login rate limit
+  content: Normalize email by trimming whitespace and lowercasing. Accept at most three requests per normalized
+    email in a rolling 900-second window. A limited response is exactly accepted=false plus retry_after_seconds
+    until the oldest in-window attempt expires; an accepted response is exactly accepted=true and omits
+    retry_after_seconds.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for passwordless login rate limit.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_backend_command
+      signature: 'process_backend_command(state: dict, command: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - command
+      action_variants:
+        passwordless:
+          fields:
+          - email
+          - now
+          - type
+      protocol_fields:
+      - email
+      - now
+      - type
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - login_result
+      - login_result.accepted
+      - login_result.retry_after_seconds
+      required_tokens:
+        login_result.accepted:
+        - false
+        - true
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Freelancer described these backend modules and client confirmed broader API completion. Exact
+    schema, no-op handling, cycle rules and 3-per-900 limits are synthetic conventions. Pending refund
+    records do not execute external money movement; rate limiting sends no email.

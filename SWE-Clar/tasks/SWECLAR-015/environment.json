@@ -1,0 +1,34 @@
+{
+  "profile": "python-web",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "network": "none except loopback",
+    "workspace_mb": 512,
+    "evaluation_wall_seconds": 300
+  },
+  "workdir": "/workspace",
+  "public_test": [
+    "python",
+    "/public_tests/test_public.py"
+  ],
+  "start": [
+    "python",
+    "server.py",
+    "--host",
+    "0.0.0.0",
+    "--port",
+    "8080"
+  ],
+  "preflight": [
+    "python",
+    "/opt/sweclar/preflight.py"
+  ],
+  "task_preflight": [
+    "python",
+    "/public_tests/preflight.py"
+  ],
+  "prepare_owner": "benchmark before candidate budget",
+  "platform": "linux/amd64"
+}

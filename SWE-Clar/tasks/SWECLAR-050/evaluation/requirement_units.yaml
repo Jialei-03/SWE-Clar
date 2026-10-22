@@ -1,0 +1,206 @@
+schema_version: 1
+task_id: SWECLAR-050
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independently owned 3D auto-battler workshop with editable units, placement, free planar
+  movement, projectile combat and deterministic replay.
+requirement_units:
+- ru_id: RU-001
+  name: Playable 3D workshop and camera
+  content: Preserve the public running workshop and HTTP/UI contracts in README. Render actual depth-tested
+    3D arena geometry, visually distinct melee/ranged models, per-unit health bars and names. Prebattle
+    mouse placement and right-drag/wheel/other-side camera controls must work in the real scene. Names
+    can be toggled without mutating game data. Show both teams. Start/play/pause/step/reset must connect
+    the rendered scene to actual server tick state; rendered changes cannot be replaced by a status field.
+    Combat projectile rendering and finished-battle retention/result details are clarifiable with the
+    client.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for playable 3d workshop and camera?
+  matching_keywords:
+  - 3D
+  - render
+  - camera
+  - placement
+  - workshop
+  - controls
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP/JSON plus actual software-WebGL controls in README
+    inputs: Synthetic unit templates, placements, fixed tick commands and browser inputs
+    output: Real 3D scene/interaction, movement/projectiles, event records and persisted replay results
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source establishes a customizable 3D auto-battler prototype. Host, geometric models, exact rules
+    and fixtures are independently designed; no original engine/assets or later production-feature compatibility
+    claim.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/arena_contract.py
+- ru_id: RU-002
+  name: Editable shared unit catalog and setup
+  content: Implement the README template and placement schemas/ranges, save/update/delete behavior, two-team
+    legal placement, occupied checks, setup clearing and tick limit. Both teams instantiate the same selected
+    templates with independent battle copies. Editing a template changes the next battle for its placements
+    and does not mutate earlier stored base stats through simulation. Preserve setup across restart. Reject
+    in-use template deletion, unknown targets, non-finite values, booleans as numbers, overlapping/out-of-bounds
+    centers and edits while a battle exists. Clear removes placements only; reset removes battle only.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for editable shared unit catalog and setup?
+  matching_keywords:
+  - template
+  - stats
+  - catalog
+  - setup
+  - validation
+  - teams
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP/JSON plus actual software-WebGL controls in README
+    inputs: Synthetic unit templates, placements, fixed tick commands and browser inputs
+    output: Real 3D scene/interaction, movement/projectiles, event records and persisted replay results
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source establishes a customizable 3D auto-battler prototype. Host, geometric models, exact rules
+    and fixtures are independently designed; no original engine/assets or later production-feature compatibility
+    claim.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/arena_contract.py
+- ru_id: RU-003
+  name: Deterministic movement, targets and melee
+  content: Use a 100ms fixed tick and units ordered lexicographically by instance ID. Each tick first
+    advances old projectiles, then lets each still-living unit act once in ID order. Choose the nearest
+    living enemy by Euclidean x/z center distance, rounding distance to 9 decimal places only for tie
+    comparison, then ID. If outside range, move straight toward it by min(speed*0.1,distance-range); skip
+    that movement if its resulting center is within 0.8 of another living unit, and do not attack on the
+    same tick as this movement branch. If in range and tick>=next_attack, attack and set next_attack=tick+cooldown.
+    First attacks can occur at tick 1. A melee hit applies min(current target hp,max(1,attack-defense));
+    record actual post-mitigation health loss in damage_dealt/event damage, and clamp hp at zero. Dead
+    units cannot move or begin attacks. Killing a target never bypasses cooldown; select a new nearest
+    living target on subsequent ticks. No randomness or cumulative stat/movement boosts across replays.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for deterministic movement, targets and melee?
+  matching_keywords:
+  - movement
+  - target
+  - range
+  - cooldown
+  - melee
+  - damage
+  - determinism
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP/JSON plus actual software-WebGL controls in README
+    inputs: Synthetic unit templates, placements, fixed tick commands and browser inputs
+    output: Real 3D scene/interaction, movement/projectiles, event records and persisted replay results
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source establishes a customizable 3D auto-battler prototype. Host, geometric models, exact rules
+    and fixtures are independently designed; no original engine/assets or later production-feature compatibility
+    claim.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/arena_contract.py
+- ru_id: RU-004
+  name: Ranged projectile travel and ordering
+  content: 'An eligible ranged attack launches a separate projectile from the shooter at its current position
+    with captured attack and projectile_speed; it does not deal immediate damage. Assign increasing projectile
+    IDs in launch order. At the beginning of each later tick, process existing projectiles in creation
+    order: discard one whose target is dead, otherwise move toward the target''s current position by speed*0.1,
+    applying the same mitigation/clamped-damage rule on arrival. Projectile motion homes on the current
+    target position. A projectile already launched remains effective after its shooter dies; dead shooters
+    cannot launch more. New projectiles do not move during their launch tick. Show their actual moving
+    3D geometry. Damage/launch logs are ordered by this tick-phase and unit order. Movement/arrival comparisons
+    allow 1e-9 tolerance.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for ranged projectile travel and ordering?
+  matching_keywords:
+  - ranged
+  - projectile
+  - travel
+  - impact
+  - launch
+  - ordering
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP/JSON plus actual software-WebGL controls in README
+    inputs: Synthetic unit templates, placements, fixed tick commands and browser inputs
+    output: Real 3D scene/interaction, movement/projectiles, event records and persisted replay results
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source establishes a customizable 3D auto-battler prototype. Host, geometric models, exact rules
+    and fixtures are independently designed; no original engine/assets or later production-feature compatibility
+    claim.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/arena_contract.py
+- ru_id: RU-005
+  name: Termination, results, replay and atomicity
+  content: After each tick, finish with winner A/B or draw for zero survivors when at most one living
+    team remains and no projectiles remain. Pending shots keep the battle running even after one side
+    has no living units. If this terminal condition has not occurred when max_ticks is reached, finish
+    with draw and reason tick_limit; otherwise reason elimination. Stop a multi-tick step at the first
+    finished tick. Keep every unit (including hp=0) and the ordered log, completed tick count, actual
+    damage_dealt and per-team result rows. Reset restores the exact unchanged setup; a repeated battle
+    from the same config yields the same states/events/results. Persist current config and battle across
+    server restart. Invalid commands use HTTP 400/error objects and leave all stored data unchanged, including
+    partial edits/steps. Concurrent step operations serialize without dropping ticks.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for termination, results, replay and atomicity?
+  matching_keywords:
+  - winner
+  - draw
+  - results
+  - replay
+  - reset
+  - persistence
+  - atomic
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database>
+      protocol: HTTP/JSON plus actual software-WebGL controls in README
+    inputs: Synthetic unit templates, placements, fixed tick commands and browser inputs
+    output: Real 3D scene/interaction, movement/projectiles, event records and persisted replay results
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Source establishes a customizable 3D auto-battler prototype. Host, geometric models, exact rules
+    and fixtures are independently designed; no original engine/assets or later production-feature compatibility
+    claim.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/arena_contract.py

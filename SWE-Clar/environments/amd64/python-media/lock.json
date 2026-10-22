@@ -1,0 +1,23 @@
+{
+  "platform": "linux/amd64",
+  "base_profile": "python-web",
+  "source_profile": "python-media",
+  "wheels": [],
+  "archives": [
+    {
+      "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-12-13-12/ffmpeg-n8.1.2-52-g5a03dfa0f6-linux64-gpl-8.1.tar.xz",
+      "filename": "ffmpeg-n8.1.2-52-g5a03dfa0f6-linux64-gpl-8.1.tar.xz",
+      "asset_id": 559292287,
+      "sha256": "682dba33847c14b496b51bb4f8bd6601a180295d038928c68c558ab8978d6fa8",
+      "bytes": 149329468
+    },
+    {
+      "url": "https://github.com/bluenviron/mediamtx/releases/download/v1.21.0/mediamtx_v1.21.0_linux_amd64.tar.gz",
+      "filename": "mediamtx_v1.21.0_linux_amd64.tar.gz",
+      "asset_id": 546335034,
+      "sha256": "e02e34c3337a35f20ac9e5aa31524566108964e6e37dbc46cf8292169f6c792b",
+      "bytes": 27192682
+    }
+  ],
+  "ffmpeg_release": "autobuild-2026-09-12-13-12"
+}

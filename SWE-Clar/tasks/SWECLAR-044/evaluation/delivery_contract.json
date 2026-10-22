@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-044",
+  "public": {
+    "readme": "# Raw-measurement trend ingestion\n\nComplete `process_trend_action(state, action, fetch_text=None)` in solution.py. A sync_source action supplies category_id and a CSV URL. The optional callable(url) returns raw CSV text; without it the supplied reader performs HTTP. Implement measurements.py to parse trend_id, keyword, month (YYYY-MM) and non-negative numeric count columns. The state supplies known categories. A growth value in the action is not authoritative.\n\nCompute growth from the two latest monthly counts as (latest - previous) / previous * 100. Two zero counts produce zero growth; a missing baseline or positive count following zero is insufficient_baseline, not an invented percentage. These raw-format and zero-baseline conventions are explicit benchmark reconstruction choices. Candidate keyword lists are supplied suggestions for curation; no external language model is claimed.\n\nThe component performs actual retrieval, CSV parsing and time-series calculations on synthetic measurements. It does not claim access to a private social platform or production subscription service. No customer keywords, analytics exports or credentials are distributed.\n\n## Prepared environment and console\n\nUse `/workspace` in the provided `python-web` environment. Python, SQLite and standard-library HTTP/CSV tools are ready before the task starts. No package installation, external API, model call or credentials are needed. Resources are 2 CPU, 2048 MiB memory, 256 processes and 256 MiB workspace. Networking is local loopback only.\n\nRun `python cli.py --sample-source < example.json` for an end-to-end sample. The supplied console starts a temporary local HTTP CSV source, substitutes its URL, calls the workflow and prints JSON. It shuts down the source automatically. Without `--sample-source`, it reads `{\"state\": ..., \"action\": ...}` from stdin and uses the supplied action URL. Preserve these console interfaces and the existing HTTP reader. The parser and workflow are the unfinished coding work.\n\nRun public checks with `python /public_tests/test_public.py`. Each invocation uses temporary state and a fresh local port. There is no persistent service to reset; generated files under `runtime/` are excluded from delivery. Errors appear on stderr. The public smoke check exercises provided adapters and does not certify unfinished trend behavior.\n\n## JSON contract\n\nState collections are `categories` (ID to object), `trends` (ID to trend), `watchlists` (user ID to trend-ID list), `suggestions` (normalized seed to string list), and `generation_log` (category ID to month list). Missing collections start empty. A trend has `trend_id`, `category_id`, `keyword`, `history` (objects with `month` and `count`), `growth` (number or null) and `classification`. Extra nonconflicting fields are allowed.\n\nAction fields are: `sync_source(category_id,url)`, `category_view(category_ids)`, `watch/unwatch(user_id,trend_id)`, `discover(seed)`, `generate_keywords(category_id,month,candidates)`. Queries return a copied state with `result.trends`, `result.trend_ids`, `result.suggestions` or `result.added_ids`, respectively. Errors return the unchanged state with `error.code`; clear stale `result` and `error` on subsequent successful actions. Error code strings other than the explicitly specified `invalid_source` and `fetch_failed` may be any nonempty string.\n\nCSV has exactly `trend_id,keyword,month,count` columns, in any order, using normal CSV quoting and optional UTF-8 BOM. IDs/keywords must be nonempty strings after trimming. Counts are finite nonnegative numbers; months use YYYY-MM with year 0001\u20139999. Reject duplicate ID/month pairs in one batch and conflicting keywords for the same ID. A source ID must not move an existing trend to another category. Header-only input is an empty successful batch. Preserve unrelated trends and metadata. Updates replace matching monthly counts; they do not add them together. Parser helper return format is internal; the public interface is the workflow and console.\n\nExisting categories and records are valid synthetic state. Ask the client about category selection/order, watch/discovery behavior, and candidate keyword curation. No specific generated ID string or internal algorithm is required.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_trend_action",
+          "signature": "process_trend_action(state, action, fetch_text=None) -> dict"
+        },
+        "inputs": {
+          "state": "Categories, trend histories, watchlists and supplied keyword suggestions",
+          "action": "sync_source(category_id,url), category_view, watch/unwatch, discover or generate_keywords",
+          "fetch_text": "Optional callable(url) returning raw CSV"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "New state with computed monthly growth/history and result or error.code"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_trend_action",
+        "signature": "process_trend_action(state, action, fetch_text=None) -> dict"
+      },
+      "inputs": {
+        "state": "Categories, trend histories, watchlists and supplied keyword suggestions",
+        "action": "sync_source(category_id,url), category_view, watch/unwatch, discover or generate_keywords",
+        "fetch_text": "Optional callable(url) returning raw CSV"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with computed monthly growth/history and result or error.code"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_trend_action",
+        "signature": "process_trend_action(state, action, fetch_text=None) -> dict"
+      },
+      "inputs": {
+        "state": "Categories, trend histories, watchlists and supplied keyword suggestions",
+        "action": "sync_source(category_id,url), category_view, watch/unwatch, discover or generate_keywords",
+        "fetch_text": "Optional callable(url) returning raw CSV"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with computed monthly growth/history and result or error.code"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_trend_action",
+        "signature": "process_trend_action(state, action, fetch_text=None) -> dict"
+      },
+      "inputs": {
+        "state": "Categories, trend histories, watchlists and supplied keyword suggestions",
+        "action": "sync_source(category_id,url), category_view, watch/unwatch, discover or generate_keywords",
+        "fetch_text": "Optional callable(url) returning raw CSV"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with computed monthly growth/history and result or error.code"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_trend_action",
+        "signature": "process_trend_action(state, action, fetch_text=None) -> dict"
+      },
+      "inputs": {
+        "state": "Categories, trend histories, watchlists and supplied keyword suggestions",
+        "action": "sync_source(category_id,url), category_view, watch/unwatch, discover or generate_keywords",
+        "fetch_text": "Optional callable(url) returning raw CSV"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with computed monthly growth/history and result or error.code"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_trend_action",
+        "signature": "process_trend_action(state, action, fetch_text=None) -> dict"
+      },
+      "inputs": {
+        "state": "Categories, trend histories, watchlists and supplied keyword suggestions",
+        "action": "sync_source(category_id,url), category_view, watch/unwatch, discover or generate_keywords",
+        "fetch_text": "Optional callable(url) returning raw CSV"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with computed monthly growth/history and result or error.code"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "c6ae5a84e19f07ad71d1c630df80bb7f2d3ba7ae687d1fb8695c1d13b9ec21f4",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "eca80f0b2bc4e3fdb50b9380d606fcb76c1e9cd8bf6758382393f9f486587efc",
+    "evaluation/tests/boundaries.py": "d9d4319df8a968092340fcc20c7627c5ad9104045b27e16278643497286f8ccb",
+    "evaluation/tests/candidate_proxy.py": "bf941745f309534ff90f6c179e01449c8790dd5565a071796adadff452ac998c",
+    "evaluation/tests/conftest.py": "55eeff788e544c81bd20d7b2f8a9636f1ff8cd2bcee2610c89c206c8a26dc100",
+    "evaluation/tests/evaluate.py": "2aa24e46308b5c2bf253b1b0aeafed5a860085cb7c4b511bdde020cc50af125b",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "230830a996da017a1a3d16ff6fe7a11957755363342fad2aeeefe69642662f2b"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

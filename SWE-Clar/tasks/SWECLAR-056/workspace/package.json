@@ -1,0 +1,11 @@
+{
+  "name": "device-router",
+  "private": true,
+  "version": "1.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "8.19.0"
+  }
+}

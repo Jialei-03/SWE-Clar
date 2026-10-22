@@ -1,0 +1,269 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-045",
+  "public": {
+    "readme": "# Local event-credit ledger\n\nComplete `process_cashless_action(state, action, upload_events=None)` in `solution.py`. Preserve the supplied JSON console, real HTTP transport and local SQLite synchronization service. Synthetic terminal/card identifiers replace physical NFC hardware. This task does not operate bank payments or reproduce a commercial mobile platform.\n\n## Prepared environment\n\nUse `/workspace` and the supplied `python-web` runtime: Python, SQLite and HTTP tools are prepared. No installation, credentials, device or internet is required. Limits: 2 CPU, 2048 MiB memory, 256 processes, 256 MiB workspace; local loopback networking only.\n\n- Start/sample: `python cli.py < example.json`.\n- Public checks: `python /public_tests/test_public.py`.\n- Reset synchronized sample data: `python -c \"import shutil; shutil.rmtree('runtime', ignore_errors=True)\"`.\n\nThe console reads `{\"state\": <object>, \"action\": <object>}` on stdin and prints the new state as JSON. It automatically starts/stops a local service using `runtime/server.db`; `--server-db PATH` selects another database. Input state is caller-managed; pass the previous result for a subsequent action. Errors appear on stderr. Runtime databases are excluded from code delivery.\n\n## Public interfaces\n\nState uses mappings `terminals`, `customers`, `cards`, `events` (event ID to record), `pending` (terminal ID to event-record list), and a `server_ledger` list. Missing collections are empty. `cards[id]` has `customer_id` and numeric `balance`; `events[id]` records `event_id`, `kind`, `card_id`, `terminal_imei`, `amount`, `timestamp` and applicable `payment_method`, `product`, `sale_event_id`. Additional nonconflicting metadata is allowed.\n\nActions: `register_terminal(imei,name)`, `create_customer(customer_id,name)`, `activate_card(card_id,customer_id)`, `topup(card_id,terminal_imei,event_id,amount,payment_method,timestamp)`, `sale(card_id,terminal_imei,event_id,amount,product,timestamp)`, `refund(card_id,terminal_imei,event_id,sale_event_id,amount,payment_method,timestamp)`, `sync(terminal_imei,sync_url)`, `report`. For sale, timestamp is required and accepts a supplied synthetic number or string, as specified by the sale operation interface. For topup and refund, timestamp is an optional supplied synthetic integer and defaults to 0 when omitted. Preserve supplied timestamps and never read the wall clock. IDs are nonempty strings. Monetary numbers use at most two decimal places; calculations must preserve cents. Ask the client for business validation and replay/refund policies.\n\nFor sync, call the optional `upload_events(events)` callback when supplied. Otherwise use `transport.upload_events(action['sync_url'], events)` for real HTTP. The console supplies its local URL automatically. The service accepts `POST /sync` with `{\"events\": [...]}`, returns `{\"accepted_ids\": [...], \"conflicting_ids\": [...]}`, and provides `GET /events` for persisted records. Identical IDs and payloads are acknowledged again without another insertion; conflicting payloads are not acknowledged. The callback has the same response shape and may raise an exception. Ask the client how acknowledgements and failures affect pending entries.\n\nReturn a new JSON object without modifying either input. Errors return the unchanged state plus `error.code` (any nonempty string). Successful calls remove stale `error` and `result`. `report` places `credit_purchased`, `total_sales`, `refunds_by_payment_method` (cash/card totals) and `product_sales` (product, terminal_imei, timestamp, amount) inside `result`. Event records and credit balances are ledger data, not claims of external monetary transfers.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_cashless_action",
+          "signature": "process_cashless_action(state: dict, action: dict, upload_events=None) -> dict"
+        },
+        "inputs": {
+          "state": "JSON-compatible workflow state; an empty dict is a valid initial state.",
+          "action": {
+            "discriminator": "type",
+            "variants": {
+              "register_terminal": {
+                "required_fields": {
+                  "imei": "string",
+                  "name": "string"
+                }
+              },
+              "create_customer": {
+                "required_fields": {
+                  "customer_id": "string",
+                  "name": "string"
+                }
+              },
+              "activate_card": {
+                "required_fields": {
+                  "card_id": "string",
+                  "customer_id": "string"
+                }
+              }
+            }
+          }
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "New state with public README collections, or unchanged state plus error.code; any nonempty code and extra nonconflicting metadata are allowed."
+        },
+        "operations": [
+          "register_terminal",
+          "create_customer",
+          "activate_card"
+        ]
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_cashless_action",
+        "signature": "process_cashless_action(state: dict, action: dict, upload_events=None) -> dict"
+      },
+      "inputs": {
+        "state": "JSON-compatible workflow state; an empty dict is a valid initial state.",
+        "action": {
+          "discriminator": "type",
+          "variants": {
+            "register_terminal": {
+              "required_fields": {
+                "imei": "string",
+                "name": "string"
+              }
+            },
+            "create_customer": {
+              "required_fields": {
+                "customer_id": "string",
+                "name": "string"
+              }
+            },
+            "activate_card": {
+              "required_fields": {
+                "card_id": "string",
+                "customer_id": "string"
+              }
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with public README collections, or unchanged state plus error.code; any nonempty code and extra nonconflicting metadata are allowed."
+      },
+      "operations": [
+        "register_terminal",
+        "create_customer",
+        "activate_card"
+      ]
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_cashless_action",
+        "signature": "process_cashless_action(state: dict, action: dict, upload_events=None) -> dict"
+      },
+      "inputs": {
+        "state": "JSON-compatible workflow state; an empty dict is a valid initial state.",
+        "action": {
+          "discriminator": "type",
+          "variants": {
+            "register_terminal": {
+              "required_fields": {
+                "imei": "string",
+                "name": "string"
+              }
+            },
+            "create_customer": {
+              "required_fields": {
+                "customer_id": "string",
+                "name": "string"
+              }
+            },
+            "activate_card": {
+              "required_fields": {
+                "card_id": "string",
+                "customer_id": "string"
+              }
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with public README collections, or unchanged state plus error.code; any nonempty code and extra nonconflicting metadata are allowed."
+      },
+      "operations": [
+        "register_terminal",
+        "create_customer",
+        "activate_card"
+      ]
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_cashless_action",
+        "signature": "process_cashless_action(state: dict, action: dict, upload_events=None) -> dict"
+      },
+      "inputs": {
+        "state": "State returned by a previous process_cashless_action call.",
+        "action": {
+          "discriminator": "type",
+          "variants": {
+            "topup": {
+              "required_fields": {
+                "card_id": "string",
+                "terminal_imei": "string",
+                "event_id": "string",
+                "amount": "positive number",
+                "payment_method": "cash or card"
+              }
+            },
+            "sale": {
+              "required_fields": {
+                "card_id": "string",
+                "terminal_imei": "string",
+                "event_id": "string",
+                "amount": "positive number",
+                "product": "string",
+                "timestamp": "number or string"
+              }
+            },
+            "refund": {
+              "required_fields": {
+                "card_id": "string",
+                "terminal_imei": "string",
+                "event_id": "string",
+                "sale_event_id": "string",
+                "amount": "positive number",
+                "payment_method": "cash or card"
+              }
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with public README collections, or unchanged state plus error.code; any nonempty code and extra nonconflicting metadata are allowed."
+      },
+      "operations": [
+        "topup",
+        "sale",
+        "refund"
+      ]
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_cashless_action",
+        "signature": "process_cashless_action(state: dict, action: dict, upload_events=None) -> dict"
+      },
+      "inputs": {
+        "state": "State containing per-terminal pending events and a server ledger.",
+        "action": {
+          "discriminator": "type",
+          "variants": {
+            "sync": {
+              "required_fields": {
+                "terminal_imei": "string"
+              }
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with public README collections, or unchanged state plus error.code; any nonempty code and extra nonconflicting metadata are allowed."
+      },
+      "operations": [
+        "sync"
+      ]
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_cashless_action",
+        "signature": "process_cashless_action(state: dict, action: dict, upload_events=None) -> dict"
+      },
+      "inputs": {
+        "state": "State containing synchronized server-ledger events.",
+        "action": {
+          "discriminator": "type",
+          "variants": {
+            "report": {
+              "required_fields": {}
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state with public README collections, or unchanged state plus error.code; any nonempty code and extra nonconflicting metadata are allowed."
+      },
+      "operations": [
+        "report"
+      ]
+    }
+  },
+  "requirements_sha256": "16d2393a41b2af822078b8196af291754eae5e1d775fc5efdec1ef99410e74b4",
+  "test_sources_sha256": {
+    "evaluation/tests/boundaries.py": "a2fa27a647f71e28f69e6191c1c6832fff0272020821b37eb4075b050ebe148a",
+    "evaluation/tests/candidate_proxy.py": "49e37a39d129bd0f7e19c6a4865bd3cb4a4c84b13c34a64513608356966da3de",
+    "evaluation/tests/conftest.py": "870cfd99c3d918f83a12cf912b52093efc2647dda10e03be565b9932e7583458",
+    "evaluation/tests/evaluate.py": "2aa24e46308b5c2bf253b1b0aeafed5a860085cb7c4b511bdde020cc50af125b",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "ffe968481d33dfc200c3691911bc0ce7ff4cc4600c13a90b733a1f6014b4b45f"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

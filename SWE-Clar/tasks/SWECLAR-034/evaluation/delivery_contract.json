@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-034",
+  "public": {
+    "readme": "# Listing scraper workspace\n\nThis reconstructed Python project fetches HTML and exposes `scrape(urls)` in `solution.py`. Complete `listing_parser.py` and `transform(rows)`; preserve the existing HTTP fetcher and CLI (`python solution.py < urls.json`). Use Python 3.11 or later, standard library only.\n\nThe two synthetic examples show equivalent document layouts. A page has a title heading (`h1`), an `address`, and labelled properties in either `dl` / `dt` / `dd` or a table with `th` / `td`. Supported labels are Property type, Max persons, Contact name, Latitude, Longitude, and Pool. Phone values are the visible text of `a` links whose href starts with `tel:`. An optional `link rel=\"canonical\"` contains an explicit URL; the requested URL is the source URI. Resolve a relative canonical URL against the source URI. Ignore scripts, styles, and unrelated sections. Decode HTML entities and collapse whitespace. Max persons is an integer; latitude and longitude are numbers when present. Preserve input URL order and fetch each supplied page. All acceptance pages are served by a synthetic loopback HTTP fixture; no live property site or account is needed.\n\nThe final field list is supplied by the initial task interface. Output conventions may need clarification. These fixtures and source files were independently constructed and do not contain customer website code.\n\nWork in `/workspace` in the prepared standard-library Python environment. Run `python /public_tests/test_public.py` for HTTP-reader, fixture and empty-input CLI regression checks. No package installation or external website credentials are required. The benchmark verifies local HTTP and parser capabilities before the coding budget. To run your scraper, supply a JSON array of the fixture URLs on standard input: `python solution.py < urls.json`. Successful output is a JSON array on stdout; failures are reported on stderr. Each call is independent and no database or reset operation is needed. Empty URL lists are supported by the starter; nonempty parsing and normalization remain to implement.\nFor HTML scraping, pool retains the normalized textual label value (for example yes or no); do not convert it to a boolean. An absent pool is the empty string. This does not change direct transform; it preserves the supplied value and type for non-URL/non-phone fields.\n",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "transform"
+        },
+        "inputs": {
+          "rows": "list[dict] of controlled listing records"
+        },
+        "output": {
+          "type": "list[dict]",
+          "meaning": "one normalized listing record per input record, in input order",
+          "fields": [
+            "title",
+            "property_type",
+            "address",
+            "max_persons",
+            "contact_name",
+            "contact_phone",
+            "url",
+            "lat",
+            "lng",
+            "pool"
+          ],
+          "asserted_field_paths": [
+            "<index>",
+            "<index>.address",
+            "<index>.property_type"
+          ],
+          "field_schemas": {
+            "<index>.address": {
+              "type": "string"
+            },
+            "<index>.property_type": {
+              "type": "string"
+            },
+            "<index>.title": {
+              "type": "string"
+            }
+          }
+        },
+        "operations": []
+      },
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "scrape",
+          "signature": "scrape(urls: list[str]) -> list[dict]"
+        },
+        "inputs": {
+          "urls": "Ordered listing URLs served by the local HTTP fixture"
+        },
+        "output": {
+          "type": "list[dict]",
+          "meaning": "Normalized property records extracted from the fetched HTML",
+          "fields": [
+            "title",
+            "property_type",
+            "address",
+            "max_persons",
+            "contact_name",
+            "contact_phone",
+            "url",
+            "lat",
+            "lng",
+            "pool"
+          ]
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "transform"
+      },
+      "inputs": {
+        "rows": "list[dict] of controlled listing records"
+      },
+      "output": {
+        "type": "list[dict]",
+        "meaning": "one normalized listing record per input record, in input order",
+        "fields": [
+          "title",
+          "property_type",
+          "address",
+          "max_persons",
+          "contact_name",
+          "contact_phone",
+          "url",
+          "lat",
+          "lng",
+          "pool"
+        ],
+        "asserted_field_paths": [
+          "<index>",
+          "<index>.address",
+          "<index>.property_type"
+        ],
+        "field_schemas": {
+          "<index>.address": {
+            "type": "string"
+          },
+          "<index>.property_type": {
+            "type": "string"
+          },
+          "<index>.title": {
+            "type": "string"
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "transform"
+      },
+      "inputs": {
+        "rows": "list[dict] with url or uri and optional comma-separated contact_phone"
+      },
+      "output": {
+        "type": "list[dict]",
+        "meaning": "normalized url and phone fields within each output record",
+        "fields": [
+          "url",
+          "contact_phone"
+        ],
+        "asserted_field_paths": [
+          "<index>",
+          "<index>.contact_phone",
+          "<index>.url"
+        ],
+        "field_schemas": {
+          "<index>.contact_phone": {
+            "type": "string"
+          },
+          "<index>.url": {
+            "type": "string"
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "scrape",
+        "signature": "scrape(urls: list[str]) -> list[dict]"
+      },
+      "inputs": {
+        "urls": "Ordered listing URLs served by the local HTTP fixture"
+      },
+      "output": {
+        "type": "list[dict]",
+        "meaning": "Normalized property records extracted from the fetched HTML",
+        "fields": [
+          "title",
+          "property_type",
+          "address",
+          "max_persons",
+          "contact_name",
+          "contact_phone",
+          "url",
+          "lat",
+          "lng",
+          "pool"
+        ]
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "844ec501a72b525fa9059a39727f82ba77091763c5407d0df6f9f189caa4bb21",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "7aef9c16cdd3b4b815f6ceb3297e6cf5e23a32780d6d0def7c230d56ebe2c6e5",
+    "evaluation/tests/candidate_proxy.py": "3c5836c90ce2b0170262e3eb832da0799173702cd83c7424e56892427044417e",
+    "evaluation/tests/evaluate.py": "0a84e019a5bc3c17dcc3e18a81e3b2c865de10fc0b99f9a74597aa67a1c69935",
+    "evaluation/tests/expected_gates.json": "36038e63aee5de979f79d37f1e21a6c593c3bb0e0fbf27638638e84cc690ac7b",
+    "evaluation/tests/official_verifier.py": "53cb1694c5a8b4cce33871cbd00dca4a7114ee7650cbca619ff8573dd4cb4e0e",
+    "evaluation/tests/source_test.sh": "09b8457712b2a19f05a6ab7e2f3f9da82fddeb084e364aed56a00f244043203a",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_scrape.py": "d4ae124b4b4e97f5da0fb104cafb05102cc280d4eb33939a7a48c225ff952c61",
+    "evaluation/tests/test_transform.py": "23798210ed9551e3565afb661f32aa696eef75c91d1aa919d38ab5fdb27c70e2"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

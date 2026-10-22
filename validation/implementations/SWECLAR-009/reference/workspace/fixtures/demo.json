@@ -1,0 +1,58 @@
+{
+  "clock_ms": 1704196800000,
+  "users": [
+    {
+      "id": "employer-a",
+      "name": "North Workshop",
+      "role": "employer",
+      "bio": "A synthetic workshop seeking practical web skills.",
+      "password": "local-demo"
+    },
+    {
+      "id": "employer-b",
+      "name": "Harbor Studio",
+      "role": "employer",
+      "bio": "An independent demo team.",
+      "password": "local-demo"
+    },
+    {
+      "id": "employee-a",
+      "name": "Candidate Maple",
+      "role": "employee",
+      "bio": "Enjoys accessible interfaces and clear documentation.",
+      "password": "local-demo"
+    },
+    {
+      "id": "employee-b",
+      "name": "Candidate Reed",
+      "role": "employee",
+      "bio": "Works on data pipelines and application testing.",
+      "password": "local-demo"
+    }
+  ],
+  "jobs": [
+    {
+      "job_id": "web-role",
+      "employer_id": "employer-a",
+      "title": "Web application developer",
+      "description": "Build useful, accessible workflows for a synthetic team.",
+      "category": "Web",
+      "location": "Remote",
+      "active": true
+    },
+    {
+      "job_id": "data-role",
+      "employer_id": "employer-b",
+      "title": "Data tools developer",
+      "description": "Create reliable import and reporting tools.",
+      "category": "Data",
+      "location": "Remote",
+      "active": true
+    }
+  ],
+  "relationships": [],
+  "resumes": [],
+  "applications": [],
+  "interviews": [],
+  "views": []
+}

@@ -1,0 +1,32 @@
+{
+  "profile": "python-listing",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "network": "none except loopback",
+    "workspace_mb": 512,
+    "evaluation_wall_seconds": 240
+  },
+  "workdir": "/workspace",
+  "public_test": [
+    "python",
+    "/public_tests/test_public.py"
+  ],
+  "start": [
+    "python",
+    "server.py",
+    "--host",
+    "0.0.0.0",
+    "--port",
+    "8000",
+    "--db",
+    "/tmp/receivables.sqlite"
+  ],
+  "preflight": [
+    "python",
+    "/opt/sweclar/preflight.py"
+  ],
+  "prepare_owner": "benchmark, before agent budget",
+  "platform": "linux/amd64"
+}

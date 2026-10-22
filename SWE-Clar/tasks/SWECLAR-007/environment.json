@@ -1,0 +1,38 @@
+{
+  "profile": "flutter-firestore",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "network": "none except loopback",
+    "workspace_mb": 512,
+    "evaluation_wall_seconds": 360
+  },
+  "workdir": "/workspace",
+  "public_test": [
+    "python",
+    "/public_tests/test_public.py"
+  ],
+  "start": [
+    "python",
+    "/public_tests/run_maintenance.py",
+    "--script",
+    "session.json",
+    "--output",
+    "/tmp/maintenance-preview"
+  ],
+  "preflight": [
+    "python",
+    "/opt/sweclar/preflight.py"
+  ],
+  "prepare_owner": "benchmark, before agent budget",
+  "prestarted_services": [
+    {
+      "type": "Firestore Emulator",
+      "origin": "http://127.0.0.1:8080",
+      "project": "demo-sweclar",
+      "data": "isolated synthetic development records"
+    }
+  ],
+  "platform": "linux/amd64"
+}

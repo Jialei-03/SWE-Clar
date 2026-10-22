@@ -1,0 +1,195 @@
+schema_version: 1
+task_id: SWECLAR-086
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: reconstructed streamed itinerary place-validation slice
+requirement_units:
+- ru_id: RU-001
+  name: Incremental JSON record parsing
+  content: Parse text chunks into complete JSON object records without assuming that chunk boundaries
+    match record boundaries. A chunk may contain part of one object or multiple adjacent objects; whitespace
+    is allowed, and an incomplete trailing object is not emitted. The upstream contract supplies JSON
+    objects rather than standalone arrays, scalars, booleans, or nulls. Yield each completed object before
+    requesting further upstream chunks. Nested objects/arrays, escaped quotes and braces inside strings
+    must work; preserve all fields and source order. Arbitrary JSON whitespace is allowed. A record formatted
+    on six lines is supported, but the reconstructed protocol uses object boundaries, not a six-line delimiter.
+    Incomplete final object is ignored. Fully closed malformed JSON or invalid nonobject prefix raises
+    ValueError; nonstring chunks reject. Empty chunks/stream yield nothing. Finite input size is caller-controlled;
+    no artificial buffering timeout rule.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: How must arbitrary upstream text chunks be converted into itinerary records, including
+    split, adjacent, whitespace-separated, and incomplete objects?
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: itinerary_generator.py
+      function: iter_json_objects
+    inputs:
+      chunks: iterable of text chunks containing adjacent JSON object records
+    output:
+      type: iterator of dictionaries
+      meaning: each complete JSON object in source order
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  pass_rule: all_tests_pass
+- ru_id: RU-002
+  name: Primary place enrichment
+  content: Resolve every generated activity using its business name and the requested location. Activity
+    dictionaries use `business_name` and `description`, and may contain additional fields. If the primary
+    result is acceptable, return a record that preserves every activity field not replaced by place metadata
+    and every field supplied by the place result; do not call the replacement lookup for an acceptable
+    primary result. The implementation may return a copy or update the supplied activity dictionary in
+    place. find_place is called once per activity with exact business_name/location. Place metadata overrides
+    colliding activity keys, including description; retain nested/unknown metadata. This local callback
+    seam is the complete lookup integration in scope, no real Places/OpenAI keys or network calls.
+  requirement_category: core
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: How must an itinerary activity be looked up and combined with an acceptable primary
+    place result?
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: place_service.py
+      function: resolve_activity
+    inputs:
+      activity: '{business_name: string, description: string, ...additional activity fields}'
+      location: string
+      find_place: callable(business_name, location) -> place | None
+      find_replacement: callable(description, location) -> place | None
+    output:
+      type: dictionary or null
+      meaning: enriched acceptable activity, or null when none can be resolved
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  pass_rule: all_tests_pass
+- ru_id: RU-003
+  name: Complete place acceptance rules
+  content: 'A place is unacceptable when its business status is CLOSED_TEMPORARILY or CLOSED_PERMANENTLY.
+    A place with rating below 3 or fewer than 50 user ratings is also unacceptable unless at least one
+    type is neighborhood, natural_feature, route, tourist_attraction, point_of_interest, or park. The
+    offline callback contract normalizes place dictionaries to the Client''s camelCase fields: `businessStatus`,
+    `rating`, `userRatingCount`, and `types`. Closed status rejection precedes all type exemptions. Non-exempt
+    records require finite numeric nonboolean rating>=3 and nonnegative integer nonboolean userRatingCount>=50.
+    Exempt records may omit rating/count or have low values. Missing place/invalid types is not acceptable;
+    types must be list of strings. Status other than the two closed values is not itself disqualifying.
+    Exact types and boundaries are the disclosed policy, no new guessed restrictions.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What is the complete place-acceptance rule, including closed statuses, numeric thresholds,
+    exception types, and the normalized place fields?
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: place_service.py
+      function: is_valid_place
+    inputs:
+      place: '{businessStatus: string, rating: number, userRatingCount: integer, types: list[string]}'
+    output:
+      type: boolean
+      meaning: true only when the place satisfies the complete acceptance rule
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  pass_rule: all_tests_pass
+- ru_id: RU-004
+  name: Invalid-place substitution
+  content: 'When the primary place is missing or unacceptable, call the replacement lookup with the activity
+    description and requested location. Return the replacement only if it satisfies the same acceptance
+    rules. The returned replacement-enriched record follows the same merge rule as primary enrichment:
+    it preserves activity fields not overridden by place metadata and every field supplied by the replacement.
+    If neither result is acceptable, return None instead of returning original or invalid place data.
+    Replacement is called at most once per rejected primary, with original activity description/location.
+    Preserve original metadata using same merge semantics. Return None when neither works. Missing callback
+    result is handled as unacceptable; callback exceptions may propagate (no retry requirement).'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What must happen when the primary place is missing or unacceptable, and what is returned
+    when the replacement is also unacceptable?
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: place_service.py
+      function: resolve_activity
+    inputs:
+      activity: '{business_name: string, description: string, ...additional activity fields}'
+      location: string
+      find_place: callable(business_name, location) -> place | None
+      find_replacement: callable(description, location) -> place | None
+    output:
+      type: dictionary or null
+      meaning: acceptable primary or replacement-enriched activity, otherwise null
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  pass_rule: all_tests_pass
+- ru_id: RU-005
+  name: Incremental server-sent-event delivery
+  content: 'Resolve parsed activities in source order and emit exactly one `data: <JSON>\n\n` record as
+    soon as each acceptable activity is ready. Skip activities for which no acceptable place exists and
+    do not consume or buffer the complete input before yielding the first result. Keep supplied main.py
+    CLI --places JSON_FILE --location TEXT. It reads adjacent JSON objects from stdin, writes each accepted
+    SSE data event to stdout and flushes it before EOF or the next source record. Local fixture maps primary
+    business names and replacement descriptions to normalized place dictionaries. Real pipe observation
+    must show first output while stdin remains open; collecting all chunks before emitting is incorrect.
+    Event JSON whitespace/key order are unconstrained; event payload is the enriched record. No extra
+    done event required.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What exact record format, ordering, filtering, and first-result timing must the result
+    stream provide?
+  matching_keywords: []
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: itinerary_generator.py
+      function: stream_itinerary
+    inputs:
+      chunks: iterable of text chunks
+      location: string
+      find_place: callable(business_name, location) -> place | None
+      find_replacement: callable(description, location) -> place | None
+    output:
+      type: iterator of strings
+      meaning: one SSE data record per acceptable activity in source order
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  pass_rule: all_tests_pass

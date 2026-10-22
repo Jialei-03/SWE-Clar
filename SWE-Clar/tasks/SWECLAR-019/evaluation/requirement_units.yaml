@@ -1,0 +1,454 @@
+schema_version: 1
+task_id: SWECLAR-019
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent authenticated route catalog, personal pins/status, waypoint geometry and durable
+  comments
+requirement_units:
+- ru_id: RU-001
+  name: Existing accounts, mandatory profiles and actual photos
+  content: 'Preserve authenticated sessions, valid fixture initialization and durable data; current-session
+    identity controls all writes. Preserve actual PNG upload, canonical metadata-free image storage, own
+    asset listing, private-until-attached image visibility and real photo rendering/full-size access.
+    A profile needs both trimmed name and an owned stored photo. Incomplete profiles can upload/read/save
+    their profile but cannot create waypoints/routes, pin, edit, comment or submit touring status. A successful
+    name/photo save completes onboarding immediately. Display understandable missing-field errors and
+    expose neither account credentials nor unrelated unattached uploads. Restart preserves data; fresh-page/logout/401
+    clears browser state. These are working baseline features, not new hidden decisions.
+
+
+    Public delivery and interface contract:
+
+
+    Extend a working Python HTTP/SQLite/browser application. Its baseline includes login, PNG upload/display,
+    mandatory profile setup, waypoint creation, route creation from an ordered waypoint list, route selection
+    and an actual map diagram. Complete catalog ordering/pinning, explicit touring-status submission,
+    safe waypoint coordinate edits, and reliable comments. These must operate on persistent authenticated
+    records and real browser controls.
+
+
+    The benchmark provides the immutable `python-vision` Linux AMD64 environment before the candidate
+    budget: Python3.12, SQLite, Pillow, Chromium140 and Playwright1.55. This prepared profile also contains
+    OCR tools used by other tasks; no OCR is required here. All map geometry and image handling run locally,
+    with no map-tile API, credentials, package installation or real location service. The map is a schematic
+    coordinate diagram, not terrain, road routing, GPS tracking or a claim of navigability. Candidate
+    code and browser run as UID1000 with no capabilities. Protected public support/evaluator files cannot
+    be overwritten. Limits: 2CPUs,2048MiB memory,256PIDs,512MiB workspace,1024MiB temporary space, loopback-only
+    networking.
+
+
+    Workdir `/workspace`. Build `python -m compileall -q server.py store.py media.py`. Start `python server.py
+    --host 0.0.0.0 --port 8080 --db /workspace/data/routes.sqlite3 --fixture /public_tests/accounts.json`.
+    Public regression command `python /public_tests/test_public.py`. Logs go to the terminal; optional
+    logs may be written in `/workspace` or `/tmp`. Restart preserves domain data. Stop and remove `/workspace/data`
+    before restarting to reset the fixture. Public tests use disposable copies. Every attempt has fresh
+    data; independent preflight checks SQLite transactions, actual PNG decoding and browser/map interaction
+    before candidate work.
+
+
+    The valid fixture contains `users:[{id,username,password}]`, with unique nonempty identifiers/usernames
+    and synthetic passwords. A new database initializes these users with empty name, null photo_id and
+    touring_status=`planned`, and no assets, waypoints, routes, pins or comments. Do not reset initialized
+    data on restart. Sessions may reset on restart. Database schema/module organization and opaque ID
+    spelling are unrestricted.
+
+
+    ## Public HTTP and data contracts
+
+
+    Serve `/`, `/app.js` and `/style.css`. JSON bodies are UTF-8 objects with Content-Length1..800000.
+    Reject invalid JSON/nonobjects/missing fields/wrong types/out-of-range values with400 `{error:"invalid_request"}`.
+    Missing/invalid Bearer token returns401 `{error:"unauthenticated"}`. A mutation requiring a complete
+    profile returns403 `{error:"profile_required"}` for an incomplete profile. Editing another user''s
+    existing waypoint returns403 `{error:"forbidden"}`. Unknown routes/methods/records or inaccessible
+    assets return404 `{error:"not_found"}`. Valid requests conflicting with current revision or replay
+    content return409 `{error:"conflict"}`. Extra fields are ignored and cannot select actor, owner, protected
+    values or persisted output state. Harmless additional response fields are allowed. All domain mutations
+    are durable and failures preserve previous state. Revision and required counts are JSON integers excluding
+    booleans. Coordinates are finite JSON numbers, excluding booleans, with latitude[-85,85], longitude[-180,180].
+    Stored values retain numeric meaning, allowing equivalent numeric spellings.
+
+
+    - `GET /health` ->200 `{ok:true}`.
+
+    - `POST /api/login {username,password}` ->200 `{token,user}`. Use an unpredictable token derived from
+    at least32 random bytes, held only in memory. User has `{id,username,name,photo_id,touring_status,profile_required}`.
+    profile_required is true unless trimmed nonempty name and a stored owned photo are present. Never
+    expose password/salt/token through ordinary user objects.
+
+    - `POST /api/logout {}` ->200 `{ok:true}`, invalidating only that session.
+
+    - `GET /api/me` ->`{user}` and `GET /api/assets` ->`{assets:[asset]}` list only the current user''s
+    uploaded assets in creation order. Asset JSON has `{id,width,height,url}`; url is the same-origin
+    `/api/assets/{encoded-id}`. IDs are nonempty opaque strings.
+
+    - `POST /api/assets {png_base64}` ->201 `{asset}`. Available before profile completion. Decode actual
+    Base64 PNG bytes, raw length1..524288, width/height1..1024. Reject other formats, corrupt PNGs and
+    oversize content. Store a newly generated RGBA PNG with the same decoded pixels/dimensions and no
+    original text/EXIF metadata. Each successful upload has its own ID and persists actual bytes, not
+    a caller URI. No record remains on failure.
+
+    - `GET /api/assets/{id}` returns canonical `image/png` bytes to the uploader or any authenticated
+    user if that asset is attached to a saved profile or waypoint. Other users cannot read an unattached
+    upload. Assets cannot be overwritten by caller-supplied IDs or names.
+
+    - `PUT /api/profile {name,photo_id}` ->`{user}`. Trim name to1..60 characters, preserve interior whitespace/case,
+    require an existing asset owned by the actor. Missing/invalid name or photo returns400; an unavailable
+    asset returns404. Completing both fields removes profile_required without a second confirmation screen.
+    Saving a profile does not change touring_status. All users may see the profile name/photo through
+    public waypoint/comment author fields; raw login credentials are never public.
+
+    - `GET /api/waypoints` ->`{waypoints:[waypoint]}` in creation order, available to all authenticated
+    users. Waypoint has `{id,owner_id,name,lat,lon,photo_ids,revision}`. `GET /api/waypoints/{id}` ->`{waypoint,comments:[comment]}`.
+
+    - `POST /api/waypoints {name,lat,lon,photo_ids}` ->201 `{waypoint}`. Requires a complete profile.
+    Trim name to1..80 characters and preserve interior characters. photo_ids is an ordered unique array
+    of0..4 asset IDs, each owned by the actor. Store actual selected asset references, session-derived
+    owner and revision0. Invalid array/duplicates return400; unknown/inaccessible asset404. Creating a
+    waypoint does not start touring, change selection to another route or inherit an earlier form''s photos.
+
+    - `PATCH /api/waypoints/{id} {lat,lon,revision}` ->`{waypoint}`. Requires a complete profile and the
+    waypoint owner. revision is a nonnegative integer; name/photos/owner are not editable through this
+    endpoint. Edit/no-op/conflict behavior is clarified.
+
+    - `POST /api/routes {title,waypoint_ids}` ->201 `{route}`. Requires a complete profile. Trim title
+    to1..80 characters. waypoint_ids is an ordered unique array of2..40 existing waypoint IDs; they may
+    belong to any user. Invalid array/duplicates return400, missing waypoint404. Route has `{id,owner_id,title,waypoint_ids,pinned}`.
+    Store the exact requested sequence; geometry is always resolved from current waypoint coordinates,
+    never a copied location snapshot. No reverse traversal feature is required.
+
+    - `GET /api/routes?sort=asc|desc&q=...` ->`{routes:[route]}`. sort defaults toasc; other values400.
+    q defaults to empty and is a decoded string of at most80 characters. Trim its ends. Filtering matches
+    a contiguous substring of title after ASCII-only case folding (A..Z become a..z, other characters
+    unchanged). A blank query matches all. The baseline already filters. Ordering and pin precedence are
+    clarified. pinned reflects only the requesting user''s pin state.
+
+    - `GET /api/routes/{id}` ->`{route,waypoints:[waypoint]}` with the actual current waypoint records
+    in stored route order. Every authenticated user can read public routes/waypoints; reading does not
+    mutate pins, profile status or selection elsewhere.
+
+    - `PUT /api/routes/{id}/pin {pinned:boolean}` ->`{route}`. Requires a complete profile; persistence/idempotency
+    and catalog precedence are clarified.
+
+    - `PUT /api/touring-status {status}` ->`{user}`. Requires a complete profile. Allowed enum is `planned`,
+    `touring`, `completed`; values are synthetic benchmark policy, not quoted original business states.
+    This is the current user''s profile status, not a route''s global status. Save only on explicit submit.
+
+    - `POST /api/waypoints/{id}/comments {text,request_id}` ->201 for creation or200 for a successful
+    replay, `{comment}`. Requires a complete profile. Trim text to1..600 characters, retaining interior
+    whitespace/case. request_id is a nonempty string of1..100 characters. Comment has `{id,waypoint_id,author:{id,name,photo_id},text}`.
+    Author fields are resolved from the current persisted profile. Ordering, replay-key scope and changed-content
+    behavior are clarified. GET detail exposes these comments to authenticated users, never another waypoint''s
+    collection.
+
+
+    Use real HTTP, SQLite persistence and PNG decoding. Candidate code never imports hidden tests or consumes
+    caller-provided state snapshots. Assets may be stored inside SQLite or in contained application-owned
+    files; no fixed table/file layout is required beyond the documented database/reset directory.
+
+
+    ## Public browser and map interfaces
+
+
+    Export `RouteClient` with `login(username,password)`, `logout()`, `refresh()`, `upload(pngBase64)`,
+    `saveProfile(name,photoId)`, `createWaypoint(name,lat,lon,photoIds)`, `createRoute(title,waypointIds)`,
+    `openRoute(id)`, `openWaypoint(id)`, `setCatalog(sort,query)`, `setPinned(routeId,pinned)`, `submitStatus(status)`,
+    `editWaypoint(lat,lon)`, `comment(text,requestId)`, `dispose()`. Observable fields: `user`, `assets`,
+    `waypoints`, `routes`, `routeDetail`, `waypointDetail`, `error`. Export `RouteView(client,document)`
+    with `dispose()`. Actual page boots through these classes. Internal controller state, storage schema,
+    event strategy and algorithms are free. Public methods may resolve without a payload; their observable
+    state and real operations matter. Errors may reject promises provided UI handles them and shows an
+    understandable failure.
+
+
+    DOM IDs: `login-form`, `username`, `password`, `login`, `logout`, `error`, `workspace`, `profile-name`,
+    `profile-photo`, `save-profile`, `upload-file`, `upload-photo`, `asset-list`, `waypoint-name`, `waypoint-lat`,
+    `waypoint-lon`, `waypoint-photos`, `create-waypoint`, `waypoint-list`, `route-title`, `route-waypoints`,
+    `create-route`, `route-sort`, `route-query`, `apply-catalog`, `route-list`, `route-detail`, `route-heading`,
+    `route-stops`, `map`, `waypoint-detail`, `waypoint-heading`, `waypoint-images`, `edit-lat`, `edit-lon`,
+    `save-location`, `comment-text`, `send-comment`, `comments`, `touring-status`, `submit-status`. Profile-photo
+    is a select with actual owned asset IDs. Waypoint-photos is a multiple select with owned asset IDs.
+    Route-waypoints accepts a JSON array of waypoint IDs to preserve explicit order, with an input label
+    explaining this. Other controls are conventional text/number/file/select inputs and buttons.
+
+
+    Every selectable waypoint uses `data-waypoint-id`; route-open controls use `data-route-id` and separate
+    pin controls use `data-pin-route` with the route ID. Photo displays use `data-asset-id` on a visible
+    container with actual image content and an available full-size link/control. Route stops appear as
+    an ordered list with `data-stop-id`; duplicates are not manufactured. Exact prose, formatting and
+    unrelated visual styling are not graded. Names/comments are literal text, never executable HTML. Upload,
+    profile save, waypoint create, route create, edit and comment controls call real service operations.
+    Accepted forms show persisted results and do not carry selected photos into a subsequent new waypoint.
+
+
+    `#map` is an SVG coordinate diagram with viewBox `0 0 720 340`, containing selectable waypoint markers
+    with `data-waypoint-id`; marker geometry centers are `x=2*(lon+180), y=2*(85-lat)`. Show all current
+    waypoints with their names, and the selected route as a continuous visible line through its current
+    ordered coordinates. Marker/line element choices and styling are free within this public SVG interface.
+    The map must be visible and respond to waypoint selection. It may not merely report geometry in text/JSON
+    or draw static expected fixtures. Live edits refresh marker positions, selected-route line and route-stop
+    coordinates. No external basemap or tiles are required.
+
+
+    Both390x844 and1280x900 fit without horizontal page overflow. Pin targets have at least40x40 CSS pixels
+    of actual clickable area, separate from route-open targets. Login/logout and route/waypoint selection
+    remain usable during requests. A late reply for an old account or selected entity cannot overwrite
+    the current workspace/selection/error. Fresh pages start logged out; tokens/private state are not
+    restored from persistent storage. Logout and current401 clear private state. The UI sends the last-read
+    waypoint revision; conflicts refresh authoritative data and preserve an understandable error until
+    a deliberate next action. Request cancellation is allowed. Tests observe declared interfaces and actual
+    behavior, not private busy flags, incidental response metadata, UUID spelling or a particular SQL
+    schema.
+
+
+    '
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for existing accounts, mandatory profiles and actual photos.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/routes.sqlite3 --fixture
+        /public_tests/accounts.json
+    inputs:
+      transport: Loopback authenticated HTTP, actual PNG bytes and real SVG/browser interactions
+      contract: README.md
+    output:
+      type: route_waypoint_workspace
+      meaning: Durable profiles/photos/waypoints, ordered route geometry, personal catalog/status and
+        reliable comments
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/route_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, coordinates, images,
+    policies, interfaces and code are independent benchmark choices. Answer relevant business questions
+    only; never supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-002
+  name: Existing waypoint, ordered-route and map foundation
+  content: Preserve real waypoint and route creation, public authenticated lists/details, validated coordinate/photo/waypoint
+    inputs, stable IDs and ordered references. Filter route titles using the public ASCII case-insensitive
+    substring rule. Creating a route preserves the explicitly supplied unique waypoint order; actual map/stop
+    output follows that order using current coordinates. Display actual selected waypoint photos and literal
+    names. No created waypoint starts a ride or changes touring status. Reset selected photos after successful
+    waypoint creation so the next waypoint does not inherit them. Existing map markers/selection, image
+    controls and HTTP/SQLite records must remain functional; a tiny state-only replacement is not a complete
+    solution.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for existing waypoint, ordered-route and map foundation.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/routes.sqlite3 --fixture
+        /public_tests/accounts.json
+    inputs:
+      transport: Loopback authenticated HTTP, actual PNG bytes and real SVG/browser interactions
+      contract: README.md
+    output:
+      type: route_waypoint_workspace
+      meaning: Durable profiles/photos/waypoints, ordered route geometry, personal catalog/status and
+        reliable comments
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/route_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, coordinates, images,
+    policies, interfaces and code are independent benchmark choices. Answer relevant business questions
+    only; never supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-003
+  name: Stable alphabetic catalog ordering
+  content: After filtering, list the requesting user's pinned routes first, then unpinned routes. Within
+    each group sort title by ASCII case-folded Unicode code-point order, ascending forasc and descending
+    fordesc. Equal folded titles retain route creation order in both directions; do not reverse ties when
+    descending. Do not change stored route waypoint order or pin records when sorting/searching. Another
+    user's pins have no influence. The browser Apply control submits the chosen sort/query and replaces
+    the visible catalog accordingly, while retaining a selected route's detail even when a filter hides
+    it. Catalog reordering is not route traversal reversal. Pin-precedence checks depend on the pin mutation
+    in RU-004.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for stable alphabetic catalog ordering.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/routes.sqlite3 --fixture
+        /public_tests/accounts.json
+    inputs:
+      transport: Loopback authenticated HTTP, actual PNG bytes and real SVG/browser interactions
+      contract: README.md
+    output:
+      type: route_waypoint_workspace
+      meaning: Durable profiles/photos/waypoints, ordered route geometry, personal catalog/status and
+        reliable comments
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/route_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, coordinates, images,
+    policies, interfaces and code are independent benchmark choices. Answer relevant business questions
+    only; never supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-004
+  name: Personal pins and explicit touring-status submission
+  content: 'Pin is a set membership for the current user/route pair. Setting true twice or false twice
+    succeeds without duplicates; pinning one route does not unpin others. Pin changes persist across restart
+    and affect only that user''s catalog grouping. The actual pin control updates membership/catalog without
+    opening or switching the route; enforce the public clickable-area requirement.
+
+
+    Touring status belongs to the current profile. Choosing a select option changes only the pending UI
+    choice; do not send a status mutation until Submit. Submit persists exactly the selected allowed value
+    for that user, while preserving name/photo, other users, routes, pins and waypoints. Invalid status
+    returns400 without mutation. Signing out without submitting discards the pending selection. Repeated
+    submission of the same status is harmless. Profile updates and waypoint/route creation never overwrite
+    a saved touring status.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for personal pins and explicit touring-status submission.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/routes.sqlite3 --fixture
+        /public_tests/accounts.json
+    inputs:
+      transport: Loopback authenticated HTTP, actual PNG bytes and real SVG/browser interactions
+      contract: README.md
+    output:
+      type: route_waypoint_workspace
+      meaning: Durable profiles/photos/waypoints, ordered route geometry, personal catalog/status and
+        reliable comments
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/route_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, coordinates, images,
+    policies, interfaces and code are independent benchmark choices. Answer relevant business questions
+    only; never supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-005
+  name: Owned location edits and live shared geometry
+  content: 'Only the waypoint owner with a complete profile may edit coordinates; preserve its name, owner
+    and ordered photo_ids regardless of caller extras. Validate coordinates/revision and enforce exact
+    current revision; stale requests return409 with no mutation. For a changed coordinate pair, atomically
+    save both values and increment revision once. An identical pair with matching revision is a successful
+    no-op preserving revision. Unknown waypoint404; another user''s known waypoint403. An unsuccessful
+    edit changes no comments, route references or other waypoint.
+
+
+    Every route detail resolves the edited current coordinates, including routes created by other users.
+    Refreshing the browser updates the map marker, selected route line and stop-coordinate display without
+    a page/server restart. The edit control sends the last-read revision; on409 reload the current waypoint
+    and geometry, report the conflict, and allow a deliberate retry. A coordinate edit never renames the
+    waypoint or starts touring.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for owned location edits and live shared geometry.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/routes.sqlite3 --fixture
+        /public_tests/accounts.json
+    inputs:
+      transport: Loopback authenticated HTTP, actual PNG bytes and real SVG/browser interactions
+      contract: README.md
+    output:
+      type: route_waypoint_workspace
+      meaning: Durable profiles/photos/waypoints, ordered route geometry, personal catalog/status and
+        reliable comments
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/route_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, coordinates, images,
+    policies, interfaces and code are independent benchmark choices. Answer relevant business questions
+    only; never supply original records, unrelated decisions, hidden tests or reference code.
+- ru_id: RU-006
+  name: Immediate durable comments and semantic retries
+  content: 'Comments append to the targeted waypoint and are immediately readable by the author and other
+    authenticated users after the successful response. Keep append order and trimmed-but-interior-preserving
+    text; no HTML execution. request_id is an idempotency key scoped to the current user across all waypoints.
+    A first valid request creates one comment and returns201. Repeating the same key with the same waypoint
+    and normalized text returns200 with the same persisted comment ID, without another comment or reordered
+    history. Same key with different target or normalized text returns409; no partial mutation or key
+    consumption on invalid/failed requests. Another user may independently use the same key. This successful
+    replay survives server restart, and concurrent identical requests commit exactly one comment. Ignore
+    caller author/ID/state fields.
+
+
+    The visible Send control generates a new key for a new intentional comment and keeps that key for
+    retrying the same submitted target/text after a transport failure. An explicit change of target or
+    normalized text is a new intent with a new key. A successful send refreshes actual comments and clears
+    the draft; repeating the same text as a later intentional submission is allowed to create a new comment.
+    A lost success response followed by a retry must not duplicate the stored comment. A delayed response
+    cannot restore an old account or selected waypoint; request cancellation and promise-return choices
+    are free if current visible behavior is correct.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for immediate durable comments and semantic retries.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/routes.sqlite3 --fixture
+        /public_tests/accounts.json
+    inputs:
+      transport: Loopback authenticated HTTP, actual PNG bytes and real SVG/browser interactions
+      contract: README.md
+    output:
+      type: route_waypoint_workspace
+      meaning: Durable profiles/photos/waypoints, ordered route geometry, personal catalog/status and
+        reliable comments
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-006-T01
+    file: evaluation/tests/route_contract.py
+  notes: The feature category is grounded in a real business scenario. All accounts, coordinates, images,
+    policies, interfaces and code are independent benchmark choices. Answer relevant business questions
+    only; never supply original records, unrelated decisions, hidden tests or reference code.

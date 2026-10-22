@@ -1,0 +1,1 @@
+from candidate_proxy import load_solution

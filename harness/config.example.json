@@ -1,0 +1,103 @@
+{
+  "experiment_version": "swe-clar-evaluation",
+  "candidate": {
+    "profile_id": "candidate",
+    "label": "User-selected model",
+    "provider": "custom-provider",
+    "builtin_provider": false,
+    "api": "openai-completions",
+    "base_url": "https://api.example.invalid/v1",
+    "model": "REPLACE_WITH_MODEL_ID",
+    "api_key_env": "SWECLAR_API_KEY",
+    "reasoning": true,
+    "thinking": "max",
+    "thinking_level_map": {
+      "xhigh": "max"
+    },
+    "context_window": 128000,
+    "model_max_output_tokens": 32768,
+    "compat": {
+      "supportsDeveloperRole": true,
+      "supportsReasoningEffort": true,
+      "maxTokensField": "max_completion_tokens"
+    }
+  },
+  "client": {
+    "api_style": "pi",
+    "model": "REPLACE_WITH_MODEL_ID",
+    "pi_profile": {
+      "profile_id": "client",
+      "label": "User-selected model",
+      "provider": "custom-provider",
+      "builtin_provider": false,
+      "api": "openai-completions",
+      "base_url": "https://api.example.invalid/v1",
+      "model": "REPLACE_WITH_MODEL_ID",
+      "api_key_env": "SWECLAR_API_KEY",
+      "reasoning": true,
+      "thinking": "max",
+      "thinking_level_map": {
+        "xhigh": "max"
+      },
+      "context_window": 128000,
+      "model_max_output_tokens": 32768,
+      "compat": {
+        "supportsDeveloperRole": true,
+        "supportsReasoningEffort": true,
+        "maxTokensField": "max_completion_tokens"
+      }
+    }
+  },
+  "supervisor": {
+    "api_style": "pi",
+    "model": "REPLACE_WITH_MODEL_ID",
+    "pi_profile": {
+      "profile_id": "supervisor",
+      "label": "User-selected model",
+      "provider": "custom-provider",
+      "builtin_provider": false,
+      "api": "openai-completions",
+      "base_url": "https://api.example.invalid/v1",
+      "model": "REPLACE_WITH_MODEL_ID",
+      "api_key_env": "SWECLAR_API_KEY",
+      "reasoning": true,
+      "thinking": "max",
+      "thinking_level_map": {
+        "xhigh": "max"
+      },
+      "context_window": 128000,
+      "model_max_output_tokens": 32768,
+      "compat": {
+        "supportsDeveloperRole": true,
+        "supportsReasoningEffort": true,
+        "maxTokensField": "max_completion_tokens"
+      }
+    }
+  },
+  "judge": {
+    "api_style": "pi",
+    "model": "REPLACE_WITH_MODEL_ID",
+    "pi_profile": {
+      "profile_id": "judge",
+      "label": "User-selected model",
+      "provider": "custom-provider",
+      "builtin_provider": false,
+      "api": "openai-completions",
+      "base_url": "https://api.example.invalid/v1",
+      "model": "REPLACE_WITH_MODEL_ID",
+      "api_key_env": "SWECLAR_API_KEY",
+      "reasoning": true,
+      "thinking": "max",
+      "thinking_level_map": {
+        "xhigh": "max"
+      },
+      "context_window": 128000,
+      "model_max_output_tokens": 32768,
+      "compat": {
+        "supportsDeveloperRole": true,
+        "supportsReasoningEffort": true,
+        "maxTokensField": "max_completion_tokens"
+      }
+    }
+  }
+}

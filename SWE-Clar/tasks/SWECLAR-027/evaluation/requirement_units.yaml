@@ -1,0 +1,178 @@
+schema_version: 1
+task_id: SWECLAR-027
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Real React Native Web navigation, filter/slider interaction and browser image selection
+  component
+requirement_units:
+- ru_id: RU-001
+  name: Navigation state entry point
+  content: Repair the supplied React Native component and preserve actual browser rendering, route pages
+    and immutable model transitions. transition(state,event,config) returns new state without mutating
+    any supplied object. Config and visual fixtures are synthetic; route changes must render the corresponding
+    screen.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for navigation state entry point.
+  test_interface:
+    type: command
+    entry:
+      language: JavaScript
+      file: build.mjs
+      command: node build.mjs runtime/dist
+    inputs:
+      transport: Actual browser controls and immutable transition(state,event,config)
+      contract: README.md
+    output:
+      type: rendered_ui
+      meaning: Navigation state entry point
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/ui_contract.py
+  notes: Navigation and interaction behavior has source support. Generic facility terminology, web file
+    adapter, privacy re-encoding and deterministic host-session config are benchmark reconstruction choices;
+    native Expo/device execution is not verified.
+- ru_id: RU-002
+  name: Tab navigation and route guard
+  content: Clicking configured tabs navigates to their rendered screens. Unknown routes preserve the active
+    screen and show unknown_route. Protected routes require the host-supplied authenticated boolean, otherwise
+    preserve the screen and show auth_required. This is a UI route guard fixture, not a real authentication
+    backend.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for tab navigation and route guard.
+  test_interface:
+    type: command
+    entry:
+      language: JavaScript
+      file: build.mjs
+      command: node build.mjs runtime/dist
+    inputs:
+      transport: Actual browser controls and immutable transition(state,event,config)
+      contract: README.md
+    output:
+      type: rendered_ui
+      meaning: Tab navigation and route guard
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/ui_contract.py
+  notes: Navigation and interaction behavior has source support. Generic facility terminology, web file
+    adapter, privacy re-encoding and deterministic host-session config are benchmark reconstruction choices;
+    native Expo/device execution is not verified.
+- ru_id: RU-003
+  name: Filter label interaction
+  content: Clicking either the checkbox square or any part of its full label toggles the same open-now
+    filter exactly once; render the checked state and expose it to accessibility tools.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for filter label interaction.
+  test_interface:
+    type: command
+    entry:
+      language: JavaScript
+      file: build.mjs
+      command: node build.mjs runtime/dist
+    inputs:
+      transport: Actual browser controls and immutable transition(state,event,config)
+      contract: README.md
+    output:
+      type: rendered_ui
+      meaning: Filter label interaction
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/ui_contract.py
+  notes: Navigation and interaction behavior has source support. Generic facility terminology, web file
+    adapter, privacy re-encoding and deterministic host-session config are benchmark reconstruction choices;
+    native Expo/device execution is not verified.
+- ru_id: RU-004
+  name: Display formatting and gestures
+  content: Render ratings with exactly one decimal place. During an actual horizontal slider drag, change
+    the thumb position and radius, prevent the surrounding vertical ScrollView from scrolling, and restore
+    scrolling when the gesture ends or is cancelled. Verify interaction with rendered elements, not a
+    vertical_scroll_enabled field alone.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for display formatting and gestures.
+  test_interface:
+    type: command
+    entry:
+      language: JavaScript
+      file: build.mjs
+      command: node build.mjs runtime/dist
+    inputs:
+      transport: Actual browser controls and immutable transition(state,event,config)
+      contract: README.md
+    output:
+      type: rendered_ui
+      meaning: Display formatting and gestures
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/ui_contract.py
+  notes: Navigation and interaction behavior has source support. Generic facility terminology, web file
+    adapter, privacy re-encoding and deterministic host-session config are benchmark reconstruction choices;
+    native Expo/device execution is not verified.
+- ru_id: RU-005
+  name: Profile image selection
+  content: 'Choosing an actual local PNG/JPEG in the facility profile editor must decode and display the
+    image only for that facility; the account avatar stays unchanged. Missing, cancelled or unsupported/corrupt
+    selections preserve the previous image; unsupported input shows unsupported_asset. Re-encode accepted
+    pixels to a fresh PNG without original metadata. A stale earlier decode must not replace a newer selection.
+    Resource limits are benchmark conventions: reject files larger than 5 MiB or decoded width/height
+    above 4096 pixels with unsupported_asset, preserving the prior image.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for profile image selection.
+  test_interface:
+    type: command
+    entry:
+      language: JavaScript
+      file: build.mjs
+      command: node build.mjs runtime/dist
+    inputs:
+      transport: Actual browser controls and immutable transition(state,event,config)
+      contract: README.md
+    output:
+      type: rendered_ui
+      meaning: Profile image selection
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/ui_contract.py
+  notes: Navigation and interaction behavior has source support. Generic facility terminology, web file
+    adapter, privacy re-encoding and deterministic host-session config are benchmark reconstruction choices;
+    native Expo/device execution is not verified.

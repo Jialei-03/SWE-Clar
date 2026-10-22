@@ -1,0 +1,264 @@
+schema_version: 1
+task_id: SWECLAR-091
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independently reconstructed Linux C++11 wxWidgets workspace shell
+requirement_units:
+- ru_id: RU-001
+  name: Reproducible C++11 wxWidgets build
+  content: Deliver a C++11 wxWidgets project that CMake builds on Linux into build/workspace_gui. The
+    executable must launch a real top-level window under an X11-compatible display and close cleanly in
+    --smoke mode. The evaluator links a protected public native observation adapter against the delivered
+    MainWindow source; private tests assert the observed native state; candidate build and GUI execution
+    remain at the candidate UID.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: How is the project built and what real GUI artifact must the executable launch?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      language: cpp
+      file: CMakeLists.txt
+      executable: build/workspace_gui
+      command: xvfb-run -a ./build/workspace_gui --smoke
+    inputs:
+      display: X11-compatible display supplied by the evaluator
+    output:
+      type: native_window_and_exit_status
+      meaning: a real wxWidgets frame and a clean smoke exit
+      asserted_field_paths:
+      - cmake_entry_present
+      - build_succeeded
+      - executable_present
+      exact_values:
+        cmake_entry_present: true
+        build_succeeded: true
+        executable_present: true
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_gui.py
+  pass_rule: all_tests_pass
+  notes: Independent reconstruction uses Linux/GCC and synthetic labels/layout/API choices. The original
+    VS2013 client requirement is retained in private provenance but is not claimed as validated by this
+    Linux task.
+- ru_id: RU-002
+  name: Seven named workspace areas and ready status
+  content: 'Construct the seven requested areas: Module Browser, Toolbar, Code Window, Property Window,
+    Message Box, Command Line Interface, and Property Manager. Use the stable identifiers module_browser,
+    toolbar, code_window, property_window, message_box, command_line, and property_manager. Add a status
+    bar whose initial text is Ready.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What seven areas and initial status must the first-stage window contain?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      language: cpp
+      class: workspace::MainWindowV
+      constructor: MainWindowV(const MainWindowM&)
+    inputs:
+      display: X11-compatible display supplied by the evaluator
+    output:
+      type: wx_window_tree
+      meaning: Native panes, toolbar, and status bar observed by the evaluator-owned probe.
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_gui.py
+  pass_rule: all_tests_pass
+  notes: Independent reconstruction uses Linux/GCC and synthetic labels/layout/API choices. The original
+    VS2013 client requirement is retained in private provenance but is not claimed as validated by this
+    Linux task.
+- ru_id: RU-003
+  name: MVC visual shell with portable model
+  content: Keep this stage to the requested visual shell, without dialogs or business operations. Put
+    the main-window model, view, controller, and constants in MainWindowM.h/.cpp, MainWindowV.h/.cpp,
+    MainWindowC.h/.cpp, and MainWindowG.h under src. Keep the model standard C++ without wxWidgets headers.
+    Put event handling in the controller and bind it at runtime rather than with static event-table macros.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: How must the source be divided, and what portability, scope, and event-binding rules
+    apply?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      language: cpp
+      directory: src
+      classes:
+      - workspace::MainWindowM
+      - workspace::MainWindowV
+      - workspace::MainWindowC
+    inputs:
+      source_tree: src directory
+    output:
+      type: compile_time_and_runtime_observations
+      meaning: portable MVC visual shell with controller-owned dynamic bindings
+      asserted_field_paths:
+      - source_directory_present
+      - required_files_present
+      exact_values:
+        source_directory_present: true
+        required_files_present: true
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_gui.py
+  pass_rule: all_tests_pass
+  notes: Independent reconstruction uses Linux/GCC and synthetic labels/layout/API choices. The original
+    VS2013 client requirement is retained in private provenance but is not claimed as validated by this
+    Linux task.
+- ru_id: RU-004
+  name: Menu bar and populated toolbars
+  content: Add a menu bar and populate the toolbar rather than leaving either as an empty placeholder.
+    The accepted first-stage shell uses the top-level menus File, Edit, Verify, Tools, Windows, and Help.
+    It has two populated toolbars whose controls are Update, Select, Unselect and Cancel, Lint, Analyze,
+    Verify, Auto-Verify. Each toolbar control has non-empty tooltip text sourced from MainWindowG.h.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What menus and toolbar controls belong in the accepted first-stage visual shell, and
+    where does their tooltip text come from?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      language: cpp
+      class: workspace::MainWindowV
+      constructor: MainWindowV(const MainWindowM&)
+    inputs:
+      display: X11-compatible display supplied by the evaluator
+    output:
+      type: native_menu_and_toolbar_items
+      meaning: labels and tooltip text read from the constructed wxWidgets objects
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_gui.py
+  pass_rule: all_tests_pass
+  notes: Independent reconstruction uses Linux/GCC and synthetic labels/layout/API choices. The original
+    VS2013 client requirement is retained in private provenance but is not claimed as validated by this
+    Linux task.
+- ru_id: RU-005
+  name: wxAUI docking and default perspective
+  content: Manage the workspace areas with wxAUI across left, top, center, right, and bottom dock positions.
+    The project/code/property/message/property- manager workspace panes must be dockable and closeable,
+    with maximize controls for the main content panes; the compact command area and toolbars may remain
+    fixed where appropriate. Capture a non-empty default perspective after constructing the window and
+    provide MainWindowV::reset_default_perspective() to restore the actual wxAUI layout after it has been
+    changed.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: How are the workspace areas docked and what must restoring the default perspective do
+    after the live layout changes?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      language: cpp
+      class: workspace::MainWindowV
+      method: void reset_default_perspective()
+    inputs:
+      mutation: evaluator changes a native wxAUI pane before calling reset
+    output:
+      type: native_wxaui_state
+      meaning: actual pane placement and visibility return to the captured default
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_gui.py
+  pass_rule: all_tests_pass
+  notes: Independent reconstruction uses Linux/GCC and synthetic labels/layout/API choices. The original
+    VS2013 client requirement is retained in private provenance but is not claimed as validated by this
+    Linux task.
+- ru_id: RU-006
+  name: In-session custom perspective save and load
+  content: The Windows menu must let the user create a named custom perspective and switch between the
+    default startup perspective and saved custom perspectives during the current session. Provide MainWindowV::save_perspective()
+    and MainWindowV::load_perspective(const wxString&) so the evaluator can mutate a native wxAUI pane,
+    save the actual manager state, alter it again, and verify that loading restores the saved state. Disk
+    persistence is not required.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: How does the accepted in-session custom-perspective workflow save and restore the actual
+    wxAUI workspace state?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      language: cpp
+      class: workspace::MainWindowV
+      methods:
+      - wxString save_perspective()
+      - bool load_perspective(const wxString&)
+    inputs:
+      layout_mutations: evaluator-owned changes to native wxAUI panes
+    output:
+      type: native_wxaui_state
+      meaning: loading a saved non-empty perspective restores the exact native manager state
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-006-T01
+    file: evaluation/tests/test_gui.py
+  pass_rule: all_tests_pass
+  notes: Independent reconstruction uses Linux/GCC and synthetic labels/layout/API choices. The original
+    VS2013 client requirement is retained in private provenance but is not claimed as validated by this
+    Linux task.
+- ru_id: RU-007
+  name: Independent Linux C++11 toolchain compatibility
+  content: Compile every application source file under the prepared Linux GCC toolchain with -std=c++11
+    -pedantic-errors. The model must also compile without wxWidgets flags. This is an explicit platform
+    adaptation of an older Windows-oriented job; it does not certify Visual Studio 2013 or Windows compatibility.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Which platform and language level are actually compiled by this independently reconstructed
+    task?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      language: cpp
+      command: c++ -std=c++11 -pedantic-errors
+    inputs: null
+    output:
+      description: All application source files compile successfully with the declared C++11 toolchain;
+        the model independently compiles without GUI flags.
+    operations: []
+  evaluation: executable
+  tests:
+  - test_id: RU-007-T01
+    file: evaluation/tests/test_gui.py
+  pass_rule: all_tests_pass
+  notes: Independent reconstruction uses Linux/GCC and synthetic labels/layout/API choices. The original
+    VS2013 client requirement is retained in private provenance but is not claimed as validated by this
+    Linux task.

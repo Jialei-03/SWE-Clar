@@ -1,0 +1,170 @@
+schema_version: 1
+task_id: SWECLAR-032
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual MERN operational-record migration, centre login, tenant-scoped portal and parent/chat
+  access
+requirement_units:
+- ru_id: RU-001
+  name: Portal workflow entry point
+  content: Complete the supplied React/Express/MongoDB component. Preserve input objects and existing
+    records, authenticate protected APIs from server sessions, and persist real records across restart.
+    Private PIN/verifier/session material and server/bootstrap/database files must not be served as portal
+    records. The README defines the independently reconstructed operational schema.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for portal workflow entry point.
+  test_interface:
+    type: api
+    entry:
+      language: javascript
+      file: server.cjs
+    inputs:
+      protocol: See raw/starter_code/README.md
+    output:
+      type: dict
+      meaning: Actual HTTP responses, MongoDB persistence and rendered portal behavior
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent React/Express/MongoDB operational-record component with synthetic identities and
+    linked children. No original WordPress source, plugin dumps, personal records, names or private credentials
+    are distributed; normalized schema is disclosed as a benchmark choice.
+- ru_id: RU-002
+  name: Idempotent legacy migration
+  content: Migrate valid normalized legacy operational rows in a real MongoDB transaction, retaining legacy
+    IDs, record types, centre ownership, child IDs, relationship IDs and data. Relationships must refer
+    to existing or same-batch records/children of that centre. Skip identical replayed records; reject
+    conflicting or duplicate batch IDs, invalid fields, unknown/cross-centre relationships and orphan
+    children atomically without losing earlier records. Migrated operational rows appear in their actual
+    module views.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for idempotent legacy migration.
+  test_interface:
+    type: api
+    entry:
+      language: javascript
+      file: server.cjs
+    inputs:
+      protocol: See raw/starter_code/README.md
+    output:
+      type: dict
+      meaning: Actual HTTP responses, MongoDB persistence and rendered portal behavior
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent React/Express/MongoDB operational-record component with synthetic identities and
+    linked children. No original WordPress source, plugin dumps, personal records, names or private credentials
+    are distributed; normalized schema is disclosed as a benchmark choice.
+- ru_id: RU-003
+  name: Centre staff PIN and role access
+  content: Centre login accepts only a known user assigned to the selected centre with a matching PIN.
+    Return a nonempty unpredictable session token and safe user/centre/role data. Store salted PIN verifiers,
+    not plaintext PINs, and derive authorization from the server session rather than caller role or centre
+    claims. Invalid credentials/centre combinations create no usable session.
+  requirement_category: refinement
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for centre staff pin and role access.
+  test_interface:
+    type: api
+    entry:
+      language: javascript
+      file: server.cjs
+    inputs:
+      protocol: See raw/starter_code/README.md
+    output:
+      type: dict
+      meaning: Actual HTTP responses, MongoDB persistence and rendered portal behavior
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent React/Express/MongoDB operational-record component with synthetic identities and
+    linked children. No original WordPress source, plugin dumps, personal records, names or private credentials
+    are distributed; normalized schema is disclosed as a benchmark choice.
+- ru_id: RU-004
+  name: Scoped operational modules
+  content: Staff may create and list supported operational module records only in their signed-in centre;
+    admins may access all centres. Parents cannot create operational rows and see only their linked-child
+    daily_chart/curriculum records in the selected centre. Render actual records in the React portal and
+    preserve access restrictions in direct API calls, filters and reloaded pages.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for scoped operational modules.
+  test_interface:
+    type: api
+    entry:
+      language: javascript
+      file: server.cjs
+    inputs:
+      protocol: See raw/starter_code/README.md
+    output:
+      type: dict
+      meaning: Actual HTTP responses, MongoDB persistence and rendered portal behavior
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent React/Express/MongoDB operational-record component with synthetic identities and
+    linked children. No original WordPress source, plugin dumps, personal records, names or private credentials
+    are distributed; normalized schema is disclosed as a benchmark choice.
+- ru_id: RU-005
+  name: Parent daily view and retained chat
+  content: A parent view requires a linked child in the selected centre. Chat messages may be exchanged
+    only with a known recipient connected to the sender’s current centre; derive the sender from the session.
+    Deduplicate matching message IDs, reject conflicts, and expose stored chat only to sender/recipient.
+    Unknown or unrelated children/users are denied without writing data.
+  requirement_category: refinement
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for parent daily view and retained chat.
+  test_interface:
+    type: api
+    entry:
+      language: javascript
+      file: server.cjs
+    inputs:
+      protocol: See raw/starter_code/README.md
+    output:
+      type: dict
+      meaning: Actual HTTP responses, MongoDB persistence and rendered portal behavior
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independent React/Express/MongoDB operational-record component with synthetic identities and
+    linked children. No original WordPress source, plugin dumps, personal records, names or private credentials
+    are distributed; normalized schema is disclosed as a benchmark choice.

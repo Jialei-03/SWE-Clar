@@ -1,0 +1,30 @@
+{
+  "profile": "node-websocket",
+  "platform": "linux/amd64",
+  "workdir": "/workspace",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "workspace_mb": 256,
+    "evaluation_wall_seconds": 180
+  },
+  "public_test": [
+    "node",
+    "/public_tests/smoke.cjs"
+  ],
+  "start": [
+    "node",
+    "server.cjs"
+  ],
+  "configuration": {
+    "JWT_SECRET": "synthetic operator-supplied secret",
+    "PORT": 8080
+  },
+  "health": "GET http://127.0.0.1:8080/health",
+  "dependencies": "Node.js22.18.0, ws8.19.0 preinstalled; no installation during attempts",
+  "preflight": [
+    "python",
+    "/opt/sweclar/preflight.py"
+  ]
+}

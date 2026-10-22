@@ -1,0 +1,602 @@
+diff --git a/app.js b/app.js
+index a5d188ea83bbf0dc5f089e5fefeb659741b0fd79..cf2048c9f29e2c1bb8b0c1118c7770f7a0d633e9 100644
+--- a/app.js
++++ b/app.js
+@@ -1,95 +1,319 @@
++function keyFor(family) {
++  return `${family.a}:${family.b}`;
++}
++
++function iterableKeys(value) {
++  if (Array.isArray(value)) return value;
++  if (value instanceof Set) return [...value];
++  return [];
++}
++
++function formInteger(value) {
++  const text = String(value).trim();
++  // Keep decimal/exponent spellings as strings so the service's strict JSON
++  // integer validation rejects them instead of silently rounding/coercing.
++  return /^-?\d+$/.test(text) ? Number(text) : text;
++}
++
++/**
++ * Return the shared-scale data used by the canvas renderer.
++ * All selected families use one pair of maxima; the lower bounds are always
++ * zero so that raw and normalized views can be compared without per-family
++ * rescaling.
++ */
+ export function project(result, selectedKeys) {
+-  const selected = new Set(selectedKeys), points = [];
+-  let xMax = 1, yMax = 1;
+-  for (const family of result?.families || []) {
+-    const key = `${family.a}:${family.b}`;
+-    if (!selected.has(key)) continue;
+-    for (const line of family.lines) for (const [u, v] of line.points) {
+-      points.push({family_key: key, n: line.n, u, v});
+-      xMax = Math.max(xMax, u); yMax = Math.max(yMax, v);
++  const selected = new Set(iterableKeys(selectedKeys));
++  const points = [];
++  let xMax = 1;
++  let yMax = 1;
++  const families = Array.isArray(result?.families) ? result.families : [];
++
++  for (const family of families) {
++    const familyKey = keyFor(family);
++    if (!selected.has(familyKey)) continue;
++    const lines = Array.isArray(family.lines) ? family.lines : [];
++    for (const line of lines) {
++      const linePoints = Array.isArray(line.points) ? line.points : [];
++      for (const point of linePoints) {
++        const u = point[0];
++        const v = point[1];
++        points.push({family_key: familyKey, n: line.n, u, v});
++        xMax = Math.max(xMax, u);
++        yMax = Math.max(yMax, v);
++      }
+     }
+   }
+-  return {bounds: {x_min: 0, x_max: xMax, y_min: 0, y_max: yMax},
+-    points: points.map(point => ({...point, px: 48 + 624 * point.u / xMax, py: 432 - 384 * point.v / yMax}))};
++
++  return {
++    bounds: {x_min: 0, x_max: xMax, y_min: 0, y_max: yMax},
++    points: points.map(point => ({
++      ...point,
++      px: 48 + 624 * point.u / xMax,
++      py: 432 - 384 * point.v / yMax,
++    })),
++  };
+ }
+ 
+ export class ExplorerClient {
+   constructor() {
+-    this.result = null; this.selectedKeys = []; this.error = null;
+-    this.serial = 0; this.disposed = false; this.listeners = new Set();
++    this.result = null;
++    this.selectedKeys = [];
++    this.error = null;
++    this.serial = 0;
++    this.disposed = false;
++    this.listeners = new Set();
++  }
++
++  emit() {
++    // A copy makes listener removal during a render safe and keeps the public
++    // listener mechanism independent of request ordering.
++    for (const listener of [...this.listeners]) listener();
+   }
+-  emit() { for (const listener of this.listeners) listener(); }
++
+   async run(problem) {
+     if (this.disposed) return;
+-    const serial = ++this.serial;
++    const requestSerial = ++this.serial;
++    let response;
++    let payload;
++
+     try {
+-      const response = await fetch('/api/geometry', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(problem)});
+-      const result = await response.json();
+-      if (!response.ok) throw new Error('Invalid problem. Check the input ranges and options.');
+-      if (this.disposed) return;
+-      this.result = result;
+-      this.selectedKeys = result.families.map(family => `${family.a}:${family.b}`);
+-      this.error = null; this.emit();
++      response = await fetch('/api/geometry', {
++        method: 'POST',
++        headers: {'Content-Type': 'application/json'},
++        body: JSON.stringify(problem),
++      });
++      payload = await response.json();
++      if (!response.ok) {
++        const detail = payload && typeof payload.error === 'string'
++          ? payload.error
++          : `Request failed (${response.status})`;
++        throw new Error(detail);
++      }
++      if (!payload || typeof payload !== 'object' ||
++          !Array.isArray(payload.families)) {
++        throw new Error('Invalid geometry response');
++      }
+     } catch (error) {
+-      if (this.disposed) return;
+-      this.result = null; this.selectedKeys = []; this.error = error.message || 'Request failed'; this.emit();
++      // An older failure is just as stale as an older success.  In particular,
++      // it must not clear the last accepted result or its selection.
++      if (this.disposed || requestSerial !== this.serial) return;
++      this.error = error && error.message ? error.message : 'Request failed';
++      this.emit();
++      return;
+     }
++
++    if (this.disposed || requestSerial !== this.serial) return;
++    const families = Array.isArray(payload?.families) ? payload.families : [];
++    this.result = payload;
++    this.selectedKeys = families.map(keyFor);
++    this.error = null;
++    this.emit();
+   }
+-  select(keys) {
+-    // TODO: implement comparison selection after clarification.
++
++  select(familyKeys) {
++    if (this.disposed || !this.result || !Array.isArray(this.result.families)) return;
++    const wanted = new Set(iterableKeys(familyKeys));
++    // Use the result's canonical family order.  This keeps the observable
++    // selection stable while still ignoring unknown and duplicate keys.
++    this.selectedKeys = this.result.families
++      .map(keyFor)
++      .filter(key => wanted.has(key));
++    this.emit();
+   }
++
+   exportCSV() {
+-    // TODO: implement export of the accepted selection.
+-    return null;
++    if (!this.result || !Array.isArray(this.result.families)) return null;
++    const selected = new Set(this.selectedKeys);
++    const rows = ['a,b,n,u,v'];
++
++    // The result itself is ordered by b, n, then original x.  Iterating it
++    // directly preserves that order without trying to reconstruct x from a
++    // transformed coordinate.
++    for (const family of this.result.families) {
++      if (!selected.has(keyFor(family))) continue;
++      for (const line of Array.isArray(family.lines) ? family.lines : []) {
++        for (const point of Array.isArray(line.points) ? line.points : []) {
++          rows.push([family.a, family.b, line.n, point[0], point[1]].join(','));
++        }
++      }
++    }
++    return `${rows.join('\n')}\n`;
++  }
++
++  dispose() {
++    this.disposed = true;
++    this.serial++;
++    this.listeners.clear();
+   }
+-  dispose() { this.disposed = true; this.serial++; this.listeners.clear(); }
+ }
+ 
+ export class ExplorerView {
+   constructor(client, doc) {
+-    this.client = client; this.doc = doc; this.cleanups = [];
++    this.client = client;
++    this.doc = doc;
++    this.cleanups = [];
+     this.el = id => doc.getElementById(id);
++
+     this.listen(this.el('problem-form'), 'submit', event => {
+       event.preventDefault();
+-      client.run({total: Number(this.el('total').value), limit: Number(this.el('limit').value),
+-        family_policy: this.el('family-policy').value, coordinates: this.el('coordinates').value});
++      client.run({
++        total: formInteger(this.el('total').value),
++        limit: formInteger(this.el('limit').value),
++        family_policy: this.el('family-policy').value,
++        coordinates: this.el('coordinates').value,
++      });
++    });
++    this.listen(this.el('family-list'), 'change', event => {
++      const target = event.target;
++      if (!target || !target.matches ||
++          !target.matches('input[type="checkbox"][data-family-key]')) return;
++      const keys = [...this.el('family-list').querySelectorAll(
++        'input[type="checkbox"][data-family-key]:checked'
++      )].map(node => node.dataset.familyKey);
++      client.select(keys);
+     });
+     this.listen(this.el('export'), 'click', () => {
+-      const csv = client.exportCSV(); if (csv === null) return;
+-      const url = URL.createObjectURL(new Blob([csv], {type: 'text/csv;charset=utf-8'}));
+-      const link = doc.createElement('a'); link.href = url; link.download = 'lattice.csv';
+-      doc.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
++      const csv = client.exportCSV();
++      if (csv === null) return;
++      const view = this.doc.defaultView || globalThis;
++      const urlApi = view.URL || globalThis.URL;
++      const blob = new Blob([csv], {type: 'text/csv;charset=utf-8'});
++      const url = urlApi.createObjectURL(blob);
++      const link = this.doc.createElement('a');
++      link.href = url;
++      link.download = 'lattice.csv';
++      this.doc.body.append(link);
++      link.click();
++      link.remove();
++      view.setTimeout(() => urlApi.revokeObjectURL(url), 1000);
+     });
+-    this.update = () => this.render(); client.listeners.add(this.update); this.render();
++
++    this.update = () => this.render();
++    client.listeners.add(this.update);
++    this.render();
++  }
++
++  listen(target, event, handler) {
++    target.addEventListener(event, handler);
++    this.cleanups.push(() => target.removeEventListener(event, handler));
+   }
+-  listen(target, event, handler) { target.addEventListener(event, handler); this.cleanups.push(() => target.removeEventListener(event, handler)); }
++
+   render() {
+-    const c = this.client, projected = project(c.result, c.selectedKeys);
+-    this.el('error').hidden = !c.error; this.el('error').textContent = c.error || '';
+-    this.el('export').disabled = c.result === null;
+-    this.el('result-summary').dataset.pointCount = String(projected.points.length);
+-    this.el('result-summary').textContent = c.result ? `${projected.points.length} selected lattice points` : 'Run a problem to explore its geometry.';
+-    this.el('family-list').replaceChildren(...(c.result?.families || []).map(f => {
+-      const label = this.doc.createElement('label'), box = this.doc.createElement('input');
+-      box.type = 'checkbox'; box.dataset.familyKey = `${f.a}:${f.b}`; box.checked = c.selectedKeys.includes(box.dataset.familyKey);
+-      box.addEventListener('change', () => c.select([...this.doc.querySelectorAll('[data-family-key]:checked')].map(node => node.dataset.familyKey)));
+-      label.append(box, this.doc.createTextNode(`a=${f.a}, b=${f.b} · ${f.point_count} points`)); return label;
+-    }));
+-    const canvas = this.el('plot'), ctx = canvas.getContext('2d'); canvas.width = 720; canvas.height = 480;
+-    ctx.fillStyle = '#fbfcf9'; ctx.fillRect(0, 0, 720, 480);
+-    ctx.strokeStyle = '#6e7771'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(48, 48); ctx.lineTo(48, 432); ctx.lineTo(672, 432); ctx.stroke();
+-    ctx.font = '13px sans-serif'; ctx.fillStyle = '#465048'; ctx.fillText('0', 30, 450);
+-    ctx.fillText(projected.bounds.x_max.toFixed(2), 638, 450); ctx.fillText(projected.bounds.y_max.toFixed(2), 4, 44);
+-    const families = (c.result?.families || []).map(f => `${f.a}:${f.b}`);
++    const client = this.client;
++    const projected = project(client.result, client.selectedKeys);
++    const error = this.el('error');
++    const summary = this.el('result-summary');
++    const exportButton = this.el('export');
++
++    error.hidden = !client.error;
++    error.textContent = client.error || '';
++    exportButton.disabled = client.result === null;
++    summary.dataset.pointCount = String(projected.points.length);
++    summary.textContent = client.result === null
++      ? 'Run a problem to explore its geometry.'
++      : `${projected.points.length} selected lattice points`;
++
++    const list = this.el('family-list');
++    list.replaceChildren();
++    const selected = new Set(client.selectedKeys);
++    for (const family of Array.isArray(client.result?.families)
++      ? client.result.families : []) {
++      const row = this.doc.createElement('label');
++      row.className = 'family-row';
++      const box = this.doc.createElement('input');
++      box.type = 'checkbox';
++      box.dataset.familyKey = keyFor(family);
++      box.checked = selected.has(box.dataset.familyKey);
++      const text = this.doc.createElement('span');
++      text.textContent = `a=${family.a}, b=${family.b} · ${family.point_count} points`;
++      row.append(box, text);
++      list.append(row);
++    }
++
++    const canvas = this.el('plot');
++    canvas.width = 720;
++    canvas.height = 480;
++    const ctx = canvas.getContext('2d');
++    if (!ctx) return;
++
++    ctx.clearRect(0, 0, 720, 480);
++    ctx.fillStyle = '#fbfcf9';
++    ctx.fillRect(0, 0, 720, 480);
++
++    // The public data viewport is deliberately fixed even though the canvas
++    // itself scales responsively in CSS.
++    ctx.strokeStyle = '#6e7771';
++    ctx.lineWidth = 1;
++    ctx.beginPath();
++    ctx.moveTo(48, 48);
++    ctx.lineTo(48, 432);
++    ctx.lineTo(672, 432);
++    ctx.stroke();
++
++    ctx.strokeStyle = '#dbe3dc';
++    ctx.lineWidth = 1;
++    ctx.beginPath();
++    ctx.moveTo(48, 48);
++    ctx.lineTo(672, 48);
++    ctx.moveTo(672, 48);
++    ctx.lineTo(672, 432);
++    ctx.stroke();
++
++    const formatBound = value => Number.isInteger(value) ? String(value) : value.toFixed(2);
++    ctx.font = '13px sans-serif';
++    ctx.fillStyle = '#465048';
++    ctx.fillText('0', 30, 450);
++    ctx.fillText(formatBound(projected.bounds.x_max), 638, 450);
++    ctx.fillText(formatBound(projected.bounds.y_max), 4, 44);
++    ctx.fillText('u', 676, 450);
++    ctx.fillText('v', 31, 40);
++
++    const familyKeys = (Array.isArray(client.result?.families)
++      ? client.result.families : []).map(keyFor);
+     for (const point of projected.points) {
+-      ctx.fillStyle = `hsl(${(families.indexOf(point.family_key) * 137 + 205) % 360} 65% 38%)`;
+-      ctx.beginPath(); ctx.arc(point.px, point.py, 2.5, 0, Math.PI * 2); ctx.fill();
++      const familyIndex = Math.max(0, familyKeys.indexOf(point.family_key));
++      const hue = (familyIndex * 137 + 205) % 360;
++      ctx.fillStyle = `hsla(${hue}, 65%, 38%, 0.78)`;
++      ctx.strokeStyle = `hsl(${hue}, 70%, 25%)`;
++      ctx.lineWidth = 1;
++      const radius = 4;
++      ctx.beginPath();
++      if (familyIndex % 3 === 1) {
++        ctx.rect(point.px - radius, point.py - radius, radius * 2, radius * 2);
++      } else if (familyIndex % 3 === 2) {
++        ctx.moveTo(point.px, point.py - radius - 1);
++        ctx.lineTo(point.px + radius + 1, point.py + radius);
++        ctx.lineTo(point.px - radius - 1, point.py + radius);
++        ctx.closePath();
++      } else {
++        ctx.arc(point.px, point.py, radius, 0, Math.PI * 2);
++      }
++      ctx.fill();
++      ctx.stroke();
+     }
+   }
+-  dispose() { this.client.listeners.delete(this.update); for (const cleanup of this.cleanups) cleanup(); }
++
++  dispose() {
++    this.client.listeners.delete(this.update);
++    for (const cleanup of this.cleanups) cleanup();
++    this.cleanups = [];
++  }
++}
++
++// The module exports are the public interface.  These aliases are harmless for
++// the real page and also make the developer interface easy to inspect in a
++// browser console without replacing the module exports.
++if (typeof window !== 'undefined') {
++  window.ExplorerClient = ExplorerClient;
++  window.ExplorerView = ExplorerView;
++  window.project = project;
+ }
+ 
+ if (typeof document !== 'undefined' && document.getElementById('problem-form')) {
+-  const client = new ExplorerClient(), view = new ExplorerView(client, document);
+-  window.addEventListener('pagehide', () => { view.dispose(); client.dispose(); });
++  const client = new ExplorerClient();
++  const view = new ExplorerView(client, document);
++  window.addEventListener('pagehide', () => {
++    view.dispose();
++    client.dispose();
++  });
+ }
+diff --git a/engine.py b/engine.py
+index ae60b2c45803d0c90c153a49bcce07a47cd68bf5..056cdc3ce4b674d21af59b556ee2461e3f12861c 100644
+--- a/engine.py
++++ b/engine.py
+@@ -1,67 +1,142 @@
+-"""Generic integer-lattice computation; independently authored benchmark source."""
++"""Integer-lattice computation used by both the HTTP service and development API."""
+ from math import gcd
+ 
++
+ POLICIES = ('all', 'coprime', 'opposite_parity')
+ COORDINATES = ('raw', 'by_total', 'weighted')
+ 
+ 
+ def integer(value, low, high):
++    """Validate a JSON-style integer without accepting booleans or floats."""
+     if type(value) is not int or not low <= value <= high:
+         raise ValueError('Invalid integer range')
+     return value
+ 
+ 
+ def coefficients(a, b):
+-    integer(a, 2, 39); integer(b, 1, 19)
+-    if a <= b or a + b > 40:
++    """Validate one coefficient family."""
++    # The remaining constraints imply the useful upper bounds on both
++    # coefficients, so keeping the validation in terms of the public rule
++    # avoids accepting a special case that cannot be a family.
++    if type(a) is not int or type(b) is not int:
++        raise ValueError('Invalid coefficients')
++    if a <= b or b < 1 or a + b > 40:
+         raise ValueError('Invalid coefficients')
+ 
+ 
+ def pairs(total, family_policy):
++    """Return accepted (a, b) families in increasing-b order."""
+     integer(total, 3, 40)
+-    if family_policy not in POLICIES:
++    if type(family_policy) is not str or family_policy not in POLICIES:
+         raise ValueError('Unknown family policy')
++
+     result = []
++    # b < a and a+b=total.  The range stops before the diagonal for both
++    # even and odd totals.
+     for b in range(1, (total + 1) // 2):
+         a = total - b
+-        # TODO: implement the clarified selectable family policies.
+-        result.append((a, b))
++        accepted = (
++            family_policy == 'all'
++            or (family_policy == 'coprime' and gcd(a, b) == 1)
++            or (family_policy == 'opposite_parity' and (a % 2) != (b % 2))
++        )
++        if accepted:
++            result.append((a, b))
+     return result
+ 
+ 
+ def solve(a, b, limit):
+-    coefficients(a, b); integer(limit, a + b + 1, 600)
+-    result = {}
+-    for n in range(a + b + 1, limit + 1):
+-        points = []
+-        for x in range(1, (n - b) // a + 1):
+-            remainder = n - a * x
+-            if remainder % b == 0:
+-                points.append((x, remainder // b))
+-        if points:
+-            result[n] = points
+-    return result
++    """Enumerate positive raw solutions, retaining only nonempty levels.
++
++    This walks the bounded positive lattice once and groups the hits by their
++    equation level.  It is deliberately independent of a divisibility-based
++    per-level solver: the bounds come from the largest requested level, while
++    the final sort restores the public level and x ordering.
++    """
++    coefficients(a, b)
++    integer(limit, a + b + 1, 600)
++
++    # Any positive solution below ``limit`` must lie inside this rectangle.
++    # Iterating x on the outside means each bucket naturally receives points
++    # in the required original-x order.
++    x_limit = (limit - b) // a
++    y_limit = (limit - a) // b
++    buckets = {}
++    for x in range(1, x_limit + 1):
++        ax = a * x
++        for y in range(1, y_limit + 1):
++            n = ax + b * y
++            if a + b < n <= limit:
++                buckets.setdefault(n, []).append((x, y))
++
++    # Dict insertion order is not part of the mathematical result, but
++    # returning an explicitly sorted mapping keeps the development API and
++    # HTTP serialization deterministic for callers that inspect it directly.
++    return {n: buckets[n] for n in sorted(buckets)}
+ 
+ 
+ def transform(x, y, n, a, b, coordinates):
+-    coefficients(a, b); integer(x, 1, 600); integer(y, 1, 600); integer(n, 1, 600)
+-    if a * x + b * y != n or coordinates not in COORDINATES:
+-        raise ValueError('Invalid solution or coordinates')
+-    # TODO: implement normalized views after clarification.
+-    return x, y
++    """Transform one valid positive raw solution into the requested view."""
++    coefficients(a, b)
++    integer(x, 1, 600)
++    integer(y, 1, 600)
++    integer(n, 1, 600)
++    if type(coordinates) is not str or coordinates not in COORDINATES:
++        raise ValueError('Unknown coordinates')
++    if a * x + b * y != n:
++        raise ValueError('Invalid solution')
++
++    if coordinates == 'raw':
++        return x, y
++    if coordinates == 'by_total':
++        return x / n, y / n
++    return (a * x) / n, (b * y) / n
+ 
+ 
+ def geometry(problem):
+-    if not isinstance(problem, dict) or set(problem) != {'total', 'limit', 'family_policy', 'coordinates'}:
++    """Compute the complete HTTP result shape for one validated problem."""
++    if not isinstance(problem, dict) or set(problem.keys()) != {
++        'total', 'limit', 'family_policy', 'coordinates'
++    }:
+         raise ValueError('Invalid problem fields')
+-    total, limit = problem['total'], problem['limit']
+-    integer(total, 3, 40); integer(limit, total + 1, 600)
+-    if problem['coordinates'] not in COORDINATES:
++
++    total = problem['total']
++    limit = problem['limit']
++    family_policy = problem['family_policy']
++    coordinates = problem['coordinates']
++    integer(total, 3, 40)
++    integer(limit, total + 1, 600)
++    if type(coordinates) is not str or coordinates not in COORDINATES:
+         raise ValueError('Unknown coordinates')
++
+     families = []
+-    for a, b in pairs(total, problem['family_policy']):
++    for a, b in pairs(total, family_policy):
+         raw = solve(a, b, limit)
+-        lines = [{'n': n, 'points': [transform(x, y, n, a, b, problem['coordinates']) for x, y in points]}
+-                 for n, points in raw.items()]
+-        families.append({'a': a, 'b': b, 'lines': lines, 'point_count': sum(len(line['points']) for line in lines)})
+-    return {'problem': dict(problem), 'families': families}
++        lines = [
++            {
++                'n': n,
++                'points': [
++                    transform(x, y, n, a, b, coordinates)
++                    for x, y in points
++                ],
++            }
++            for n, points in raw.items()
++        ]
++        families.append({
++            'a': a,
++            'b': b,
++            'lines': lines,
++            'point_count': sum(len(line['points']) for line in lines),
++        })
++
++    # Values have all been validated above; preserve the public problem shape
++    # and do not add server-side state to it.
++    return {
++        'problem': {
++            'total': total,
++            'limit': limit,
++            'family_policy': family_policy,
++            'coordinates': coordinates,
++        },
++        'families': families,
++    }
+diff --git a/index.html b/index.html
+index bb75719606df0bb3af8c49662d61b82d470f4622..6b8faac24e86ac222ec00d08a48f3d46d062e662 100644
+--- a/index.html
++++ b/index.html
+@@ -4,5 +4,5 @@
+ <form id="problem-form" novalidate><label>Coefficient total<input id="total" type="number" value="8" min="3" max="40"></label><label>Largest equation level<input id="limit" type="number" value="32" max="600"></label>
+ <label>Family policy<select id="family-policy"><option value="all">All families</option><option value="coprime">Coprime</option><option value="opposite_parity">Opposite parity</option></select></label>
+ <label>Coordinates<select id="coordinates"><option value="raw">Raw</option><option value="by_total">By equation total</option><option value="weighted">Weighted</option></select></label><button id="run" type="submit">Run problem</button></form>
+-<p id="error" role="alert" hidden></p><section aria-label="Comparison"><div class="toolbar"><p id="result-summary" data-point-count="0"></p><button id="export" disabled>Export CSV</button></div><canvas id="plot" width="720" height="480" aria-label="Lattice solution comparison"></canvas><div id="family-list"></div></section>
++<p id="error" role="alert" hidden></p><section aria-label="Comparison"><div class="toolbar"><p id="result-summary" data-point-count="0"></p><button id="export" type="button" disabled>Export CSV</button></div><canvas id="plot" width="720" height="480" aria-label="Lattice solution comparison"></canvas><div id="family-list"></div></section>
+ </main><script type="module" src="/app.js"></script></body></html>
+diff --git a/server.py b/server.py
+index b8bcd4f1ecacf9c8efb3da79905ddff4ae0e57c6..638ce4795cb9ce42493a0882f52cf4bc3cab87e9 100644
+--- a/server.py
++++ b/server.py
+@@ -38,14 +38,24 @@ class Handler(BaseHTTPRequestHandler):
+                 raise ValueError('Invalid length')
+             body = json.loads(self.rfile.read(length).decode('utf-8'))
+             result = geometry(body)
+-        except (ValueError, TypeError, KeyError, UnicodeDecodeError):
++        except (ValueError, TypeError, KeyError, UnicodeDecodeError,
++                OverflowError, RecursionError):
+             return self.send(400, {'error': 'invalid_request'})
+         self.send(200, result)
+ 
+     def unsupported(self):
+         self.send(404, {'error': 'not_found'})
+ 
++    # Explicitly handle the common methods.  BaseHTTPRequestHandler uses 501
++    # for an unknown method; that is also mapped to the public 404 contract by
++    # send_error below.
+     do_PUT = do_PATCH = do_DELETE = do_OPTIONS = do_HEAD = unsupported
++    do_TRACE = do_CONNECT = do_PRI = unsupported
++
++    def send_error(self, code, message=None, explain=None):
++        if code == 501:
++            return self.send(404, {'error': 'not_found'})
++        return super().send_error(code, message, explain)
+ 
+     def log_message(self, *_):
+         pass

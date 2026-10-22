@@ -1,0 +1,183 @@
+schema_version: 1
+task_id: SWECLAR-074
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual local Cesium console, first offline login, panel/map geometry, local search and
+  supplied track rewind
+requirement_units:
+- ru_id: RU-001
+  name: Offline map console
+  content: Repair the supplied Python/SQLite/Cesium web component. It must start and complete the first
+    local login without Internet access, using only loopback HTTP and local public Cesium assets. Preserve
+    source fixture values, protect private user configuration and require a session for location/track
+    APIs. Display a real Cesium scene; state flags do not establish map rendering.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for offline map console.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.rewind
+      signature: Store.rewind(track_id,instant) -> dict
+    inputs:
+      track_id: synthetic track identifier
+      instant: timezone-aware timestamp
+    output:
+      type: dict
+      meaning: selected historical sample
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Offline login, Cesium map, menu compensation, search and timeline have source support. Credential/schema/grid
+    details and synthetic local geometry are independently reconstructed; no customer imagery or device-control
+    functions are included.
+- ru_id: RU-002
+  name: Local authentication
+  content: Verify the supplied local salted scrypt credential record, issue a fresh HttpOnly session cookie,
+    store only a token hash in SQLite and restore valid sessions after process/browser reload. Wrong passwords
+    and unknown users do not open the console; sign-out revokes the server session. Never expose password
+    hashes/salts through public APIs or static file traversal.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for local authentication.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.rewind
+      signature: Store.rewind(track_id,instant) -> dict
+    inputs:
+      track_id: synthetic track identifier
+      instant: timezone-aware timestamp
+    output:
+      type: dict
+      meaning: selected historical sample
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Offline login, Cesium map, menu compensation, search and timeline have source support. Credential/schema/grid
+    details and synthetic local geometry are independently reconstructed; no customer imagery or device-control
+    functions are included.
+- ru_id: RU-003
+  name: Sliding panels and map compensation
+  content: Opening either location or track-history panel allocates its actual width beside the map so
+    the selected geographic point remains centered in the visible map area. Closing it restores that space.
+    The other panel state is independent. Resize the actual Cesium canvas and preserve the selected world
+    coordinate; do not add arbitrary offsets to longitude/state fields. Verify at desktop widths 960 through
+    1440 pixels.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for sliding panels and map compensation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.rewind
+      signature: Store.rewind(track_id,instant) -> dict
+    inputs:
+      track_id: synthetic track identifier
+      instant: timezone-aware timestamp
+    output:
+      type: dict
+      meaning: selected historical sample
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Source asks to keep the geographic focus visible while panels open; the original also says map
+    size stays unchanged. Allocated-width canvas resizing is an explicit benchmark adaptation, not a verbatim
+    client requirement.
+- ru_id: RU-004
+  name: Offline location search
+  content: Search independent local locations by case-insensitive name and draw/center the selected result
+    at its geographic coordinates. Neither search nor viewer setup may query an external location, tile
+    or account service. The synthetic ellipsoid/point display is a reconstruction boundary, not a recreation
+    of client map imagery.
+  requirement_category: refinement
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for offline location search.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.rewind
+      signature: Store.rewind(track_id,instant) -> dict
+    inputs:
+      track_id: synthetic track identifier
+      instant: timezone-aware timestamp
+    output:
+      type: dict
+      meaning: selected historical sample
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Offline login, Cesium map, menu compensation, search and timeline have source support. Credential/schema/grid
+    details and synthetic local geometry are independently reconstructed; no customer imagery or device-control
+    functions are included.
+- ru_id: RU-005
+  name: Track timeline
+  content: Select a known track and show its name/description. For a timezone-aware requested instant,
+    find the latest supplied sample at or before it and render that sample’s point; sort logically by
+    time without changing the fixture. Unknown tracks or times before the first sample return not_found
+    and clear a misleading previous sample. Metadata and coordinates must agree with the selected sample.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for track timeline.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.rewind
+      signature: Store.rewind(track_id,instant) -> dict
+    inputs:
+      track_id: synthetic track identifier
+      instant: timezone-aware timestamp
+    output:
+      type: dict
+      meaning: selected historical sample
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Historical navigation is source grounded. Latest-at-or-before, timestamp schema and synthetic
+    samples are reconstruction conventions.

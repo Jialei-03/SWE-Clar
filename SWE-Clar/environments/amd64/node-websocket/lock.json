@@ -1,0 +1,7 @@
+{
+  "platform": "linux/amd64",
+  "base_profile": "node-sdk",
+  "source_profile": "node-websocket",
+  "wheels": [],
+  "archives": []
+}

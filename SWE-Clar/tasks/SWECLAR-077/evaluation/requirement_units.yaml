@@ -1,0 +1,199 @@
+schema_version: 1
+task_id: SWECLAR-077
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual responsive PHP content pages and text-PDF to editable DOCX workflow
+requirement_units:
+- ru_id: RU-001
+  name: Site workflow entry point
+  content: Complete the supplied PHP website and Python content/document workflow. process_site_action(state,action,output_root,source_root)
+    returns a new state without mutating caller inputs or performing network access; it writes actual
+    page data and editable documents locally. web/index.php reads DATA_ROOT/<page_id>.json to serve the
+    page. Use the supplied synthetic files and isolated roots.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for site workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_site_action
+      signature: process_site_action(state,action,output_root,source_root) -> dict
+    inputs:
+      state: Local page, asset, PDF and template registry
+      action: upsert_page/set_seo/convert_pdf
+      output_root: Writable output directory
+      source_root: Synthetic file directory
+    output:
+      type: dict
+      meaning: Next state or error with actual persisted PHP page data or editable DOCX output.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/docsite_contract.py
+  notes: Real PHP rendering and file conversion are reconstructed from the site/document workflow. Synthetic
+    layout breakpoints, JSON adapter and plain-text PDF scope are benchmark choices. No customer template,
+    code, logo or document is distributed.
+- ru_id: RU-002
+  name: Responsive page content
+  content: upsert_page creates or updates a page with title,body,ordered sections and asset IDs. Read
+    the registered PNG bytes under source_root and render them in the PHP page, preserving visible text
+    and section order. The actual section grid has one column below 600 CSS pixels, two from 600 through
+    1023, and three at 1024 or wider; resizing the browser updates layout without a new action. Preserve
+    the existing site content and metadata during updates. Escape supplied text so markup is displayed
+    literally. Return page_id and the written JSON filename.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for responsive page content.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_site_action
+      signature: process_site_action(state,action,output_root,source_root) -> dict
+    inputs:
+      state: Local page, asset, PDF and template registry
+      action: upsert_page/set_seo/convert_pdf
+      output_root: Writable output directory
+      source_root: Synthetic file directory
+    output:
+      type: dict
+      meaning: Next state or error with actual persisted PHP page data or editable DOCX output.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/docsite_contract.py
+  notes: Real PHP rendering and file conversion are reconstructed from the site/document workflow. Synthetic
+    layout breakpoints, JSON adapter and plain-text PDF scope are benchmark choices. No customer template,
+    code, logo or document is distributed.
+- ru_id: RU-003
+  name: SEO metadata
+  content: set_seo applies only to an existing page. Trim nonempty string title and description; require
+    canonical_path beginning with a single slash and without backslashes or newlines. Persist title,description,canonical_path,indexable=true
+    and render them as the PHP page title, meta description, canonical link and index/follow robots metadata.
+    Keep body and section content unchanged.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for seo metadata.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_site_action
+      signature: process_site_action(state,action,output_root,source_root) -> dict
+    inputs:
+      state: Local page, asset, PDF and template registry
+      action: upsert_page/set_seo/convert_pdf
+      output_root: Writable output directory
+      source_root: Synthetic file directory
+    output:
+      type: dict
+      meaning: Next state or error with actual persisted PHP page data or editable DOCX output.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/docsite_contract.py
+  notes: Real PHP rendering and file conversion are reconstructed from the site/document workflow. Synthetic
+    layout breakpoints, JSON adapter and plain-text PDF scope are benchmark choices. No customer template,
+    code, logo or document is distributed.
+- ru_id: RU-004
+  name: Editable document conversion
+  content: convert_pdf reads the registered local PDF file rather than pre-extracted input blocks and
+    writes <document_id>.docx based on the registered DOCX letterhead template. Extract nonempty text
+    lines in page/line order into editable Word paragraphs, preserve repeated body lines and retain the
+    template content/header exactly once. Do not embed PDF page screenshots in place of editable text.
+    Clear personal core metadata from the output. Return file,letterhead_id,editable=true after the file
+    exists. The benchmark uses text-only PDFs with unambiguous reading order; complex layout reconstruction
+    and OCR are outside scope.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for editable document conversion.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_site_action
+      signature: process_site_action(state,action,output_root,source_root) -> dict
+    inputs:
+      state: Local page, asset, PDF and template registry
+      action: upsert_page/set_seo/convert_pdf
+      output_root: Writable output directory
+      source_root: Synthetic file directory
+    output:
+      type: dict
+      meaning: Next state or error with actual persisted PHP page data or editable DOCX output.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/docsite_contract.py
+  notes: Real PHP rendering and file conversion are reconstructed from the site/document workflow. Synthetic
+    layout breakpoints, JSON adapter and plain-text PDF scope are benchmark choices. No customer template,
+    code, logo or document is distributed.
+- ru_id: RU-005
+  name: Deterministic local behavior
+  content: Reject unsupported/encrypted/empty-text PDF inputs, missing files, unknown letterheads, invalid
+    or duplicate document IDs (including an existing output file), invalid viewport widths (including
+    bool/NaN/infinity), unknown assets and paths escaping source_root. Unknown SEO pages are invalid_seo;
+    bad page actions are invalid_page; bad conversions are invalid_document. A failed action preserves
+    prior state/content and existing output files without leaving partial output. IDs use ASCII letters,digits,underscore,hyphen.
+    Unknown actions return unknown_action.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for deterministic local behavior.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_site_action
+      signature: process_site_action(state,action,output_root,source_root) -> dict
+    inputs:
+      state: Local page, asset, PDF and template registry
+      action: upsert_page/set_seo/convert_pdf
+      output_root: Writable output directory
+      source_root: Synthetic file directory
+    output:
+      type: dict
+      meaning: Next state or error with actual persisted PHP page data or editable DOCX output.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/docsite_contract.py
+  notes: Real PHP rendering and file conversion are reconstructed from the site/document workflow. Synthetic
+    layout breakpoints, JSON adapter and plain-text PDF scope are benchmark choices. No customer template,
+    code, logo or document is distributed.

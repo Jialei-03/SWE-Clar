@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-081",
+  "readme": "# Offline directory page planner\nImplement `directory_planner.py: plan_directory_update(records, changed_ids, query=None, immediate_ids=None)` without mutating inputs. Return pages, suggestions and cache_queue; metadata is permitted. Invalid inputs raise ValueError. This component generates real local page content and work plans, not a complete directory site or external CDN deployment.\n\nRecord fields: unique nonempty string id, business_name,country_code,state_name,state_code,main_city; other_cities/services lists of nonempty strings; sponsored boolean. Empty lists/record collection allowed. changed_ids and optional immediate_ids are lists of known IDs; repeated IDs allowed. query string or None. Exact route normalization and refresh policies may be clarified.\n\nGenerate state, state_service, city, city_service and business pages. Both main and other cities contribute; every offered service contributes at state/city levels. Deduplicate equivalent normalized cities/services and business memberships. Page fields: route,kind,label,business_ids. Labels: state+' Movers', state+' '+service+' Movers', city+' '+state_code+' Movers', city+' '+state_code+' '+service+' Movers', business_name. For normalized equivalent labels choose lexicographically smallest trimmed label. Sponsored businesses sort first, then ID; pages sort by route.\n\nSearch normalized ASCII text across all page labels, including businesses. Exact/prefix/substring scores are300/200/100; sort by descending score then route; at most10 unique target routes. Each suggestion exposes target,kind,label,score. Empty normalized query yields none. Token normalization uses NFKD ASCII transliteration, lowercase alphanumeric runs with single spaces.\n\nRun `python cli.py --offset 0 --limit 20` with one JSON object containing function arguments on stdin. offset>=0,limit>=1. Only pages paginate; total_pages is full count and suggestions/cache_queue remain complete. CLI produces actual escaped HTML containing page heading and matching business names in membership order. It writes JSON to stdout and publishes nothing. Python standard library only.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "directory_planner.py",
+        "function": "plan_directory_update"
+      },
+      "inputs": {
+        "request": "records,changed_ids,query,immediate_ids"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Offline page content/search/cache plan"
+      },
+      "operations": []
+    }
+  ]
+}

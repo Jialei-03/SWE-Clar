@@ -1,0 +1,193 @@
+schema_version: 1
+task_id: SWECLAR-044
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual HTTP/CSV trend ingestion, monthly growth calculation and keyword curation
+requirement_units:
+- ru_id: RU-001
+  name: Trend workflow entry point
+  content: Complete actual raw CSV retrieval and parsing for sync_source actions, then process category,
+    watch-list, discovery and candidate-keyword actions without mutating inputs. Compute growth from monthly
+    counts rather than accepting a supplied growth field. Validate the whole CSV batch before updating
+    state; report malformed rows, invalid calendar months, duplicate trend/month pairs or negative/non-finite
+    counts as invalid_source and transport failures as fetch_failed. Preserve the supplied JSON console
+    and local sample HTTP source. The public README fully specifies CSV and state schemas, including batch
+    conflicts and metadata preservation.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for trend workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_trend_action
+      signature: process_trend_action(state, action, fetch_text=None) -> dict
+    inputs:
+      state: Categories, trend histories, watchlists and supplied keyword suggestions
+      action: sync_source(category_id,url), category_view, watch/unwatch, discover or generate_keywords
+      fetch_text: Optional callable(url) returning raw CSV
+    output:
+      type: dict
+      meaning: New state with computed monthly growth/history and result or error.code
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Raw CSV format, percentage calculation and zero-baseline policy are disclosed benchmark reconstruction
+    conventions. This is a measurement-ingestion/curation component, not live social-platform extraction
+    or model generation.
+- ru_id: RU-002
+  name: Growth classification and history
+  content: Compute growth using the public two-latest-month baseline convention, classify growth over
+    30% as hot, 15% through 30% as rising, 0% through below 15% as regular and negative growth as declining.
+    Preserve at most twelve monthly count records in chronological order per trend, upserting repeated
+    months without duplicates. Missing or zero-to-positive baselines use insufficient_baseline with growth=null.
+    Retain zero-to-zero growth as zero.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for growth classification and history.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_trend_action
+      signature: process_trend_action(state, action, fetch_text=None) -> dict
+    inputs:
+      state: Categories, trend histories, watchlists and supplied keyword suggestions
+      action: sync_source(category_id,url), category_view, watch/unwatch, discover or generate_keywords
+      fetch_text: Optional callable(url) returning raw CSV
+    output:
+      type: dict
+      meaning: New state with computed monthly growth/history and result or error.code
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Raw CSV format, percentage calculation and zero-baseline policy are disclosed benchmark reconstruction
+    conventions. This is a measurement-ingestion/curation component, not live social-platform extraction
+    or model generation.
+- ru_id: RU-003
+  name: Single-category trend view
+  content: Selecting exactly one known category returns every trend in that category in descending growth
+    then keyword order; multiple or unknown categories are rejected. Unknown growth is placed last. Ties
+    use case-insensitive keyword order, then trend ID. Return full trend records.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for single-category trend view.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_trend_action
+      signature: process_trend_action(state, action, fetch_text=None) -> dict
+    inputs:
+      state: Categories, trend histories, watchlists and supplied keyword suggestions
+      action: sync_source(category_id,url), category_view, watch/unwatch, discover or generate_keywords
+      fetch_text: Optional callable(url) returning raw CSV
+    output:
+      type: dict
+      meaning: New state with computed monthly growth/history and result or error.code
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Raw CSV format, percentage calculation and zero-baseline policy are disclosed benchmark reconstruction
+    conventions. This is a measurement-ingestion/curation component, not live social-platform extraction
+    or model generation.
+- ru_id: RU-004
+  name: Watch list and discovery
+  content: Users may idempotently add or remove known trends from a watch list, and discovery returns
+    supplied case-insensitive long-tail suggestions for a seed keyword without duplicates. Preserve insertion
+    order for watches and first-occurrence spelling/order for suggestions. Trim and casefold the seed
+    and deduplication keys; unknown seeds return an empty list. Keep different users isolated and reject
+    empty user IDs or unknown trend IDs.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for watch list and discovery.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_trend_action
+      signature: process_trend_action(state, action, fetch_text=None) -> dict
+    inputs:
+      state: Categories, trend histories, watchlists and supplied keyword suggestions
+      action: sync_source(category_id,url), category_view, watch/unwatch, discover or generate_keywords
+      fetch_text: Optional callable(url) returning raw CSV
+    output:
+      type: dict
+      meaning: New state with computed monthly growth/history and result or error.code
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Raw CSV format, percentage calculation and zero-baseline policy are disclosed benchmark reconstruction
+    conventions. This is a measurement-ingestion/curation component, not live social-platform extraction
+    or model generation.
+- ru_id: RU-005
+  name: Monthly unique keyword generation
+  content: Once per category and month, accept at most 25 supplied candidate keywords, normalize and skip
+    duplicates already in that category, and return the IDs that were added. Allocate new IDs without
+    overwriting any existing trend record. Trim candidate strings and compare case-insensitively within
+    the selected category; skip blank/non-string candidates. Process in supplied order. Even an empty
+    successful generation records that month. New records have empty history, null growth and insufficient_baseline
+    classification. Distinct categories and months have independent quotas.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for monthly unique keyword generation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_trend_action
+      signature: process_trend_action(state, action, fetch_text=None) -> dict
+    inputs:
+      state: Categories, trend histories, watchlists and supplied keyword suggestions
+      action: sync_source(category_id,url), category_view, watch/unwatch, discover or generate_keywords
+      fetch_text: Optional callable(url) returning raw CSV
+    output:
+      type: dict
+      meaning: New state with computed monthly growth/history and result or error.code
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Raw CSV format, percentage calculation and zero-baseline policy are disclosed benchmark reconstruction
+    conventions. This is a measurement-ingestion/curation component, not live social-platform extraction
+    or model generation.

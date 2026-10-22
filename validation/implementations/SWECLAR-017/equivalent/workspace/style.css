@@ -1,0 +1,35 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #193133; background: #f2f5f3; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+header, main { width: min(1080px, 100%); margin: auto; padding: 24px; }
+header { padding-bottom: 0; }
+h1 { margin: 5px 0; font-size: clamp(28px, 5vw, 42px); }
+h2 { font-size: 23px; }
+h3 { margin-top: 24px; }
+p, li, button, h2, h3 { overflow-wrap: anywhere; }
+.eyebrow { color: #366d62; text-transform: uppercase; letter-spacing: .12em; font-size: 12px; }
+.panel, .catalog-card { padding: 20px; background: white; border: 1px solid #ccdad3; border-radius: 10px; }
+.panel { margin-bottom: 20px; }
+form, .account-line, .section-heading, .summary { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+form { align-items: end; }
+form label { flex: 1 1 180px; }
+.account-line { margin-top: 16px; }
+.section-heading { justify-content: space-between; }
+label { display: block; font-size: 14px; }
+input, textarea { display: block; width: 100%; min-width: 0; margin: 7px 0 12px; padding: 10px; font: inherit; color: inherit; border: 1px solid #91aaa0; border-radius: 5px; }
+textarea { resize: vertical; }
+button { border: 1px solid #285c50; padding: 10px 14px; border-radius: 5px; background: #285c50; color: white; font: inherit; cursor: pointer; max-width: 100%; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid #cca65b; outline-offset: 2px; }
+button:disabled { opacity: .5; cursor: default; }
+#catalog { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 14px; margin-bottom: 20px; }
+.listing-select { text-align: left; background: transparent; color: #193133; font-weight: 650; padding: 0; border: 0; }
+.badge { display: inline-block; margin: 8px 5px 0 0; padding: 4px 8px; border-radius: 4px; background: #e4f2ea; color: #285c50; font-size: 12px; overflow-wrap: anywhere; }
+.columns { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+.columns > section { min-width: 0; }
+ul { padding-left: 21px; }
+li { white-space: pre-wrap; }
+.offer-row { padding: 14px 0; border-bottom: 1px solid #dce5df; }
+.offer-row input { max-width: 260px; }
+#error { color: #8f2f29; }
+[hidden] { display: none !important; }
+@media (max-width: 600px) { header, main { padding: 16px; } .panel, .catalog-card { padding: 16px; } .columns { grid-template-columns: 1fr; gap: 6px; } }

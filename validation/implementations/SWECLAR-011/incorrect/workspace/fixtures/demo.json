@@ -1,0 +1,4 @@
+[
+  {"id":"sample-one","values":{"document_id":"DEMO-001","name":"Synthetic Member A","group":"Example Group","contact":"demo@example.test","reviewer":"Sample Review Team","reference":"SYN-REF-001"}},
+  {"id":"sample-two","values":{"document_id":"DEMO-002","name":"عضو تجريبي","group":"Groupe Démonstration","contact":"contact@example.test","reviewer":"فريق المراجعة","reference":"SYN-REF-é-002"}}
+]

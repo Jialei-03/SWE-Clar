@@ -1,0 +1,229 @@
+schema_version: 1
+task_id: SWECLAR-002
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent browser practice application with signed subscriptions, real audio, goals
+  and questionnaires
+requirement_units:
+- ru_id: RU-001
+  name: Runnable browser practice application
+  content: Complete the existing React Native Web, HTTP and SQLite application according to the public
+    starter README. Preserve actual login, track browsing, goals, questionnaires, reports and subscription
+    views. Use the manager-prepared dependencies, media, configuration and local receipt provider; no
+    installation, customer credentials or external service is needed. Initialize configured users only
+    when creating the initial user store, and retain committed records across process restart. Keep public
+    response schemas, input limits, routes, statuses, media range protocol and browser selectors. Only
+    index.html and app.js are public static resources; source, configuration, database and arbitrary workspace
+    files must not be served. An unsupported method on a known route is 405; an unknown route is 404.
+    All JSON requests are objects with exactly their documented fields and have a 65536-byte limit. Every
+    rejection is atomic. This is a browser application, with no mobile lock-screen, native SDK, real store
+    purchase or medical-effect claim.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern runnable browser practice application?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: node build.mjs && PORT=0 python server.py
+      runtime: Prepared Python/SQLite/Node/React Native Web/Chromium with synthetic local receipt and
+        media fixtures
+    inputs:
+      configuration: PRACTICE_CONFIG, PRACTICE_DATABASE, PRACTICE_ASSETS, PORT; public README specifies
+        config and HTTP schemas
+      identity: 'Authorization: Bearer server-issued token'
+      build: UI_NODE_MODULES and ESBUILD_BINARY_PATH already supplied
+    output:
+      http: Actual HTTP JSON/WAV responses and persisted application behavior
+      browser: Real React Native Web controls, media and graphs using README selectors
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business category is privately grounded. Browser adaptation was explicitly approved. All exact
+    policies, question labels, channels, accounts, code and media are independently reconstructed; no
+    source messages or customer artifacts are distributed. Some standard behavior is already present;
+    only newly disclosed information counts as clarification gain.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/practice_contract.py
+- ru_id: RU-002
+  name: Signed subscription transaction policy
+  content: 'Accept only configured products and alpha/beta channels. A successful receipt must have exactly
+    the documented payload fields and signature, validate under the public canonical HMAC protocol, and
+    match transaction ID, authenticated user, requested product, channel and paid status. Never activate
+    from request assertions alone. Transaction ID is the global idempotency key: an already committed
+    identical user/product/channel returns its original activation record without another provider request,
+    even when the provider is unavailable. Conflicting reuse by any user/product/channel returns 409.
+    Concurrent identical requests commit one record; distinct transactions for the same product remain
+    distinct. Provider 404 means missing receipt (400); other non-2xx responses, connection failures or
+    timeout mean operational failure (502). A 200 response with malformed JSON/shape/signature/mismatched
+    fields is 400. No failure commits a subscription. List only the current user''s subscriptions, sorted
+    by transaction ID. This local signing/payment convention is independently designed.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern signed subscription transaction policy?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: node build.mjs && PORT=0 python server.py
+      runtime: Prepared Python/SQLite/Node/React Native Web/Chromium with synthetic local receipt and
+        media fixtures
+    inputs:
+      configuration: PRACTICE_CONFIG, PRACTICE_DATABASE, PRACTICE_ASSETS, PORT; public README specifies
+        config and HTTP schemas
+      identity: 'Authorization: Bearer server-issued token'
+      build: UI_NODE_MODULES and ESBUILD_BINARY_PATH already supplied
+    output:
+      http: Actual HTTP JSON/WAV responses and persisted application behavior
+      browser: Real React Native Web controls, media and graphs using README selectors
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business category is privately grounded. Browser adaptation was explicitly approved. All exact
+    policies, question labels, channels, accounts, code and media are independently reconstructed; no
+    source messages or customer artifacts are distributed. Some standard behavior is already present;
+    only newly disclosed information counts as clarification gain.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/practice_contract.py
+- ru_id: RU-003
+  name: Real browser audio interaction
+  content: List only tracks belonging to at least one playlist, in configured order. Unknown/orphan tracks
+    are 404, unauthenticated audio is 401; do not serve files outside configured media. Return actual
+    original WAV bytes and the public range protocol. Starting a new track immediately stops and unloads
+    the old track and invalidates older pending loads; the new track starts at zero. Last play request
+    wins even when fetches finish out of order. Pause stops media advancement at the current position
+    and invalidates pending loads. Resume continues a loaded paused track; with no loaded track it is
+    a harmless no-op. Logout immediately stops/unloads audio, revokes allocated blob URLs and invalidates
+    pending loads. A stale fetch failure must not appear as an error in the current session. Switching
+    between this application's tabs preserves active playback; this does not assert operating-system background
+    or lock-screen behavior. Play real audio through the HTML media element and show its actual position/state;
+    timer-only status simulation is not sufficient.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern real browser audio interaction?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: node build.mjs && PORT=0 python server.py
+      runtime: Prepared Python/SQLite/Node/React Native Web/Chromium with synthetic local receipt and
+        media fixtures
+    inputs:
+      configuration: PRACTICE_CONFIG, PRACTICE_DATABASE, PRACTICE_ASSETS, PORT; public README specifies
+        config and HTTP schemas
+      identity: 'Authorization: Bearer server-issued token'
+      build: UI_NODE_MODULES and ESBUILD_BINARY_PATH already supplied
+    output:
+      http: Actual HTTP JSON/WAV responses and persisted application behavior
+      browser: Real React Native Web controls, media and graphs using README selectors
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business category is privately grounded. Browser adaptation was explicitly approved. All exact
+    policies, question labels, channels, accounts, code and media are independently reconstructed; no
+    source messages or customer artifacts are distributed. Some standard behavior is already present;
+    only newly disclosed information counts as clarification gain.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/practice_contract.py
+- ru_id: RU-004
+  name: Independent goals and questionnaire reports
+  content: Apply the public goal ID/title syntax, trim titles, and scope goal ID uniqueness to each user.
+    Another user may create the same ID; duplicate creation for the same user is 409 without overwrite.
+    Completion requires only ownership, not a questionnaire; repeated completion succeeds idempotently.
+    Unknown/other-user goals are 404 without leaking existence. Goal lists are sorted by ID. A questionnaire
+    must contain exactly the six configured question IDs with finite JSON numbers in the inclusive interval
+    0..10; booleans, strings, null, extra/missing answers and nonfinite values are invalid (400), with
+    no partial submission. Every valid submission counts independently, including identical answers. Submission
+    order is the persisted monotonic commit sequence. Latest contains each question's value in the last
+    submission; Overall contains the arithmetic mean per question across this user’s submissions. Return
+    numbers and use two-decimal display with proportional bars. With no submissions, return count=0, latest={},
+    overall={} and show a no-data message instead of invented zero-score bars. Goals and questionnaires
+    have independent lifecycles. Never include other users' submissions in counts or aggregates.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern independent goals and questionnaire reports?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: node build.mjs && PORT=0 python server.py
+      runtime: Prepared Python/SQLite/Node/React Native Web/Chromium with synthetic local receipt and
+        media fixtures
+    inputs:
+      configuration: PRACTICE_CONFIG, PRACTICE_DATABASE, PRACTICE_ASSETS, PORT; public README specifies
+        config and HTTP schemas
+      identity: 'Authorization: Bearer server-issued token'
+      build: UI_NODE_MODULES and ESBUILD_BINARY_PATH already supplied
+    output:
+      http: Actual HTTP JSON/WAV responses and persisted application behavior
+      browser: Real React Native Web controls, media and graphs using README selectors
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business category is privately grounded. Browser adaptation was explicitly approved. All exact
+    policies, question labels, channels, accounts, code and media are independently reconstructed; no
+    source messages or customer artifacts are distributed. Some standard behavior is already present;
+    only newly disclosed information counts as clarification gain.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/practice_contract.py
+- ru_id: RU-005
+  name: Session and asynchronous UI isolation
+  content: Use server-issued authenticated sessions, not client-supplied user identity. Unknown credentials
+    or tokens and revoked tokens fail with 401; malformed credential fields follow the public 400 rules.
+    Business responses never reveal passwords, verifiers, signing keys, other sessions or local paths.
+    Logout revokes only the current token; other valid tokens for the same account survive. Revocation
+    survives restart. Clear current-user tracks/playback, goals, unsubmitted answers, report, receipt
+    input and feedback on logout or identity change; clear the password after successful login. Old in-flight
+    reads must not restore previous-user data or errors after a session switch, and old media loads must
+    not resume. Bind asynchronous response application to the originating session. Failed operations must
+    not mutate existing goals, submissions or subscriptions and must show an appropriate current-session
+    error instead of false success. UI clearing occurs immediately when logout begins, including while
+    its server response is delayed.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern session and asynchronous ui isolation?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: node build.mjs && PORT=0 python server.py
+      runtime: Prepared Python/SQLite/Node/React Native Web/Chromium with synthetic local receipt and
+        media fixtures
+    inputs:
+      configuration: PRACTICE_CONFIG, PRACTICE_DATABASE, PRACTICE_ASSETS, PORT; public README specifies
+        config and HTTP schemas
+      identity: 'Authorization: Bearer server-issued token'
+      build: UI_NODE_MODULES and ESBUILD_BINARY_PATH already supplied
+    output:
+      http: Actual HTTP JSON/WAV responses and persisted application behavior
+      browser: Real React Native Web controls, media and graphs using README selectors
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business category is privately grounded. Browser adaptation was explicitly approved. All exact
+    policies, question labels, channels, accounts, code and media are independently reconstructed; no
+    source messages or customer artifacts are distributed. Some standard behavior is already present;
+    only newly disclosed information counts as clarification gain.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/practice_contract.py

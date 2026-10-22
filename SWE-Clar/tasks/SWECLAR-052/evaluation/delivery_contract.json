@@ -1,0 +1,464 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-052",
+  "public": {
+    "readme": "# Local smartlink integration\n\nWork directory: `/workspace`. Python 3.12.3 is preinstalled by shared python-web-services environment; use standard library only, no package downloads. CPU 2, RAM 2 GiB, process limit 256, temporary disk 512 MiB, network restricted to local prepared services. Build: `python -m compileall -q .`. The benchmark starts the prepared service on port 8090 before the task budget. For a standalone checkout, start it with `python local_service.py`. Health: `curl http://127.0.0.1:8090/health`. Public tests: `python /public_tests/smoke.py`. CLI: `python cli.py < example.json`. Reset: stop local service and restart; pass fresh state for each attempt. Prepared service log: `/tmp/smartlink-provider.log`; standalone service/CLI logs go to stderr. No external account is needed.\n\nImplement `process_smartlink_event(state,event,service=None)` plus `SmartlinkClient.authorize(code)` and `.send_conversion(platform,payload,key)`. Preserve input objects. State maps: smartlinks, oauth_states, spotify_users, clicks, streams, conversions. Attribution window is seconds (default 604800), supplied as a positive finite number. Events: oauth_start(user_id,state_token), oauth_complete(state_token,code), click(click_id,smartlink_id,destination,timestamp), stream(stream_id,click_id,user_id,timestamp), conversion(event_id,platform,stream_id), status(). IDs are nonempty strings; timestamps are seconds. Errors are `error.code`, successes are `result`; successful operations clear prior errors. The CLI processes events sequentially and prints final state. Existing status and OAuth initiation must remain working.\n\nAuthorization rejects absent, mismatched or consumed state and non-string/blank code before network access. Use form POST grant_type=authorization_code, code, redirect_uri with HTTP Basic authentication, then GET profile using Bearer access token. Authorize and consume state only after profile has a nonempty id. Store authorized and provider_user_id under the local spotify_users entry. Failures use authorization_failed; invalid callbacks use invalid_oauth_callback. Never put raw codes, secrets or access tokens into returned state. Additional click, stream, conversion and retry decisions are available from the synthetic client.\n\nConfiguration fields: token_url, profile_url, client_id, client_secret, redirect_uri, conversion_urls mapping. Local endpoints: `/token`, `/me`, `/meta`, `/tiktok` on http://127.0.0.1:8090. Development-only credentials: local-client / local-secret, code local-code, redirect_uri http://127.0.0.1:8090/callback. These are fabricated fixtures. Real credentials remain in client configuration only. The response from authorize is a profile dict; send_conversion returns decoded connector JSON. HTTP timeout must be bounded. Stream observations are trusted synthetic input, not live listening verification. This is a component extension; web UI, production traffic, vendor-native advertising APIs and live provider integration are outside scope.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_smartlink_event",
+          "signature": "process_smartlink_event(state, event, service=None) -> dict"
+        },
+        "inputs": {
+          "arguments": [
+            "state",
+            "event"
+          ],
+          "action_variants": {
+            "status": {
+              "fields": [
+                "type"
+              ]
+            }
+          },
+          "protocol_fields": [
+            "type"
+          ],
+          "service": "SmartlinkClient with local HTTP provider and connector configuration"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "New state without input mutation or raw credentials; HTTP operations occur when required."
+        },
+        "operations": []
+      },
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_smartlink_event",
+          "signature": "process_smartlink_event(state, event, service=None) -> dict"
+        },
+        "inputs": {
+          "arguments": [
+            "state",
+            "event"
+          ],
+          "action_variants": {
+            "oauth_complete": {
+              "fields": [
+                "code",
+                "state_token",
+                "type"
+              ]
+            },
+            "oauth_start": {
+              "fields": [
+                "state_token",
+                "type",
+                "user_id"
+              ]
+            }
+          },
+          "protocol_fields": [
+            "attribution_window",
+            "code",
+            "smartlinks",
+            "state_token",
+            "type",
+            "user_id"
+          ],
+          "service": "SmartlinkClient with local HTTP provider and connector configuration"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "New state without input mutation or raw credentials; HTTP operations occur when required.",
+          "asserted_field_paths": [
+            "error",
+            "error.code"
+          ],
+          "required_tokens": {
+            "error.code": [
+              "invalid_oauth_callback"
+            ]
+          },
+          "field_schemas": {
+            "error.code": {
+              "type": "string"
+            }
+          }
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_smartlink_event",
+        "signature": "process_smartlink_event(state, event, service=None) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "event"
+        ],
+        "action_variants": {
+          "status": {
+            "fields": [
+              "type"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "type"
+        ],
+        "service": "SmartlinkClient with local HTTP provider and connector configuration"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state without input mutation or raw credentials; HTTP operations occur when required."
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_smartlink_event",
+        "signature": "process_smartlink_event(state, event, service=None) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "event"
+        ],
+        "action_variants": {
+          "oauth_complete": {
+            "fields": [
+              "code",
+              "state_token",
+              "type"
+            ]
+          },
+          "oauth_start": {
+            "fields": [
+              "state_token",
+              "type",
+              "user_id"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "attribution_window",
+          "code",
+          "smartlinks",
+          "state_token",
+          "type",
+          "user_id"
+        ],
+        "service": "SmartlinkClient with local HTTP provider and connector configuration"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state without input mutation or raw credentials; HTTP operations occur when required.",
+        "asserted_field_paths": [
+          "error",
+          "error.code"
+        ],
+        "required_tokens": {
+          "error.code": [
+            "invalid_oauth_callback"
+          ]
+        },
+        "field_schemas": {
+          "error.code": {
+            "type": "string"
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_smartlink_event",
+        "signature": "process_smartlink_event(state, event, service=None) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "event"
+        ],
+        "action_variants": {
+          "click": {
+            "fields": [
+              "click_id",
+              "destination",
+              "smartlink_id",
+              "timestamp",
+              "type"
+            ]
+          },
+          "oauth_complete": {
+            "fields": [
+              "code",
+              "state_token",
+              "type"
+            ]
+          },
+          "oauth_start": {
+            "fields": [
+              "state_token",
+              "type",
+              "user_id"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "attribution_window",
+          "click_id",
+          "code",
+          "destination",
+          "smartlink_id",
+          "smartlinks",
+          "state_token",
+          "timestamp",
+          "type",
+          "user_id"
+        ],
+        "service": "SmartlinkClient with local HTTP provider and connector configuration"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state without input mutation or raw credentials; HTTP operations occur when required.",
+        "asserted_field_paths": [
+          "clicks",
+          "clicks.<id>",
+          "clicks.<id>.destination",
+          "result",
+          "result.replayed"
+        ],
+        "field_schemas": {
+          "clicks": {
+            "type": "object"
+          },
+          "clicks.<id>.destination": {
+            "type": "string"
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_smartlink_event",
+        "signature": "process_smartlink_event(state, event, service=None) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "event"
+        ],
+        "action_variants": {
+          "click": {
+            "fields": [
+              "click_id",
+              "destination",
+              "smartlink_id",
+              "timestamp",
+              "type"
+            ]
+          },
+          "oauth_complete": {
+            "fields": [
+              "code",
+              "state_token",
+              "type"
+            ]
+          },
+          "oauth_start": {
+            "fields": [
+              "state_token",
+              "type",
+              "user_id"
+            ]
+          },
+          "stream": {
+            "fields": [
+              "click_id",
+              "stream_id",
+              "timestamp",
+              "type",
+              "user_id"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "attribution_window",
+          "click_id",
+          "code",
+          "destination",
+          "smartlink_id",
+          "smartlinks",
+          "state_token",
+          "stream_id",
+          "timestamp",
+          "type",
+          "user_id"
+        ],
+        "service": "SmartlinkClient with local HTTP provider and connector configuration"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state without input mutation or raw credentials; HTTP operations occur when required.",
+        "asserted_field_paths": [
+          "error",
+          "error.code",
+          "streams",
+          "streams.<id>",
+          "streams.<id>.attributed"
+        ],
+        "required_tokens": {
+          "error.code": [
+            "unattributed_stream"
+          ]
+        },
+        "field_schemas": {
+          "error.code": {
+            "type": "string"
+          },
+          "streams": {
+            "type": "object"
+          }
+        }
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_smartlink_event",
+        "signature": "process_smartlink_event(state, event, service=None) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "state",
+          "event"
+        ],
+        "action_variants": {
+          "click": {
+            "fields": [
+              "click_id",
+              "destination",
+              "smartlink_id",
+              "timestamp",
+              "type"
+            ]
+          },
+          "conversion": {
+            "fields": [
+              "event_id",
+              "platform",
+              "stream_id",
+              "type"
+            ]
+          },
+          "oauth_complete": {
+            "fields": [
+              "code",
+              "state_token",
+              "type"
+            ]
+          },
+          "oauth_start": {
+            "fields": [
+              "state_token",
+              "type",
+              "user_id"
+            ]
+          },
+          "status": {
+            "fields": [
+              "type"
+            ]
+          },
+          "stream": {
+            "fields": [
+              "click_id",
+              "stream_id",
+              "timestamp",
+              "type",
+              "user_id"
+            ]
+          }
+        },
+        "protocol_fields": [
+          "attribution_window",
+          "click_id",
+          "code",
+          "destination",
+          "event_id",
+          "platform",
+          "smartlink_id",
+          "smartlinks",
+          "state_token",
+          "stream_id",
+          "timestamp",
+          "type",
+          "user_id"
+        ],
+        "service": "SmartlinkClient with local HTTP provider and connector configuration"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "New state without input mutation or raw credentials; HTTP operations occur when required.",
+        "asserted_field_paths": [
+          "clicks",
+          "conversions",
+          "result",
+          "result.attributed_streams",
+          "result.clicks",
+          "result.conversions",
+          "result.replayed",
+          "streams"
+        ],
+        "field_schemas": {
+          "conversions": {
+            "type": "object"
+          }
+        }
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "1dc0f001942a48fa4ba7e8e4b5295aa831b042ae94946c5e0e581079f56d5fd8",
+  "test_sources_sha256": {
+    "evaluation/tests/candidate_proxy.py": "515e0bd0db73ca718754480fbff77c5f2c8a2982a604fd365a517d7c4b6114f9",
+    "evaluation/tests/conftest.py": "7bbf15ed33d6e8cc84b83049fa33bcc74583a4a04032c5a80eec17ab8c3510f7",
+    "evaluation/tests/evaluate.py": "f529fe67cbe891068f185ad6d841d338c4a8a2035f3290fc8b840450ea107b01",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "612a13aa53cf6ae5accc2d101e0e0980a137e7d790d668c2973b60770f8a8215"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

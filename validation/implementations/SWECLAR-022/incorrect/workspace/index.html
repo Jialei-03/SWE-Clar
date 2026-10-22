@@ -1,0 +1,20 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Loyalty workspace</title><link rel="stylesheet" href="/style.css">
+<body><main><h1>Loyalty workspace</h1><p>Synthetic directory, receipt review and local reward reservations.</p>
+<form id="login-form"><label>Username<input id="username" autocomplete="off"></label><label>Password<input id="password" type="password" autocomplete="off"></label><button id="login">Sign in</button></form>
+<p id="error" role="alert"></p><div id="workspace" hidden><nav><button id="refresh">Refresh</button><button id="logout">Sign out</button></nav>
+<section><h2>Directory</h2><div id="catalog"></div></section>
+<section data-roles="administrator"><h2>Manage directory</h2>
+<fieldset><legend>Create mall</legend><label>ID<input id="mall-id"></label><label>Name<input id="mall-name"></label><button id="create-mall">Create mall</button></fieldset>
+<fieldset><legend>Create shop</legend><label>ID<input id="shop-id"></label><label>Name<input id="shop-name"></label><label>Merchant owner<select id="shop-owner"></select></label><label>Category<select id="shop-category"><option>food</option><option>home</option><option>leisure</option></select></label><button id="create-shop">Create shop</button></fieldset>
+<fieldset><legend>Create branch</legend><label>ID<input id="branch-id"></label><label>Shop<select id="branch-shop"></select></label><label>Mall<select id="branch-mall"></select></label><label>Participating<input id="branch-participating" type="checkbox"></label><button id="create-branch">Create branch</button></fieldset></section>
+<section data-roles="consumer"><h2>Receipt photos</h2><label>PNG image<input id="upload-file" type="file" accept="image/png"></label><button id="upload-photo">Upload photo</button><div id="assets"></div>
+<fieldset><legend>Submit receipt</legend><label>Request key<input id="receipt-key"></label><label>Branch<select id="receipt-branch"></select></label><label>Receipt number<input id="receipt-number"></label><label>Date<input id="receipt-date" type="date"></label><label>Amount in cents<input id="receipt-amount" type="number" min="0" step="1"></label><label>Uploaded image<select id="receipt-asset"></select></label><button id="submit-receipt">Submit receipt</button></fieldset></section>
+<section data-roles="consumer administrator"><h2>Receipts</h2><div id="receipts"></div></section>
+<section data-roles="consumer"><h2>Notification preferences</h2><label>Categories (JSON array)<input id="preference-categories" value="[]"></label><label>Mall IDs (JSON array)<input id="preference-malls" value="[]"></label><button id="save-preferences">Save preferences</button><h2>Inbox</h2><div id="inbox"></div></section>
+<section data-roles="merchant"><h2>Schedule promotion</h2><label>Shop<select id="promotion-shop"></select></label><label>Branch IDs (JSON array)<input id="promotion-branches"></label><label>Title<input id="promotion-title"></label><label>Message<textarea id="promotion-body"></textarea></label><label>Due time<input id="promotion-due" type="number" min="0" step="1"></label><label>Expiry time<input id="promotion-expiry" type="number" min="0" step="1"></label><button id="create-promotion">Create promotion</button></section>
+<section data-roles="administrator"><h2>Delivery</h2><button id="dispatch">Dispatch due promotions</button></section>
+<section data-roles="merchant administrator"><h2>Promotions</h2><div id="promotions"></div></section>
+<section><h2>Rewards</h2><div id="rewards"></div></section>
+<section data-roles="consumer"><h2>Wallet</h2><p>Points: <output id="wallet-balance"></output></p><div id="ledger"></div><label>Request key<input id="redemption-key"></label><label>Reward<select id="redemption-reward"></select></label><button id="redeem">Reserve reward</button></section>
+<section data-roles="consumer administrator"><h2>Reservations</h2><div id="redemptions"></div></section>
+</div></main><script src="/app.js"></script></body></html>

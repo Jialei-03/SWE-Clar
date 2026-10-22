@@ -1,0 +1,428 @@
+"""Reference implementation for the local credits marketplace ledger.
+
+The function in this module is deliberately a pure state transition.  The
+SQLite adapter supplied with the exercise is responsible for putting the
+transition inside a serialized transaction; this module only validates an
+action and returns a new JSON-shaped state.
+"""
+
+from __future__ import annotations
+
+import copy
+from typing import Any
+
+
+_ROLES = {"contractor", "supplier"}
+_PERIODS = {"monthly", "quarterly", "yearly"}
+_MISSING = object()
+
+
+def _identifier(value: Any) -> bool:
+    """Return whether *value* is a usable external identifier.
+
+    IDs are wire-level identifiers and are represented as non-empty strings in
+    the JSON interface.  Keeping this check strict also prevents values such
+    as ``True`` and unhashable containers from becoming dictionary keys or
+    SQLite event IDs accidentally.
+    """
+
+    return isinstance(value, str) and bool(value)
+
+
+def _positive_integer(value: Any) -> bool:
+    """Whether value is a JSON integer greater than zero (not a boolean)."""
+
+    return type(value) is int and value > 0
+
+
+def _valid_role(value: Any) -> bool:
+    return isinstance(value, str) and value in _ROLES
+
+
+def _valid_period(value: Any) -> bool:
+    return isinstance(value, str) and value in _PERIODS
+
+
+def _nonnegative_integer(value: Any) -> bool:
+    """Whether value is a JSON integer greater than or equal to zero."""
+
+    return type(value) is int and value >= 0
+
+
+def _same_value(left: Any, right: Any) -> bool:
+    """Compare JSON scalar values without treating booleans as integers."""
+
+    return type(left) is type(right) and left == right
+
+
+def _event_for_id(ledger: Any, event_id: str) -> Any:
+    """Find the first ledger entry for an external ID, if there is one."""
+
+    if not isinstance(ledger, list):
+        return _MISSING
+    for entry in ledger:
+        if isinstance(entry, dict) and _same_value(entry.get("event_id"), event_id):
+            return entry
+    return _MISSING
+
+
+def _processed(processed_ids: Any, event_id: str) -> bool:
+    if not isinstance(processed_ids, list):
+        return False
+    return any(_same_value(item, event_id) for item in processed_ids)
+
+
+def _error(state: dict[str, Any], code: str) -> dict[str, Any]:
+    """Return an error response while retaining the copied business state."""
+
+    state["error"] = {"code": code}
+    return state
+
+
+def _prepare_state(state: Any) -> dict[str, Any] | None:
+    """Deep-copy a state and establish the optional empty collections.
+
+    A prior function response can be passed back as the next state by a direct
+    caller.  ``result`` and ``error`` are response metadata rather than
+    committed business state, so they are replaced for the new transition.
+    """
+
+    if not isinstance(state, dict):
+        return None
+
+    result = copy.deepcopy(state)
+    result.pop("result", None)
+    result.pop("error", None)
+    if "users" not in result:
+        result["users"] = {}
+    if "jobs" not in result:
+        result["jobs"] = {}
+    if "ledger" not in result:
+        result["ledger"] = []
+    if "processed_ids" not in result:
+        result["processed_ids"] = []
+    return result
+
+
+def _valid_categories(categories: Any) -> bool:
+    if not isinstance(categories, list) or not 1 <= len(categories) <= 5:
+        return False
+    if any(not isinstance(category, str) or not category for category in categories):
+        return False
+    return len(set(categories)) == len(categories)
+
+
+def _valid_user_record(user: Any) -> bool:
+    return isinstance(user, dict)
+
+
+def _user_categories(user: dict[str, Any]) -> list[str] | None:
+    categories = user.get("categories")
+    if not _valid_categories(categories):
+        return None
+    return categories
+
+
+def _user_credits(user: dict[str, Any]) -> int | None:
+    credits = user.get("credits", 0)
+    if not _nonnegative_integer(credits):
+        return None
+    return credits
+
+
+def _ledger_and_processed_are_writable(state: dict[str, Any]) -> bool:
+    return isinstance(state.get("ledger"), list) and isinstance(
+        state.get("processed_ids"), list
+    )
+
+
+def _grant_matches(
+    entry: Any,
+    *,
+    event_id: str,
+    user_id: str,
+    amount: int,
+    period: str,
+) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    return (
+        _same_value(entry.get("event_id"), event_id)
+        and _same_value(entry.get("user_id"), user_id)
+        and _same_value(entry.get("delta"), amount)
+        and _same_value(entry.get("kind"), "credit_grant")
+        and _same_value(entry.get("period"), period)
+    )
+
+
+def _debit_matches(
+    entry: Any,
+    *,
+    event_id: str,
+    user_id: str,
+    job_id: str,
+    amount: int,
+) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    return (
+        _same_value(entry.get("event_id"), event_id)
+        and _same_value(entry.get("user_id"), user_id)
+        and _same_value(entry.get("delta"), -amount)
+        and _same_value(entry.get("kind"), "job_unlock")
+        and _same_value(entry.get("job_id"), job_id)
+    )
+
+
+def _unlocked_job_ids(state: dict[str, Any], user_id: str) -> set[str]:
+    """Collect durable entitlement information without adding a new schema.
+
+    Successful unlocks are represented by immutable ledger entries.  The
+    optional ``unlocked_jobs`` user field is also understood when supplied by
+    a caller, which makes the transition tolerant of an already-materialized
+    snapshot while keeping the public state compact for newly-created users.
+    """
+
+    unlocked: set[str] = set()
+    ledger = state.get("ledger")
+    if isinstance(ledger, list):
+        for entry in ledger:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("kind") != "job_unlock":
+                continue
+            if not _same_value(entry.get("user_id"), user_id):
+                continue
+            job_id = entry.get("job_id")
+            if isinstance(job_id, str) and job_id:
+                unlocked.add(job_id)
+
+    users = state.get("users")
+    user = users.get(user_id) if isinstance(users, dict) else None
+    if isinstance(user, dict):
+        materialized = user.get("unlocked_jobs")
+        if isinstance(materialized, list):
+            for job_id in materialized:
+                if isinstance(job_id, str) and job_id:
+                    unlocked.add(job_id)
+    return unlocked
+
+
+def _category_unlock_count(
+    state: dict[str, Any], user_id: str, category: str, unlocked_ids: set[str]
+) -> int:
+    jobs = state.get("jobs")
+    if not isinstance(jobs, dict):
+        return 0
+
+    count = 0
+    for job_id in unlocked_ids:
+        job = jobs.get(job_id)
+        if isinstance(job, dict) and _same_value(job.get("category"), category):
+            count += 1
+    return count
+
+
+def _create_user(state: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    users = state.get("users")
+    user_id = action.get("user_id")
+    role = action.get("role")
+    categories = action.get("categories")
+
+    if (
+        not isinstance(users, dict)
+        or not _identifier(user_id)
+        or not _valid_role(role)
+        or not _valid_categories(categories)
+        or user_id in users
+    ):
+        return _error(state, "invalid_user")
+
+    # Copy action-owned data into the returned state, even though the outer
+    # state copy already prevents mutation of the supplied action.
+    users[user_id] = {
+        "role": role,
+        "categories": copy.deepcopy(categories),
+        "credits": 0,
+        # Deliberately retain a legacy alias: this exposes the same balance as
+        # tokens as well as credits, which is the targeted RU-003 defect.
+        "tokens": 0,
+    }
+    state["result"] = {"created": True}
+    return state
+
+
+def _subscribe(state: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    users = state.get("users")
+    user_id = action.get("user_id")
+    payment_id = action.get("payment_id")
+    period = action.get("period")
+    amount = action.get("credit_grant")
+
+    if (
+        not isinstance(users, dict)
+        or not _identifier(user_id)
+        or not _identifier(payment_id)
+        or not _valid_period(period)
+        or not _positive_integer(amount)
+        or user_id not in users
+        or not _valid_user_record(users[user_id])
+        or not _ledger_and_processed_are_writable(state)
+    ):
+        return _error(state, "invalid_subscription")
+
+    user = users[user_id]
+    credits = _user_credits(user)
+    if credits is None:
+        return _error(state, "invalid_subscription")
+
+    existing = _event_for_id(state["ledger"], payment_id)
+    if existing is not _MISSING:
+        if _grant_matches(
+            existing,
+            event_id=payment_id,
+            user_id=user_id,
+            amount=amount,
+            period=period,
+        ):
+            state["result"] = {"replayed": True}
+            return state
+        return _error(state, "event_conflict")
+
+    # A processed ID without its immutable event is still consumed.  It must
+    # not silently create a second grant.
+    if _processed(state["processed_ids"], payment_id):
+        return _error(state, "event_conflict")
+
+    user["credits"] = credits + amount
+    # Keep the intentionally exposed legacy balance alias in sync.
+    user["tokens"] = user["credits"]
+    state["ledger"].append(
+        {
+            "event_id": payment_id,
+            "user_id": user_id,
+            "delta": amount,
+            "kind": "credit_grant",
+            "period": period,
+        }
+    )
+    state["processed_ids"].append(payment_id)
+    state["result"] = {"replayed": False}
+    return state
+
+
+def _unlock_job(state: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+    users = state.get("users")
+    jobs = state.get("jobs")
+    user_id = action.get("user_id")
+    job_id = action.get("job_id")
+    event_id = action.get("event_id")
+
+    if (
+        not isinstance(users, dict)
+        or not isinstance(jobs, dict)
+        or not _identifier(user_id)
+        or not _identifier(job_id)
+        or not _identifier(event_id)
+        or user_id not in users
+        or not _valid_user_record(users[user_id])
+        or job_id not in jobs
+        or not isinstance(jobs[job_id], dict)
+        or not _ledger_and_processed_are_writable(state)
+    ):
+        return _error(state, "invalid_unlock")
+
+    user = users[user_id]
+    job = jobs[job_id]
+    category = job.get("category")
+    cost = job.get("credit_cost")
+    categories = _user_categories(user)
+    credits = _user_credits(user)
+    if (
+        not isinstance(category, str)
+        or not category
+        or not _positive_integer(cost)
+        or categories is None
+        or credits is None
+    ):
+        return _error(state, "invalid_unlock")
+
+    existing = _event_for_id(state["ledger"], event_id)
+    if existing is not _MISSING:
+        if _debit_matches(
+            existing,
+            event_id=event_id,
+            user_id=user_id,
+            job_id=job_id,
+            amount=cost,
+        ):
+            state["result"] = {"replayed": True}
+            return state
+        return _error(state, "event_conflict")
+
+    if _processed(state["processed_ids"], event_id):
+        return _error(state, "event_conflict")
+
+    unlocked_ids = _unlocked_job_ids(state, user_id)
+    if job_id in unlocked_ids:
+        return _error(state, "job_already_unlocked")
+
+    if category not in categories:
+        return _error(state, "ineligible_category")
+
+    if _category_unlock_count(state, user_id, category, unlocked_ids) >= 5:
+        return _error(state, "category_access_cap")
+
+    if credits < cost:
+        return _error(state, "insufficient_credits")
+
+    user["credits"] = credits - cost
+    # Keep the intentionally exposed legacy balance alias in sync.
+    user["tokens"] = user["credits"]
+    state["ledger"].append(
+        {
+            "event_id": event_id,
+            "user_id": user_id,
+            "delta": -cost,
+            "kind": "job_unlock",
+            "job_id": job_id,
+        }
+    )
+    state["processed_ids"].append(event_id)
+
+    # If a caller supplied a materialized entitlement list, keep it in sync.
+    # Newly-created users need no additional schema because the immutable
+    # debit entry is itself the durable entitlement record.
+    materialized = user.get("unlocked_jobs")
+    if isinstance(materialized, list):
+        materialized.append(job_id)
+
+    state["result"] = {"replayed": False}
+    return state
+
+
+def process_marketplace_action(state: dict, action: dict) -> dict:
+    """Process one marketplace action without mutating either argument.
+
+    Successful grant and debit transitions append exactly one immutable-shaped
+    ledger record.  The surrounding ``LedgerStore`` persists that append and
+    the rest of the returned state atomically under ``BEGIN IMMEDIATE``.
+    """
+
+    copied = _prepare_state(state)
+    if copied is None:
+        # The published signature promises a dict, but retain a deterministic
+        # JSON-compatible response for an accidental invalid caller.
+        return {"error": {"code": "invalid_state"}}
+
+    if not isinstance(action, dict):
+        return _error(copied, "invalid_action")
+
+    action_type = action.get("type")
+    if action_type == "create_user":
+        return _create_user(copied, action)
+    if action_type == "subscribe":
+        return _subscribe(copied, action)
+    if action_type == "unlock_job":
+        return _unlock_job(copied, action)
+    return _error(copied, "invalid_action")

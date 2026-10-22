@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-086",
+  "readme": "# Incremental itinerary backend\nImplement iter_json_objects and stream_itinerary in itinerary_generator.py, and resolve_activity/is_valid_place in place_service.py. Preserve real streaming through main.py --places local.json --location TEXT. Python standard library only; no live external API.\n\nUpstream is an iterable of string chunks containing adjacent JSON objects, arbitrary whitespace and fragmentation. Objects can contain nested arrays/objects and escaped strings. Yield each completed object before requesting another chunk, preserving order/fields. Ignore an incomplete final object; reject a fully closed malformed JSON object/nonobject prefix/nonstring chunk with ValueError. Empty stream/chunks emit nothing. Six-line formatting is accepted but JSON object boundaries define records, not line count.\n\nAn activity contains business_name,description and optional metadata. Resolve using find_place(business_name,location); accepted metadata overrides activity collisions, preserving every other field. Acceptance thresholds/exemptions and replacement rules may be clarified. Local fixture file has primary mapping business_name to place and replacement mapping description to place; callbacks return dictionary or None.\n\nstream_itinerary resolves in order, skips unresolved activities, emits one data: JSON followed by two newlines per acceptable result. JSON spacing/key order is free. CLI must flush an event while stdin is still open; whole-input buffering is incorrect. No external publishing or production provider integration is claimed. Config/openai_client are retained inactive seams; credentials are unnecessary.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "itinerary_generator.py",
+        "function": "iter_json_objects"
+      },
+      "inputs": {
+        "chunks": "iterable of text chunks containing adjacent JSON object records"
+      },
+      "output": {
+        "type": "iterator of dictionaries",
+        "meaning": "each complete JSON object in source order"
+      },
+      "operations": []
+    },
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "place_service.py",
+        "function": "resolve_activity"
+      },
+      "inputs": {
+        "activity": "{business_name: string, description: string, ...additional activity fields}",
+        "location": "string",
+        "find_place": "callable(business_name, location) -> place | None",
+        "find_replacement": "callable(description, location) -> place | None"
+      },
+      "output": {
+        "type": "dictionary or null",
+        "meaning": "enriched acceptable activity, or null when none can be resolved"
+      },
+      "operations": []
+    },
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "itinerary_generator.py",
+        "function": "stream_itinerary"
+      },
+      "inputs": {
+        "chunks": "iterable of text chunks",
+        "location": "string",
+        "find_place": "callable(business_name, location) -> place | None",
+        "find_replacement": "callable(description, location) -> place | None"
+      },
+      "output": {
+        "type": "iterator of strings",
+        "meaning": "one SSE data record per acceptable activity in source order"
+      },
+      "operations": []
+    }
+  ]
+}

@@ -1,0 +1,305 @@
+<?php
+/**
+ * Plugin Name: Synthetic Directory Component
+ * Description: Independently reconstructed directory rendering, cache and asset component.
+ * Version: 1.0.0
+ */
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+/**
+ * Return a canonical, non-negative integer represented as decimal digits.
+ *
+ * Directory group codes and activity counts are integer fields.  In
+ * particular, PHP's loose casts would turn booleans, empty strings and
+ * malformed values into plausible-looking numbers, so those values are
+ * deliberately rejected here.
+ *
+ * @param mixed  $value The value to validate.
+ * @param string $field The field name used in the exception message.
+ * @return string
+ * @throws InvalidArgumentException When the value is not a non-negative integer.
+ */
+function directory_non_negative_integer_digits($value, string $field): string
+{
+    if (is_bool($value) || $value === null) {
+        throw new InvalidArgumentException(sprintf('Invalid %s.', $field));
+    }
+
+    if (is_int($value)) {
+        if ($value < 0) {
+            throw new InvalidArgumentException(sprintf('Invalid %s.', $field));
+        }
+
+        return (string) $value;
+    }
+
+    if (is_float($value)) {
+        if (!is_finite($value) || $value < 0 || floor($value) !== $value) {
+            throw new InvalidArgumentException(sprintf('Invalid %s.', $field));
+        }
+
+        // An integer-valued float is accepted, but never formatted in
+        // scientific notation or allowed to become a fractional field.
+        return ltrim(sprintf('%.0f', $value), '+');
+    }
+
+    if (!is_string($value)) {
+        throw new InvalidArgumentException(sprintf('Invalid %s.', $field));
+    }
+
+    $value = trim($value);
+    if ($value === '' || preg_match('/^\+?[0-9]+$/D', $value) !== 1) {
+        throw new InvalidArgumentException(sprintf('Invalid %s.', $field));
+    }
+
+    $value = ltrim($value, '+');
+    $value = ltrim($value, '0');
+
+    return $value === '' ? '0' : $value;
+}
+
+/**
+ * Normalize one synthetic directory member.
+ *
+ * The output deliberately keeps the public field names used by the fixture.
+ * Missing, null and empty activity counts all become null (Unavailable),
+ * while an actual numeric zero remains integer zero.
+ *
+ * @param array $raw A synthetic member record.
+ * @return array
+ * @throws InvalidArgumentException When a required or numeric field is invalid.
+ */
+function directory_normalize_member(array $raw): array
+{
+    foreach (['id', 'name'] as $text_field) {
+        if (!array_key_exists($text_field, $raw)) {
+            throw new InvalidArgumentException(sprintf('Missing member %s.', $text_field));
+        }
+        if (!is_string($raw[$text_field]) && !is_int($raw[$text_field]) && !is_float($raw[$text_field])) {
+            throw new InvalidArgumentException(sprintf('Invalid member %s.', $text_field));
+        }
+    }
+
+    if (!array_key_exists('group_code', $raw)) {
+        throw new InvalidArgumentException('Missing group_code.');
+    }
+
+    $group_digits = directory_non_negative_integer_digits($raw['group_code'], 'group_code');
+    $group_code = strlen($group_digits) === 1 ? '0' . $group_digits : $group_digits;
+
+    $activity_count = null;
+    if (array_key_exists('activity_count', $raw) && $raw['activity_count'] !== null) {
+        $activity_value = $raw['activity_count'];
+
+        // Empty strings describe an unavailable fixture value, not zero.
+        if (!(is_string($activity_value) && trim($activity_value) === '')) {
+            $activity_digits = directory_non_negative_integer_digits($activity_value, 'activity_count');
+
+            // Counts are returned as integers where PHP can represent them;
+            // this also makes a numeric string "0" the same genuine zero as
+            // integer 0.  Keep a very large, valid decimal count as digits
+            // rather than allowing an integer cast to silently overflow.
+            if (strlen($activity_digits) < strlen((string) PHP_INT_MAX)
+                || (strlen($activity_digits) === strlen((string) PHP_INT_MAX)
+                    && strcmp($activity_digits, (string) PHP_INT_MAX) <= 0)) {
+                $activity_count = (int) $activity_digits;
+            } else {
+                $activity_count = $activity_digits;
+            }
+        }
+    }
+
+    return [
+        'id' => (string) $raw['id'],
+        'name' => (string) $raw['name'],
+        'group_code' => $group_code,
+        'activity_count' => $activity_count,
+    ];
+}
+
+/**
+ * Render one member card after validating and normalizing its fixture record.
+ *
+ * Keeping the card as an independent fragment makes the list assembly
+ * deterministic without changing the HTML that the component exposes.
+ */
+function directory_member_markup($raw): string
+{
+    if (!is_array($raw)) {
+        throw new InvalidArgumentException('Invalid member record.');
+    }
+
+    $member = directory_normalize_member($raw);
+
+    return '<article data-member="' . esc_attr($member['id']) . '"><h2>'
+        . esc_html($member['name'])
+        . '</h2><p>Group code: <span class="group_code">'
+        . esc_html($member['group_code'])
+        . '</span></p><p>Activities: <span class="activity_count">'
+        . esc_html($member['activity_count'] === null ? 'Unavailable' : (string) $member['activity_count'])
+        . '</span></p></article>';
+}
+
+/**
+ * Render a component without consulting or writing the public cache.
+ */
+function directory_markup(string $page, array $members): string
+{
+    // This counter is intentionally inside the renderer: cache hits never
+    // reach it, while logged-in/preview renders do.
+    update_option('directory_render_count', (int) get_option('directory_render_count', 0) + 1, false);
+
+    if ($page === 'about') {
+        return '<h1>About this directory</h1><p>An independent example directory with synthetic records.</p>';
+    }
+
+    $cards = [];
+    foreach ($members as $raw) {
+        $cards[] = directory_member_markup($raw);
+    }
+
+    return '<h1>Member directory</h1><form id="filter-form"><label>Find a member <input id="filter" type="search"></label><button type="submit">Filter</button></form><div id="members">'
+        . implode('', $cards)
+        . '</div><p id="filter-status" role="status"></p>';
+}
+
+/**
+ * Build a short transient key from all inputs that affect component output.
+ *
+ * PHP serialization is intentional here: unlike JSON it retains scalar
+ * types, so a fixture change from numeric zero to the string "0" cannot
+ * accidentally reuse an older transient.  The page, version and complete
+ * member option remain separate elements of the digest input.
+ */
+function directory_cache_key(string $page, $content_version, $members): string
+{
+    $cache_data = [$page, $content_version, $members];
+
+    return 'directory_' . hash('sha256', serialize($cache_data));
+}
+
+function directory_content(string $page): string
+{
+    if (!in_array($page, ['members', 'about'], true)) {
+        throw new InvalidArgumentException('Unknown directory page.');
+    }
+
+    $members = get_option('directory_members', []);
+    $content_version = get_option('directory_content_version', 1);
+    $key = directory_cache_key($page, $content_version, $members);
+    $bypass = is_user_logged_in() || array_key_exists('preview', $_GET);
+
+    if (!$bypass) {
+        $cached = get_transient($key);
+        if ($cached !== false) {
+            header('X-Directory-Cache: HIT');
+            return (string) $cached;
+        }
+    } else {
+        // The page wrapper contains the current user's display name for a
+        // logged-in request.  Do not let a browser/proxy retain that response.
+        nocache_headers();
+    }
+
+    if (!is_array($members)) {
+        throw new InvalidArgumentException('Invalid member collection.');
+    }
+
+    $html = directory_markup($page, $members);
+    if (!$bypass) {
+        set_transient($key, $html, 3600);
+    }
+
+    header('X-Directory-Cache: ' . ($bypass ? 'BYPASS' : 'MISS'));
+    return $html;
+}
+
+/**
+ * Return the requested component page, or null when the request is not a
+ * component request.  Validation is intentionally strict: no sanitization
+ * may turn an unknown page into an accepted one.
+ */
+function directory_requested_page(): ?string
+{
+    if (!array_key_exists('directory_page', $_GET) || !is_string($_GET['directory_page'])) {
+        return null;
+    }
+
+    $page = $_GET['directory_page'];
+    return in_array($page, ['members', 'about'], true) ? $page : null;
+}
+
+add_action('wp_enqueue_scripts', function () {
+    $page = directory_requested_page();
+    if ($page === null) {
+        return;
+    }
+
+    $base = plugin_dir_url(__FILE__);
+
+    // WordPress deduplicates handles, and this single enqueue is the only
+    // component stylesheet registration for either page.
+    wp_enqueue_style('directory-base', $base . 'style.css', [], '1.0.0');
+
+    // Both measurement scripts are needed by the measurement panel on each
+    // component page.  The dependency remains explicit while WordPress adds
+    // defer in a dependency-safe order.
+    wp_enqueue_script(
+        'directory-vitals-library',
+        $base . 'vendor/web-vitals.iife.js',
+        [],
+        '4.2.4',
+        ['in_footer' => true, 'strategy' => 'defer']
+    );
+    wp_enqueue_script(
+        'directory-vitals',
+        $base . 'vitals.js',
+        ['directory-vitals-library'],
+        '1.0.0',
+        ['in_footer' => true, 'strategy' => 'defer']
+    );
+
+    // The about page has no member list or filter control, so it must not
+    // download the filter implementation.
+    if ($page === 'members') {
+        wp_enqueue_script(
+            'directory-filter',
+            $base . 'filter.js',
+            [],
+            '1.0.0',
+            ['in_footer' => true, 'strategy' => 'defer']
+        );
+    }
+});
+
+add_action('template_redirect', function () {
+    if (!array_key_exists('directory_page', $_GET)) {
+        return;
+    }
+
+    $page = directory_requested_page();
+    if ($page === null) {
+        status_header(404);
+        echo 'Unknown directory page';
+        exit;
+    }
+
+    try {
+        $content = directory_content($page);
+    } catch (Throwable $e) {
+        status_header(422);
+        echo 'Invalid directory data';
+        exit;
+    }
+
+    status_header(200);
+    ?><!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Example directory</title><?php wp_head(); ?></head><body><main><nav><a href="?directory_page=members">Directory</a><a href="?directory_page=about">About</a></nav><?php
+    if (is_user_logged_in()) {
+        echo '<p id="signed-in">Signed in as ' . esc_html(wp_get_current_user()->display_name) . '</p>';
+    }
+    echo $content;
+    ?><details><summary>Local page measurements</summary><p id="vitals-status">Waiting for browser observations.</p></details></main><?php wp_footer(); ?></body></html><?php
+    exit;
+}, 1);

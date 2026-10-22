@@ -1,0 +1,195 @@
+schema_version: 1
+task_id: SWECLAR-062
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Recurring customer, monthly order and invoice-policy module
+requirement_units:
+- ru_id: RU-001
+  name: Web workflow entry point
+  content: 'Implement process_tasker_action(state,action) as a new JSON-compatible state without mutating
+    either input. Preserve supplied SQLite CLI: init creates one state, show reads it, act runs one action
+    transactionally. Business rejection returns a nonempty error.code and preserves business collections;
+    CLI rejection does not persist error/result metadata over stored state. Unknown/malformed actions
+    reject and the CLI remains usable. Successful state survives separate CLI invocations. Numeric amounts/rates
+    are finite and exclude booleans. Required fields are tested semantically; extra metadata and alternative
+    error strings are allowed.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for web workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_tasker_action
+      signature: process_tasker_action(state,action) -> dict
+    inputs:
+      state: Synthetic records described in README
+      action: One public operation object
+    output:
+      type: dict
+      meaning: New state with result or error; persisted by SQLite CLI on success
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Bounded backend module with real local SQLite CLI; synthetic payment input does not prove external
+    settlement.
+- ru_id: RU-002
+  name: Recurring-client discount
+  content: A quote requires known client/tasker and a nonnegative numeric amount. Apply taskers[tasker_id].recurring_discount,
+    a decimal rate in [0,1], only when clients[client_id].completed_orders[tasker_id]>=1. Missing history
+    means zero; another tasker's history does not qualify. Return amount=original*(1-rate), discount_rate
+    (zero if ineligible), recurring eligibility boolean and subscription=false. Do not treat an active
+    monthly agreement or action flags as completed-order history. This recurring discount is distinct
+    from subscribe-and-save.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for recurring-client discount.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_tasker_action
+      signature: process_tasker_action(state,action) -> dict
+    inputs:
+      state: Synthetic records described in README
+      action: One public operation object
+    output:
+      type: dict
+      meaning: New state with result or error; persisted by SQLite CLI on success
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Bounded backend module with real local SQLite CLI; synthetic payment input does not prove external
+    settlement.
+- ru_id: RU-003
+  name: Monthly invitation and order
+  content: invite_monthly requires known client/tasker, unique nonempty invitation_id, positive finite
+    monthly_amount and positive integer months (not boolean). Keep the fixed agreed amount; recurring
+    quote discount is not applied. Accept only for the invited client, with nonnegative integer first_due
+    and nonempty order_id. An invitation can create at most one order; an order ID cannot overwrite another
+    order; at most one active order exists per client/tasker pair. Accepted order has status=active, the
+    invited IDs, monthly_amount, months and first_due. A repeat acceptance may reject or return the existing
+    same order without creating another. Other invitations may exist for an active pair but cannot be
+    accepted into another active order.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for monthly invitation and order.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_tasker_action
+      signature: process_tasker_action(state,action) -> dict
+    inputs:
+      state: Synthetic records described in README
+      action: One public operation object
+    output:
+      type: dict
+      meaning: New state with result or error; persisted by SQLite CLI on success
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Bounded backend module with real local SQLite CLI; synthetic payment input does not prove external
+    settlement.
+- ru_id: RU-004
+  name: Monthly invoice and payment lifecycle
+  content: Each issue_invoice for a known active order creates one due invoice, in sequence from1 through
+    agreed months. The one-based sequence n is due at first_due+(n-1)*30*86400; now must be a nonnegative
+    integer. Catch-up still issues only one next invoice per action; cannot skip sequences or exceed duration.
+    Invoice ID is order_id+':'+sequence; fields include order_id, sequence, amount equal to the fixed
+    monthly amount, status=due. Payment ingestion requires known due invoice and nonempty event_id; sets
+    status=paid and records the event ID once in payments. Replaying the same event for the same invoice
+    is successful with no duplicated business effects; reusing it for another invoice or sending a new
+    event for an already paid invoice rejects. Maintain enough internal association to detect conflicts;
+    its format is free. These are synthetic internal invoice/payment records, not external charges or
+    settlement.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for monthly invoice and payment lifecycle.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_tasker_action
+      signature: process_tasker_action(state,action) -> dict
+    inputs:
+      state: Synthetic records described in README
+      action: One public operation object
+    output:
+      type: dict
+      meaning: New state with result or error; persisted by SQLite CLI on success
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Bounded backend module with real local SQLite CLI; synthetic payment input does not prove external
+    settlement.
+- ru_id: RU-005
+  name: Three-level categories and admin routes
+  content: add_category accepts a unique nonempty category_id and optional parent_id. Roots have depth1;
+    parents must exist and ancestry must be acyclic. At most three levels are permitted, computing actual
+    ancestry rather than trusting a supplied depth. Reject duplicate IDs, invalid parents/cycles and a
+    fourth level without mutation. admin_tabs accepts a trusted upstream role value; only role=admin receives
+    Moderator and Agents tabs, each with name and a route under /admin/. Others reject. Tab order and
+    additional metadata are free. This CLI module does not provide network authentication or a full admin
+    web UI.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for three-level categories and admin routes.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_tasker_action
+      signature: process_tasker_action(state,action) -> dict
+    inputs:
+      state: Synthetic records described in README
+      action: One public operation object
+    output:
+      type: dict
+      meaning: New state with result or error; persisted by SQLite CLI on success
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Bounded backend module with real local SQLite CLI; synthetic payment input does not prove external
+    settlement.

@@ -1,0 +1,180 @@
+schema_version: 1
+task_id: SWECLAR-080
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual WordPress directory plugin rendering, component transient cache, native asset enqueue
+  and observed lab Web Vitals
+requirement_units:
+- ru_id: RU-001
+  name: Site request entry point
+  content: Repair the supplied independent WordPress plugin while preserving its pages, hooks and member
+    records. Render actual HTML through WordPress with escaped synthetic field values. Only the members/about
+    component pages are accepted; unknown pages must fail. The README defines the runtime/options boundary;
+    real WordPress/PHP/database execution is required, not a returned page manifest.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for site request entry point.
+  test_interface:
+    type: function
+    entry:
+      language: php
+      file: directory.php
+      function: directory_normalize_member
+      signature: 'directory_normalize_member(array $raw): array'
+    inputs:
+      raw: synthetic member fields
+    output:
+      type: dict
+      meaning: normalized member
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/wordpress_contract.py
+  notes: Independent WordPress component and synthetic records. Cache/assets/data normalization have source
+    support; exact keys, API and lab performance tests are benchmark conventions. No original customer
+    site or member information is included.
+- ru_id: RU-002
+  name: Cold and warm page caching
+  content: Cache anonymous rendered component HTML using a key that includes page, content version and
+    member data. A warm identical request returns the same component without another render. Content/version
+    changes rebuild and pages must not share cached markup. Logged-in or preview requests bypass the public
+    cache, and user-specific markup must not enter anonymous responses. Render count measures actual cold
+    component rendering.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for cold and warm page caching.
+  test_interface:
+    type: function
+    entry:
+      language: php
+      file: directory.php
+      function: directory_normalize_member
+      signature: 'directory_normalize_member(array $raw): array'
+    inputs:
+      raw: synthetic member fields
+    output:
+      type: dict
+      meaning: normalized member
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/wordpress_contract.py
+  notes: Independent WordPress component and synthetic records. Cache/assets/data normalization have source
+    support; exact keys, API and lab performance tests are benchmark conventions. No original customer
+    site or member information is included.
+- ru_id: RU-003
+  name: CSS and JavaScript delivery
+  content: Load only component assets needed by the requested page through native WordPress enqueue APIs.
+    Deduplicate the base stylesheet, place styles before scripts and defer noncritical scripts without
+    breaking dependencies or the working member-filter control. The about page does not load the member
+    filter. Core WordPress resources are outside this component-specific asset budget.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for css and javascript delivery.
+  test_interface:
+    type: function
+    entry:
+      language: php
+      file: directory.php
+      function: directory_normalize_member
+      signature: 'directory_normalize_member(array $raw): array'
+    inputs:
+      raw: synthetic member fields
+    output:
+      type: dict
+      meaning: normalized member
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/wordpress_contract.py
+  notes: Independent WordPress component and synthetic records. Cache/assets/data normalization have source
+    support; exact keys, API and lab performance tests are benchmark conventions. No original customer
+    site or member information is included.
+- ru_id: RU-004
+  name: Member data normalization
+  content: Normalize numeric group_code identifiers 0 through 9 to two digits while preserving zero as
+    00 and multi-digit identifiers. Keep missing/null/empty meeting counts distinct from a genuine numeric
+    zero; render missing values as Unavailable and zero as 0. Reject negative, boolean and nonnumeric
+    counts/identifiers rather than silently coercing them. Original jurisdiction/member data is excluded;
+    these are synthetic directory fields.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for member data normalization.
+  test_interface:
+    type: function
+    entry:
+      language: php
+      file: directory.php
+      function: directory_normalize_member
+      signature: 'directory_normalize_member(array $raw): array'
+    inputs:
+      raw: synthetic member fields
+    output:
+      type: dict
+      meaning: normalized member
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/wordpress_contract.py
+  notes: Independent WordPress component and synthetic records. Cache/assets/data normalization have source
+    support; exact keys, API and lab performance tests are benchmark conventions. No original customer
+    site or member information is included.
+- ru_id: RU-005
+  name: Performance readiness
+  content: Observe actual browser LCP, INP and CLS via the supplied web-vitals library and evaluate LCP
+    <=2500 ms, INP <=200 ms and CLS <=0.1. Return failed metric names and report missing, invalid, negative
+    or nonfinite values as missing; never infer performance from cache state. These are controlled lab
+    observations with disclosed benchmark thresholds, not a certification of production field performance.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for performance readiness.
+  test_interface:
+    type: function
+    entry:
+      language: php
+      file: directory.php
+      function: directory_normalize_member
+      signature: 'directory_normalize_member(array $raw): array'
+    inputs:
+      raw: synthetic member fields
+    output:
+      type: dict
+      meaning: normalized member
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/wordpress_contract.py
+  notes: Independent WordPress component and synthetic records. Cache/assets/data normalization have source
+    support; exact keys, API and lab performance tests are benchmark conventions. No original customer
+    site or member information is included.

@@ -1,0 +1,180 @@
+schema_version: 1
+task_id: SWECLAR-067
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual browser conversation restoration, readable tips, navigation and report delivery
+requirement_units:
+- ru_id: RU-001
+  name: Interaction entry point
+  content: Repair the supplied browser project while preserving actual page controls and input objects.
+    Render user text literally without interpreting markup. window.assistantApp.dispatch(event) returns
+    the new state asynchronously and snapshot() returns an independent copy.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for interaction entry point.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: index.html
+      signature: window.assistantApp.dispatch(event) -> Promise<state>; snapshot() -> state
+    inputs:
+      seed: window.ASSISTANT_DATA synthetic conversations/routes/report_endpoint
+      event: Conversation, tip, navigation, report or feedback action
+    output:
+      type: browser
+      meaning: Actual DOM, navigation, persistence and local HTTP report delivery
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/conversation_contract.py
+  notes: Independent browser reconstruction with local storage and synthetic report HTTP contract. The
+    original chat service, medical data, customer URLs and model responses are not distributed.
+- ru_id: RU-002
+  name: Conversation continuity
+  content: Opening a known conversation through its button or open_chat event must visibly restore its
+    saved transcript and pending question. Persist the chosen conversation in localStorage so a reload
+    returns to the same chat instead of the home screen. Unknown conversation IDs return unknown_conversation
+    without replacing the current conversation.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for conversation continuity.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: index.html
+      signature: window.assistantApp.dispatch(event) -> Promise<state>; snapshot() -> state
+    inputs:
+      seed: window.ASSISTANT_DATA synthetic conversations/routes/report_endpoint
+      event: Conversation, tip, navigation, report or feedback action
+    output:
+      type: browser
+      meaning: Actual DOM, navigation, persistence and local HTTP report delivery
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/conversation_contract.py
+  notes: Independent browser reconstruction with local storage and synthetic report HTTP contract. The
+    original chat service, medical data, customer URLs and model responses are not distributed.
+- ru_id: RU-003
+  name: Readable tip formatting
+  content: Accept a non-empty list only when every item is a non-empty string after trimming. Return formatted_tip
+    by trimming each item and joining the supplied sentences in order with exactly one blank line between
+    paragraphs; otherwise return error code invalid_tip. Render each trimmed sentence in its own paragraph
+    with visible vertical separation; markup-like content is literal text.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for readable tip formatting.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: index.html
+      signature: window.assistantApp.dispatch(event) -> Promise<state>; snapshot() -> state
+    inputs:
+      seed: window.ASSISTANT_DATA synthetic conversations/routes/report_endpoint
+      event: Conversation, tip, navigation, report or feedback action
+    output:
+      type: browser
+      meaning: Actual DOM, navigation, persistence and local HTTP report delivery
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/conversation_contract.py
+  notes: Independent browser reconstruction with local storage and synthetic report HTTP contract. The
+    original chat service, medical data, customer URLs and model responses are not distributed.
+- ru_id: RU-004
+  name: Website CTA routing
+  content: The input state stores configured route strings at routes.chat, routes.chat_prefill, and routes.schedule.
+    A main-page Chat with Assistant action returns navigation containing exactly destination=routes.chat
+    and prefill=routes.chat_prefill. Clinic-page Schedule Demo, Request a Demo, and Pre-Onboard Patients
+    actions return navigation containing exactly destination=routes.schedule. Any unsupported page/action
+    pair returns error code unknown_cta. Wire actual anchor controls to the configured destination. The
+    chat link carries the prefill in a URL query parameter named text, preserving other query parameters;
+    scheduling links navigate directly to the configured schedule route. Use URL encoding for prefill
+    content.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for website cta routing.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: index.html
+      signature: window.assistantApp.dispatch(event) -> Promise<state>; snapshot() -> state
+    inputs:
+      seed: window.ASSISTANT_DATA synthetic conversations/routes/report_endpoint
+      event: Conversation, tip, navigation, report or feedback action
+    output:
+      type: browser
+      meaning: Actual DOM, navigation, persistence and local HTTP report delivery
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/conversation_contract.py
+  notes: Independent browser reconstruction with local storage and synthetic report HTTP contract. The
+    original chat service, medical data, customer URLs and model responses are not distributed.
+- ru_id: RU-005
+  name: Feedback and bug reporting
+  content: Report bug posts {report_id,conversation_id,transcript} as JSON to configured report_endpoint
+    with Idempotency-Key=report_id. Store the report and show acknowledgement only after a successful
+    HTTP response with accepted=true and matching report_id. Failed delivery returns report_failed and
+    may be retried; completed report IDs are idempotent across reloads. The Report bug button uses report:<conversation_id>.
+    Feedback ticks require nonnegative integer day, positive integer interval_days and nonempty user_id;
+    render at most one feedback prompt per user and interval bucket, persisting deduplication across reloads.
+    This local HTTP contract and interval bucketing are benchmark reconstruction choices. Concurrent submissions
+    with the same report ID share one delivery; a delayed success must preserve the page selected while
+    the request was in flight.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for feedback and bug reporting.
+  test_interface:
+    type: web_ui
+    entry:
+      language: javascript
+      file: index.html
+      signature: window.assistantApp.dispatch(event) -> Promise<state>; snapshot() -> state
+    inputs:
+      seed: window.ASSISTANT_DATA synthetic conversations/routes/report_endpoint
+      event: Conversation, tip, navigation, report or feedback action
+    output:
+      type: browser
+      meaning: Actual DOM, navigation, persistence and local HTTP report delivery
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/conversation_contract.py
+  notes: Independent browser reconstruction with local storage and synthetic report HTTP contract. The
+    original chat service, medical data, customer URLs and model responses are not distributed.

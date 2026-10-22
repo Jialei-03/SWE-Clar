@@ -1,0 +1,997 @@
+{
+  "platform": "linux/amd64",
+  "base_profile": "python-web",
+  "source_profile": "flutter-component",
+  "wheels": [],
+  "archives": [],
+  "flutter": {
+    "schema_version": 1,
+    "profile": "flutter-component",
+    "platform": "linux/amd64",
+    "base_profile": "python-web",
+    "base_recipe_hashes": {
+      "harness.py": "27b83e879c02ee3ef17746434ceaf82cfe5beac172500eadda8a488c1e35b169",
+      "lock.json": "3117b15dd9aca32d761043f7f72a7ffadcca3530ae76c20bc11d295dea9a515c",
+      "requirements.txt": "ccf68a117e9641a2ac79bc335497350aaa11e0cc2e25b8ae7e82a4dcc38e3c1b",
+      "Dockerfile": "242e165d5d5ecd32a5ebd40de7320e2fcaa4ac98c71086f73132237025eb50bd",
+      "prepare.py": "ce07bc3983d784fbbe4572dbfe82ea942b7b80296927866cab1ff6139914471a",
+      "preflight.py": "3930a47a7dfd68beeda9956c50f576252957445d543de2ba0a2ad41542b7e61e"
+    },
+    "framework": {
+      "repository": "https://github.com/flutter/flutter.git",
+      "tag": "3.47.2",
+      "commit": "d3b14c876900e553bc736ca19295fc09e3853e8e",
+      "engine": "a804b261645ef8c13eb3d5c44a5c2fb0340c5539",
+      "dart": "3.13.2"
+    },
+    "sdk_artifacts": [
+      {
+        "file": "dart-sdk-linux-x64.zip",
+        "url": "https://storage.googleapis.com/flutter_infra_release/flutter/a804b261645ef8c13eb3d5c44a5c2fb0340c5539/dart-sdk-linux-x64.zip",
+        "bytes": 238711374,
+        "sha256": "b0196a0b031ef1b22d42a2c0a4762f695ad4bbc11668176314eae0be6fe59dc5"
+      },
+      {
+        "file": "flutter_patched_sdk.zip",
+        "url": "https://storage.googleapis.com/flutter_infra_release/flutter/a804b261645ef8c13eb3d5c44a5c2fb0340c5539/flutter_patched_sdk.zip",
+        "bytes": 4108246,
+        "sha256": "5f7d44ecaa2f3d219b9fdf2a1c3977e83545f6f8797fad604f564c1b4154ec8d"
+      },
+      {
+        "file": "flutter_patched_sdk_product.zip",
+        "url": "https://storage.googleapis.com/flutter_infra_release/flutter/a804b261645ef8c13eb3d5c44a5c2fb0340c5539/flutter_patched_sdk_product.zip",
+        "bytes": 4108253,
+        "sha256": "902bc3b27a1bd3f13b756af2660891dd996eb33ab9bc3e4b89c0c9cfdf49e2aa"
+      },
+      {
+        "file": "sky_engine.zip",
+        "url": "https://storage.googleapis.com/flutter_infra_release/flutter/a804b261645ef8c13eb3d5c44a5c2fb0340c5539/sky_engine.zip",
+        "bytes": 1545121,
+        "sha256": "5b0e03c4584bc5caf23614762bfe521436f26c04745ab252ac2d6b3f3525f0ac"
+      },
+      {
+        "file": "flutter_gpu.zip",
+        "url": "https://storage.googleapis.com/flutter_infra_release/flutter/a804b261645ef8c13eb3d5c44a5c2fb0340c5539/flutter_gpu.zip",
+        "bytes": 92216,
+        "sha256": "71cc413641f22909b4d060de8aa4c90804789b5fe541688bfbfe83d9ccb6eb5c"
+      },
+      {
+        "file": "engine_stamp.json",
+        "url": "https://storage.googleapis.com/flutter_infra_release/flutter/a804b261645ef8c13eb3d5c44a5c2fb0340c5539/engine_stamp.json",
+        "bytes": 237,
+        "sha256": "b99b5fcec0d00060f50e55fdf90c36f9c9e1213d0b85cbea9164efc0074a238f"
+      },
+      {
+        "file": "linux-x64-artifacts.zip",
+        "url": "https://storage.googleapis.com/flutter_infra_release/flutter/a804b261645ef8c13eb3d5c44a5c2fb0340c5539/linux-x64/artifacts.zip",
+        "bytes": 29262655,
+        "sha256": "625c7f98c62b9d495638bc71774bf94ad8cae77b070b5f34797ea83b396ebc1c"
+      },
+      {
+        "file": "font-subset.zip",
+        "url": "https://storage.googleapis.com/flutter_infra_release/flutter/a804b261645ef8c13eb3d5c44a5c2fb0340c5539/linux-x64/font-subset.zip",
+        "bytes": 2335402,
+        "sha256": "7b0c08585ea998f90e5e4ef82bb8e15f27fefd3c0645739447c14566af679238"
+      },
+      {
+        "file": "fonts.zip",
+        "url": "https://storage.googleapis.com/flutter_infra_release/flutter/fonts/3012db47f3130e62f7cc0beabff968a33cbec8d8/fonts.zip",
+        "bytes": 2306678,
+        "sha256": "e56fa8e9bb4589fde964be3de451f3e5b251e4a1eafb1dc98d94add034dd5a86"
+      },
+      {
+        "file": "gradle-wrapper.tgz",
+        "url": "https://storage.googleapis.com/flutter_infra_release/gradle-wrapper/fd5c1f2c013565a3bea56ada6df9d2b8e96d56aa/gradle-wrapper.tgz",
+        "bytes": 55913,
+        "sha256": "31e9428baf1a2b2f485f1110c5899f852649b33d46a2e9b07f9d17752d50190a"
+      }
+    ],
+    "pub_artifacts": [
+      {
+        "name": "_fe_analyzer_shared",
+        "version": "95.0.0",
+        "sha256": "0e4db51a88671b676adc09e923ffebd765a1f0c2b04dc19b08b35a335de2972c",
+        "url": "https://pub.dev/api/archives/_fe_analyzer_shared-95.0.0.tar.gz",
+        "file": "pub-archives/_fe_analyzer_shared-95.0.0.tar.gz",
+        "bytes": 702312
+      },
+      {
+        "name": "analyzer",
+        "version": "10.1.0",
+        "sha256": "3d577a36cde804a46bd1d89e673c3d87c3538c49a39c35d4d336f7760b48c319",
+        "url": "https://pub.dev/api/archives/analyzer-10.1.0.tar.gz",
+        "file": "pub-archives/analyzer-10.1.0.tar.gz",
+        "bytes": 10775116
+      },
+      {
+        "name": "archive",
+        "version": "3.6.1",
+        "sha256": "cb6a278ef2dbb298455e1a713bda08524a175630ec643a242c399c932a0a1f7d",
+        "url": "https://pub.dev/api/archives/archive-3.6.1.tar.gz",
+        "file": "pub-archives/archive-3.6.1.tar.gz",
+        "bytes": 1933889
+      },
+      {
+        "name": "args",
+        "version": "2.7.0",
+        "sha256": "d0481093c50b1da8910eb0bb301626d4d8eb7284aa739614d2b394ee09e3ea04",
+        "url": "https://pub.dev/api/archives/args-2.7.0.tar.gz",
+        "file": "pub-archives/args-2.7.0.tar.gz",
+        "bytes": 46690
+      },
+      {
+        "name": "async",
+        "version": "2.13.1",
+        "sha256": "e2eb0491ba5ddb6177742d2da23904574082139b07c1e33b8503b9f46f3e1a37",
+        "url": "https://pub.dev/api/archives/async-2.13.1.tar.gz",
+        "file": "pub-archives/async-2.13.1.tar.gz",
+        "bytes": 85402
+      },
+      {
+        "name": "boolean_selector",
+        "version": "2.1.2",
+        "sha256": "8aab1771e1243a5063b8b0ff68042d67334e3feab9e95b9490f9a6ebf73b42ea",
+        "url": "https://pub.dev/api/archives/boolean_selector-2.1.2.tar.gz",
+        "file": "pub-archives/boolean_selector-2.1.2.tar.gz",
+        "bytes": 12958
+      },
+      {
+        "name": "browser_launcher",
+        "version": "1.1.3",
+        "sha256": "ca2557663d3033845f2ef2b60f94fc249528324fd1affddccb7c63ac0ccd6c67",
+        "url": "https://pub.dev/api/archives/browser_launcher-1.1.3.tar.gz",
+        "file": "pub-archives/browser_launcher-1.1.3.tar.gz",
+        "bytes": 7357
+      },
+      {
+        "name": "built_collection",
+        "version": "5.1.1",
+        "sha256": "376e3dd27b51ea877c28d525560790aee2e6fbb5f20e2f85d5081027d94e2100",
+        "url": "https://pub.dev/api/archives/built_collection-5.1.1.tar.gz",
+        "file": "pub-archives/built_collection-5.1.1.tar.gz",
+        "bytes": 42062
+      },
+      {
+        "name": "built_value",
+        "version": "8.12.6",
+        "sha256": "34e4067d30ce212937df995f03b69992eea683539ceeac7f679a1f1eba055b56",
+        "url": "https://pub.dev/api/archives/built_value-8.12.6.tar.gz",
+        "file": "pub-archives/built_value-8.12.6.tar.gz",
+        "bytes": 41194
+      },
+      {
+        "name": "checked_yaml",
+        "version": "2.0.4",
+        "sha256": "959525d3162f249993882720d52b7e0c833978df229be20702b33d48d91de70f",
+        "url": "https://pub.dev/api/archives/checked_yaml-2.0.4.tar.gz",
+        "file": "pub-archives/checked_yaml-2.0.4.tar.gz",
+        "bytes": 6270
+      },
+      {
+        "name": "cli_config",
+        "version": "0.2.0",
+        "sha256": "ac20a183a07002b700f0c25e61b7ee46b23c309d76ab7b7640a028f18e4d99ec",
+        "url": "https://pub.dev/api/archives/cli_config-0.2.0.tar.gz",
+        "file": "pub-archives/cli_config-0.2.0.tar.gz",
+        "bytes": 12466
+      },
+      {
+        "name": "clock",
+        "version": "1.1.2",
+        "sha256": "fddb70d9b5277016c77a80201021d40a2247104d9f4aa7bab7157b7e3f05b84b",
+        "url": "https://pub.dev/api/archives/clock-1.1.2.tar.gz",
+        "file": "pub-archives/clock-1.1.2.tar.gz",
+        "bytes": 11740
+      },
+      {
+        "name": "code_assets",
+        "version": "1.2.1",
+        "sha256": "bf394f466ba9205f1812a0433b392d6af280f155f56651eda7c18cc32ed493b8",
+        "url": "https://pub.dev/api/archives/code_assets-1.2.1.tar.gz",
+        "file": "pub-archives/code_assets-1.2.1.tar.gz",
+        "bytes": 24190
+      },
+      {
+        "name": "code_builder",
+        "version": "4.11.1",
+        "sha256": "6a6cab2ba4680d6423f34a9b972a4c9a94ebe1b62ecec4e1a1f2cba91fd1319d",
+        "url": "https://pub.dev/api/archives/code_builder-4.11.1.tar.gz",
+        "file": "pub-archives/code_builder-4.11.1.tar.gz",
+        "bytes": 63363
+      },
+      {
+        "name": "collection",
+        "version": "1.19.1",
+        "sha256": "2f5709ae4d3d59dd8f7cd309b4e023046b57d8a6c82130785d2b0e5868084e76",
+        "url": "https://pub.dev/api/archives/collection-1.19.1.tar.gz",
+        "file": "pub-archives/collection-1.19.1.tar.gz",
+        "bytes": 77897
+      },
+      {
+        "name": "completion",
+        "version": "1.0.2",
+        "sha256": "82fa09800c0b71a2e8396bf3ca6b36b43cd35fe7ba2aeab53b6349ac671d0f5b",
+        "url": "https://pub.dev/api/archives/completion-1.0.2.tar.gz",
+        "file": "pub-archives/completion-1.0.2.tar.gz",
+        "bytes": 12584
+      },
+      {
+        "name": "convert",
+        "version": "3.1.2",
+        "sha256": "b30acd5944035672bc15c6b7a8b47d773e41e2f17de064350988c5d02adb1c68",
+        "url": "https://pub.dev/api/archives/convert-3.1.2.tar.gz",
+        "file": "pub-archives/convert-3.1.2.tar.gz",
+        "bytes": 23145
+      },
+      {
+        "name": "coverage",
+        "version": "1.15.1",
+        "sha256": "956a3de0725ca232ad353565a8290d3357592bf4250f6f298a185e2d949c5d3d",
+        "url": "https://pub.dev/api/archives/coverage-1.15.1.tar.gz",
+        "file": "pub-archives/coverage-1.15.1.tar.gz",
+        "bytes": 495383
+      },
+      {
+        "name": "crypto",
+        "version": "3.0.7",
+        "sha256": "c8ea0233063ba03258fbcf2ca4d6dadfefe14f02fab57702265467a19f27fadf",
+        "url": "https://pub.dev/api/archives/crypto-3.0.7.tar.gz",
+        "file": "pub-archives/crypto-3.0.7.tar.gz",
+        "bytes": 615595
+      },
+      {
+        "name": "csslib",
+        "version": "1.0.2",
+        "sha256": "09bad715f418841f976c77db72d5398dc1253c21fb9c0c7f0b0b985860b2d58e",
+        "url": "https://pub.dev/api/archives/csslib-1.0.2.tar.gz",
+        "file": "pub-archives/csslib-1.0.2.tar.gz",
+        "bytes": 333776
+      },
+      {
+        "name": "dap",
+        "version": "1.4.0",
+        "sha256": "42b0b083a09c59a118741769e218fc3738980ab591114f09d1026241d2b9c290",
+        "url": "https://pub.dev/api/archives/dap-1.4.0.tar.gz",
+        "file": "pub-archives/dap-1.4.0.tar.gz",
+        "bytes": 87432
+      },
+      {
+        "name": "dart_service_protocol_shared",
+        "version": "0.0.3",
+        "sha256": "1737875c176d7e3d87bb3a359182828b542fe20a0b34198b8d31a81af5c7a76d",
+        "url": "https://pub.dev/api/archives/dart_service_protocol_shared-0.0.3.tar.gz",
+        "file": "pub-archives/dart_service_protocol_shared-0.0.3.tar.gz",
+        "bytes": 7688
+      },
+      {
+        "name": "dart_style",
+        "version": "3.1.7",
+        "sha256": "29f7ecc274a86d32920b1d9cfc7502fa87220da41ec60b55f329559d5732e2b2",
+        "url": "https://pub.dev/api/archives/dart_style-3.1.7.tar.gz",
+        "file": "pub-archives/dart_style-3.1.7.tar.gz",
+        "bytes": 637948
+      },
+      {
+        "name": "data_assets",
+        "version": "0.20.0",
+        "sha256": "8bfdbf25ec8a0f4b5a3c993042c4ab9996ba354f0b03d40f4e360f3730d71cae",
+        "url": "https://pub.dev/api/archives/data_assets-0.20.0.tar.gz",
+        "file": "pub-archives/data_assets-0.20.0.tar.gz",
+        "bytes": 9919
+      },
+      {
+        "name": "dds",
+        "version": "5.3.0",
+        "sha256": "6673c5b29e502fd44dbf5836685e7c7c16b11c0fa7f91ef241e0cbf0638c8794",
+        "url": "https://pub.dev/api/archives/dds-5.3.0.tar.gz",
+        "file": "pub-archives/dds-5.3.0.tar.gz",
+        "bytes": 344494
+      },
+      {
+        "name": "dds_service_extensions",
+        "version": "2.1.0",
+        "sha256": "afe0fce921953ac0c5bb276bccd7e36fa5035d7769567d122523fdd09beb4d03",
+        "url": "https://pub.dev/api/archives/dds_service_extensions-2.1.0.tar.gz",
+        "file": "pub-archives/dds_service_extensions-2.1.0.tar.gz",
+        "bytes": 7385
+      },
+      {
+        "name": "devtools_shared",
+        "version": "12.1.0",
+        "sha256": "2daf7a9fba6a470668b26ecbd04200f7bf992aad81a2c31d12457c7791419dea",
+        "url": "https://pub.dev/api/archives/devtools_shared-12.1.0.tar.gz",
+        "file": "pub-archives/devtools_shared-12.1.0.tar.gz",
+        "bytes": 64399
+      },
+      {
+        "name": "dtd",
+        "version": "4.0.0",
+        "sha256": "09ddb228b3d1478a093556357692a4c203ff4f9d5f8cda05dfdca0ff3fb7c5d3",
+        "url": "https://pub.dev/api/archives/dtd-4.0.0.tar.gz",
+        "file": "pub-archives/dtd-4.0.0.tar.gz",
+        "bytes": 26803
+      },
+      {
+        "name": "dwds",
+        "version": "27.1.2",
+        "sha256": "280ca49e939f3f8a96f3a77bb17dfc284fd92b5004bd144ccafb2ab3ddb3b7f9",
+        "url": "https://pub.dev/api/archives/dwds-27.1.2.tar.gz",
+        "file": "pub-archives/dwds-27.1.2.tar.gz",
+        "bytes": 464914
+      },
+      {
+        "name": "extension_discovery",
+        "version": "2.1.0",
+        "sha256": "de1fce715ab013cdfb00befc3bdf0914bea5e409c3a567b7f8f144bc061611a7",
+        "url": "https://pub.dev/api/archives/extension_discovery-2.1.0.tar.gz",
+        "file": "pub-archives/extension_discovery-2.1.0.tar.gz",
+        "bytes": 17379
+      },
+      {
+        "name": "fake_async",
+        "version": "1.3.3",
+        "sha256": "5368f224a74523e8d2e7399ea1638b37aecfca824a3cc4dfdf77bf1fa905ac44",
+        "url": "https://pub.dev/api/archives/fake_async-1.3.3.tar.gz",
+        "file": "pub-archives/fake_async-1.3.3.tar.gz",
+        "bytes": 15216
+      },
+      {
+        "name": "ffi",
+        "version": "2.2.0",
+        "sha256": "6d7fd89431262d8f3125e81b50d3847a091d846eafcd4fdb88dd06f36d705a45",
+        "url": "https://pub.dev/api/archives/ffi-2.2.0.tar.gz",
+        "file": "pub-archives/ffi-2.2.0.tar.gz",
+        "bytes": 11014
+      },
+      {
+        "name": "file",
+        "version": "7.0.1",
+        "sha256": "a3b4f84adafef897088c160faf7dfffb7696046cb13ae90b508c2cbc95d3b8d4",
+        "url": "https://pub.dev/api/archives/file-7.0.1.tar.gz",
+        "file": "pub-archives/file-7.0.1.tar.gz",
+        "bytes": 56783
+      },
+      {
+        "name": "file_testing",
+        "version": "3.0.2",
+        "sha256": "eb0c85fd118ddc0d41c295c09f64e0924c256b071087cdc9828d5372c80d554d",
+        "url": "https://pub.dev/api/archives/file_testing-3.0.2.tar.gz",
+        "file": "pub-archives/file_testing-3.0.2.tar.gz",
+        "bytes": 3436
+      },
+      {
+        "name": "fixnum",
+        "version": "1.1.1",
+        "sha256": "b6dc7065e46c974bc7c5f143080a6764ec7a4be6da1285ececdc37be96de53be",
+        "url": "https://pub.dev/api/archives/fixnum-1.1.1.tar.gz",
+        "file": "pub-archives/fixnum-1.1.1.tar.gz",
+        "bytes": 24416
+      },
+      {
+        "name": "flutter_template_images",
+        "version": "5.0.0",
+        "sha256": "0120589a786dbae4e86af1f61748baccd8530abd56a60e7a13479647a75222fe",
+        "url": "https://pub.dev/api/archives/flutter_template_images-5.0.0.tar.gz",
+        "file": "pub-archives/flutter_template_images-5.0.0.tar.gz",
+        "bytes": 485296
+      },
+      {
+        "name": "frontend_server_client",
+        "version": "4.0.0",
+        "sha256": "f64a0333a82f30b0cca061bc3d143813a486dc086b574bfb233b7c1372427694",
+        "url": "https://pub.dev/api/archives/frontend_server_client-4.0.0.tar.gz",
+        "file": "pub-archives/frontend_server_client-4.0.0.tar.gz",
+        "bytes": 14419
+      },
+      {
+        "name": "glob",
+        "version": "2.1.3",
+        "sha256": "c3f1ee72c96f8f78935e18aa8cecced9ab132419e8625dc187e1c2408efc20de",
+        "url": "https://pub.dev/api/archives/glob-2.1.3.tar.gz",
+        "file": "pub-archives/glob-2.1.3.tar.gz",
+        "bytes": 22395
+      },
+      {
+        "name": "graphs",
+        "version": "2.3.2",
+        "sha256": "741bbf84165310a68ff28fe9e727332eef1407342fca52759cb21ad8177bb8d0",
+        "url": "https://pub.dev/api/archives/graphs-2.3.2.tar.gz",
+        "file": "pub-archives/graphs-2.3.2.tar.gz",
+        "bytes": 16263
+      },
+      {
+        "name": "hooks",
+        "version": "2.0.2",
+        "sha256": "9a62a50b50b769a737bc0a8ff381f333529df3ab746b2f6b02e83760231455ba",
+        "url": "https://pub.dev/api/archives/hooks-2.0.2.tar.gz",
+        "file": "pub-archives/hooks-2.0.2.tar.gz",
+        "bytes": 36651
+      },
+      {
+        "name": "hooks_runner",
+        "version": "1.5.0",
+        "sha256": "a67ab8106545fcffcf5c43edf84b4be222fc95a9fbec8baef1bcaf4534540cfc",
+        "url": "https://pub.dev/api/archives/hooks_runner-1.5.0.tar.gz",
+        "file": "pub-archives/hooks_runner-1.5.0.tar.gz",
+        "bytes": 34171
+      },
+      {
+        "name": "html",
+        "version": "0.15.6",
+        "sha256": "6d1264f2dffa1b1101c25a91dff0dc2daee4c18e87cd8538729773c073dbf602",
+        "url": "https://pub.dev/api/archives/html-0.15.6.tar.gz",
+        "file": "pub-archives/html-0.15.6.tar.gz",
+        "bytes": 232248
+      },
+      {
+        "name": "http",
+        "version": "1.6.0",
+        "sha256": "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412",
+        "url": "https://pub.dev/api/archives/http-1.6.0.tar.gz",
+        "file": "pub-archives/http-1.6.0.tar.gz",
+        "bytes": 46315
+      },
+      {
+        "name": "http_multi_server",
+        "version": "3.2.2",
+        "sha256": "aa6199f908078bb1c5efb8d8638d4ae191aac11b311132c3ef48ce352fb52ef8",
+        "url": "https://pub.dev/api/archives/http_multi_server-3.2.2.tar.gz",
+        "file": "pub-archives/http_multi_server-3.2.2.tar.gz",
+        "bytes": 11690
+      },
+      {
+        "name": "http_parser",
+        "version": "4.1.2",
+        "sha256": "178d74305e7866013777bab2c3d8726205dc5a4dd935297175b19a23a2e66571",
+        "url": "https://pub.dev/api/archives/http_parser-4.1.2.tar.gz",
+        "file": "pub-archives/http_parser-4.1.2.tar.gz",
+        "bytes": 17424
+      },
+      {
+        "name": "intl",
+        "version": "0.20.3",
+        "sha256": "1ca20c894b1717686a2319b8548763d812bc0aabdac580420a44c5178c57a867",
+        "url": "https://pub.dev/api/archives/intl-0.20.3.tar.gz",
+        "file": "pub-archives/intl-0.20.3.tar.gz",
+        "bytes": 302642
+      },
+      {
+        "name": "io",
+        "version": "1.0.5",
+        "sha256": "dfd5a80599cf0165756e3181807ed3e77daf6dd4137caaad72d0b7931597650b",
+        "url": "https://pub.dev/api/archives/io-1.0.5.tar.gz",
+        "file": "pub-archives/io-1.0.5.tar.gz",
+        "bytes": 17975
+      },
+      {
+        "name": "js",
+        "version": "0.7.2",
+        "sha256": "53385261521cc4a0c4658fd0ad07a7d14591cf8fc33abbceae306ddb974888dc",
+        "url": "https://pub.dev/api/archives/js-0.7.2.tar.gz",
+        "file": "pub-archives/js-0.7.2.tar.gz",
+        "bytes": 9994
+      },
+      {
+        "name": "json_annotation",
+        "version": "4.12.0",
+        "sha256": "2a743920d81b7910627f68ee2c9ac1fc0bfee32b9fc3403587d7c6791ca12f80",
+        "url": "https://pub.dev/api/archives/json_annotation-4.12.0.tar.gz",
+        "file": "pub-archives/json_annotation-4.12.0.tar.gz",
+        "bytes": 13940
+      },
+      {
+        "name": "json_rpc_2",
+        "version": "4.1.0",
+        "sha256": "82dfd37d3b2e5030ae4729e1d7f5538cbc45eb1c73d618b9272931facac3bec1",
+        "url": "https://pub.dev/api/archives/json_rpc_2-4.1.0.tar.gz",
+        "file": "pub-archives/json_rpc_2-4.1.0.tar.gz",
+        "bytes": 23684
+      },
+      {
+        "name": "logging",
+        "version": "1.3.0",
+        "sha256": "c8245ada5f1717ed44271ed1c26b8ce85ca3228fd2ffdb75468ab01979309d61",
+        "url": "https://pub.dev/api/archives/logging-1.3.0.tar.gz",
+        "file": "pub-archives/logging-1.3.0.tar.gz",
+        "bytes": 12198
+      },
+      {
+        "name": "matcher",
+        "version": "0.12.20",
+        "sha256": "31bd099b47c10cd1aeb55146a2d46ce0277630ecef3f7dae54ad7873f36696cd",
+        "url": "https://pub.dev/api/archives/matcher-0.12.20.tar.gz",
+        "file": "pub-archives/matcher-0.12.20.tar.gz",
+        "bytes": 59725
+      },
+      {
+        "name": "meta",
+        "version": "1.18.3",
+        "sha256": "c82594181e3312f3d0695fc95aaaf7758d75b8d4ae2bbecf223b9fd5109a059d",
+        "url": "https://pub.dev/api/archives/meta-1.18.3.tar.gz",
+        "file": "pub-archives/meta-1.18.3.tar.gz",
+        "bytes": 16874
+      },
+      {
+        "name": "mime",
+        "version": "2.0.0",
+        "sha256": "41a20518f0cb1256669420fdba0cd90d21561e560ac240f26ef8322e45bb7ed6",
+        "url": "https://pub.dev/api/archives/mime-2.0.0.tar.gz",
+        "file": "pub-archives/mime-2.0.0.tar.gz",
+        "bytes": 24379
+      },
+      {
+        "name": "multicast_dns",
+        "version": "0.3.3+1",
+        "sha256": "134668a9605c747322d8c3eb0e89a4c0cbdedb29f8d2d5ae29d14daef724987b",
+        "url": "https://pub.dev/api/archives/multicast_dns-0.3.3+1.tar.gz",
+        "file": "pub-archives/multicast_dns-0.3.3+1.tar.gz",
+        "bytes": 18783
+      },
+      {
+        "name": "mustache_template",
+        "version": "2.0.5",
+        "sha256": "c689b4d59176f8c7a2860aab765d205916aa5b06cfafff7613bfcc42fa996143",
+        "url": "https://pub.dev/api/archives/mustache_template-2.0.5.tar.gz",
+        "file": "pub-archives/mustache_template-2.0.5.tar.gz",
+        "bytes": 38811
+      },
+      {
+        "name": "native_stack_traces",
+        "version": "0.6.1",
+        "sha256": "d34cf916db87b14d39465b3e3b4b4a8ee1f304bde6ed7605571e34802e3d6a11",
+        "url": "https://pub.dev/api/archives/native_stack_traces-0.6.1.tar.gz",
+        "file": "pub-archives/native_stack_traces-0.6.1.tar.gz",
+        "bytes": 46469
+      },
+      {
+        "name": "node_preamble",
+        "version": "2.0.2",
+        "sha256": "6e7eac89047ab8a8d26cf16127b5ed26de65209847630400f9aefd7cd5c730db",
+        "url": "https://pub.dev/api/archives/node_preamble-2.0.2.tar.gz",
+        "file": "pub-archives/node_preamble-2.0.2.tar.gz",
+        "bytes": 6563
+      },
+      {
+        "name": "package_config",
+        "version": "2.2.0",
+        "sha256": "f096c55ebb7deb7e384101542bfba8c52696c1b56fca2eb62827989ef2353bbc",
+        "url": "https://pub.dev/api/archives/package_config-2.2.0.tar.gz",
+        "file": "pub-archives/package_config-2.2.0.tar.gz",
+        "bytes": 33690
+      },
+      {
+        "name": "path",
+        "version": "1.9.1",
+        "sha256": "75cca69d1490965be98c73ceaea117e8a04dd21217b37b292c9ddbec0d955bc5",
+        "url": "https://pub.dev/api/archives/path-1.9.1.tar.gz",
+        "file": "pub-archives/path-1.9.1.tar.gz",
+        "bytes": 45282
+      },
+      {
+        "name": "petitparser",
+        "version": "7.0.2",
+        "sha256": "91bd59303e9f769f108f8df05e371341b15d59e995e6806aefab827b58336675",
+        "url": "https://pub.dev/api/archives/petitparser-7.0.2.tar.gz",
+        "file": "pub-archives/petitparser-7.0.2.tar.gz",
+        "bytes": 125648
+      },
+      {
+        "name": "platform",
+        "version": "3.1.6",
+        "sha256": "5d6b1b0036a5f331ebc77c850ebc8506cbc1e9416c27e59b439f917a902a4984",
+        "url": "https://pub.dev/api/archives/platform-3.1.6.tar.gz",
+        "file": "pub-archives/platform-3.1.6.tar.gz",
+        "bytes": 8453
+      },
+      {
+        "name": "pool",
+        "version": "1.5.2",
+        "sha256": "978783255c543aa3586a1b3c21f6e9d720eb315376a915872c61ef8b5c20177d",
+        "url": "https://pub.dev/api/archives/pool-1.5.2.tar.gz",
+        "file": "pub-archives/pool-1.5.2.tar.gz",
+        "bytes": 11161
+      },
+      {
+        "name": "process",
+        "version": "5.0.5",
+        "sha256": "c6248e4526673988586e8c00bb22a49210c258dc91df5227d5da9748ecf79744",
+        "url": "https://pub.dev/api/archives/process-5.0.5.tar.gz",
+        "file": "pub-archives/process-5.0.5.tar.gz",
+        "bytes": 13251
+      },
+      {
+        "name": "pub_semver",
+        "version": "2.2.0",
+        "sha256": "5bfcf68ca79ef689f8990d1160781b4bad40a3bd5e5218ad4076ddb7f4081585",
+        "url": "https://pub.dev/api/archives/pub_semver-2.2.0.tar.gz",
+        "file": "pub-archives/pub_semver-2.2.0.tar.gz",
+        "bytes": 25661
+      },
+      {
+        "name": "pubspec_parse",
+        "version": "1.5.0",
+        "sha256": "0560ba233314abbed0a48a2956f7f022cce7c3e1e73df540277da7544cad4082",
+        "url": "https://pub.dev/api/archives/pubspec_parse-1.5.0.tar.gz",
+        "file": "pub-archives/pubspec_parse-1.5.0.tar.gz",
+        "bytes": 15686
+      },
+      {
+        "name": "record_use",
+        "version": "0.6.0",
+        "sha256": "2551bd8eecfe95d14ae75f6021ad0248be5c27f138c2ec12fcb52b500b3ba1ed",
+        "url": "https://pub.dev/api/archives/record_use-0.6.0.tar.gz",
+        "file": "pub-archives/record_use-0.6.0.tar.gz",
+        "bytes": 61704
+      },
+      {
+        "name": "shelf",
+        "version": "1.4.2",
+        "sha256": "e7dd780a7ffb623c57850b33f43309312fc863fb6aa3d276a754bb299839ef12",
+        "url": "https://pub.dev/api/archives/shelf-1.4.2.tar.gz",
+        "file": "pub-archives/shelf-1.4.2.tar.gz",
+        "bytes": 47492
+      },
+      {
+        "name": "shelf_packages_handler",
+        "version": "3.0.2",
+        "sha256": "89f967eca29607c933ba9571d838be31d67f53f6e4ee15147d5dc2934fee1b1e",
+        "url": "https://pub.dev/api/archives/shelf_packages_handler-3.0.2.tar.gz",
+        "file": "pub-archives/shelf_packages_handler-3.0.2.tar.gz",
+        "bytes": 4243
+      },
+      {
+        "name": "shelf_proxy",
+        "version": "1.0.5",
+        "sha256": "0c3a7b2b4c111cae8a6d9077701e0622c6013d38a780373ac359d6d45b3aa10b",
+        "url": "https://pub.dev/api/archives/shelf_proxy-1.0.5.tar.gz",
+        "file": "pub-archives/shelf_proxy-1.0.5.tar.gz",
+        "bytes": 5842
+      },
+      {
+        "name": "shelf_static",
+        "version": "1.1.3",
+        "sha256": "c87c3875f91262785dade62d135760c2c69cb217ac759485334c5857ad89f6e3",
+        "url": "https://pub.dev/api/archives/shelf_static-1.1.3.tar.gz",
+        "file": "pub-archives/shelf_static-1.1.3.tar.gz",
+        "bytes": 18155
+      },
+      {
+        "name": "shelf_web_socket",
+        "version": "3.0.0",
+        "sha256": "3632775c8e90d6c9712f883e633716432a27758216dfb61bd86a8321c0580925",
+        "url": "https://pub.dev/api/archives/shelf_web_socket-3.0.0.tar.gz",
+        "file": "pub-archives/shelf_web_socket-3.0.0.tar.gz",
+        "bytes": 7182
+      },
+      {
+        "name": "source_map_stack_trace",
+        "version": "2.1.2",
+        "sha256": "c0713a43e323c3302c2abe2a1cc89aa057a387101ebd280371d6a6c9fa68516b",
+        "url": "https://pub.dev/api/archives/source_map_stack_trace-2.1.2.tar.gz",
+        "file": "pub-archives/source_map_stack_trace-2.1.2.tar.gz",
+        "bytes": 6237
+      },
+      {
+        "name": "source_maps",
+        "version": "0.10.13",
+        "sha256": "190222579a448b03896e0ca6eca5998fa810fda630c1d65e2f78b3f638f54812",
+        "url": "https://pub.dev/api/archives/source_maps-0.10.13.tar.gz",
+        "file": "pub-archives/source_maps-0.10.13.tar.gz",
+        "bytes": 23051
+      },
+      {
+        "name": "source_span",
+        "version": "1.10.2",
+        "sha256": "56a02f1f4cd1a2d96303c0144c93bd6d909eea6bee6bf5a0e0b685edbd4c47ab",
+        "url": "https://pub.dev/api/archives/source_span-1.10.2.tar.gz",
+        "file": "pub-archives/source_span-1.10.2.tar.gz",
+        "bytes": 29648
+      },
+      {
+        "name": "sprintf",
+        "version": "7.0.0",
+        "sha256": "1fc9ffe69d4df602376b52949af107d8f5703b77cda567c4d7d86a0693120f23",
+        "url": "https://pub.dev/api/archives/sprintf-7.0.0.tar.gz",
+        "file": "pub-archives/sprintf-7.0.0.tar.gz",
+        "bytes": 6916
+      },
+      {
+        "name": "sse",
+        "version": "4.2.0",
+        "sha256": "a9a804dbde8bfd369da3b4aa241d44d63a6486a97388c54ec166073d88c52302",
+        "url": "https://pub.dev/api/archives/sse-4.2.0.tar.gz",
+        "file": "pub-archives/sse-4.2.0.tar.gz",
+        "bytes": 75579
+      },
+      {
+        "name": "stack_trace",
+        "version": "1.12.1",
+        "sha256": "8b27215b45d22309b5cddda1aa2b19bdfec9df0e765f2de506401c071d38d1b1",
+        "url": "https://pub.dev/api/archives/stack_trace-1.12.1.tar.gz",
+        "file": "pub-archives/stack_trace-1.12.1.tar.gz",
+        "bytes": 35098
+      },
+      {
+        "name": "standard_message_codec",
+        "version": "0.0.1+5",
+        "sha256": "f10b3fbdb4d56c6bc4d160ef5b3d6346df7a998a84876d05886a75d17eb290e6",
+        "url": "https://pub.dev/api/archives/standard_message_codec-0.0.1+5.tar.gz",
+        "file": "pub-archives/standard_message_codec-0.0.1+5.tar.gz",
+        "bytes": 9649
+      },
+      {
+        "name": "stream_channel",
+        "version": "2.1.4",
+        "sha256": "969e04c80b8bcdf826f8f16579c7b14d780458bd97f56d107d3950fdbeef059d",
+        "url": "https://pub.dev/api/archives/stream_channel-2.1.4.tar.gz",
+        "file": "pub-archives/stream_channel-2.1.4.tar.gz",
+        "bytes": 22854
+      },
+      {
+        "name": "string_scanner",
+        "version": "1.4.1",
+        "sha256": "921cd31725b72fe181906c6a94d987c78e3b98c2e205b397ea399d4054872b43",
+        "url": "https://pub.dev/api/archives/string_scanner-1.4.1.tar.gz",
+        "file": "pub-archives/string_scanner-1.4.1.tar.gz",
+        "bytes": 16495
+      },
+      {
+        "name": "sync_http",
+        "version": "0.3.1",
+        "sha256": "7f0cd72eca000d2e026bcd6f990b81d0ca06022ef4e32fb257b30d3d1014a961",
+        "url": "https://pub.dev/api/archives/sync_http-0.3.1.tar.gz",
+        "file": "pub-archives/sync_http-0.3.1.tar.gz",
+        "bytes": 8426
+      },
+      {
+        "name": "term_glyph",
+        "version": "1.2.2",
+        "sha256": "7f554798625ea768a7518313e58f83891c7f5024f88e46e7182a4558850a4b8e",
+        "url": "https://pub.dev/api/archives/term_glyph-1.2.2.tar.gz",
+        "file": "pub-archives/term_glyph-1.2.2.tar.gz",
+        "bytes": 9024
+      },
+      {
+        "name": "test",
+        "version": "1.31.1",
+        "sha256": "ca578dc12bb8b2f40b67b7d3bd2fac4f31c01a6ff7130a14e2597b919934507f",
+        "url": "https://pub.dev/api/archives/test-1.31.1.tar.gz",
+        "file": "pub-archives/test-1.31.1.tar.gz",
+        "bytes": 366146
+      },
+      {
+        "name": "test_api",
+        "version": "0.7.12",
+        "sha256": "2a122cbe059f8b610d3a5415f42e255b6c17b1f21eee1d960f31080237fb4f11",
+        "url": "https://pub.dev/api/archives/test_api-0.7.12.tar.gz",
+        "file": "pub-archives/test_api-0.7.12.tar.gz",
+        "bytes": 60812
+      },
+      {
+        "name": "test_core",
+        "version": "0.6.18",
+        "sha256": "d2e98ec12998368dc59ddd47ab709f2cd55acd6b66dc7db764455a44082f4bc5",
+        "url": "https://pub.dev/api/archives/test_core-0.6.18.tar.gz",
+        "file": "pub-archives/test_core-0.6.18.tar.gz",
+        "bytes": 110779
+      },
+      {
+        "name": "typed_data",
+        "version": "1.4.0",
+        "sha256": "f9049c039ebfeb4cf7a7104a675823cd72dba8297f264b6637062516699fa006",
+        "url": "https://pub.dev/api/archives/typed_data-1.4.0.tar.gz",
+        "file": "pub-archives/typed_data-1.4.0.tar.gz",
+        "bytes": 15910
+      },
+      {
+        "name": "unified_analytics",
+        "version": "8.0.15",
+        "sha256": "0988c50d794f3cd96f6df92b4b35b7c333bbf869df304fc6062a45ebc7eb0776",
+        "url": "https://pub.dev/api/archives/unified_analytics-8.0.15.tar.gz",
+        "file": "pub-archives/unified_analytics-8.0.15.tar.gz",
+        "bytes": 83094
+      },
+      {
+        "name": "uuid",
+        "version": "4.5.3",
+        "sha256": "1fef9e8e11e2991bb773070d4656b7bd5d850967a2456cfc83cf47925ba79489",
+        "url": "https://pub.dev/api/archives/uuid-4.5.3.tar.gz",
+        "file": "pub-archives/uuid-4.5.3.tar.gz",
+        "bytes": 237574
+      },
+      {
+        "name": "vm_service",
+        "version": "15.2.0",
+        "sha256": "0016aef94fc66495ac78af5859181e3f3bf2026bd8eecc72b9565601e19ab360",
+        "url": "https://pub.dev/api/archives/vm_service-15.2.0.tar.gz",
+        "file": "pub-archives/vm_service-15.2.0.tar.gz",
+        "bytes": 1000087
+      },
+      {
+        "name": "vm_service_interface",
+        "version": "2.0.1",
+        "sha256": "503c92c26cf9f77d688bf8fca27fa9ec40450adbf02ec1ec5f12828ded508ac0",
+        "url": "https://pub.dev/api/archives/vm_service_interface-2.0.1.tar.gz",
+        "file": "pub-archives/vm_service_interface-2.0.1.tar.gz",
+        "bytes": 20915
+      },
+      {
+        "name": "vm_snapshot_analysis",
+        "version": "0.7.6",
+        "sha256": "5a79b9fbb6be2555090f55b03b23907e75d44c3fd7bdd88da09848aa5a1914c8",
+        "url": "https://pub.dev/api/archives/vm_snapshot_analysis-0.7.6.tar.gz",
+        "file": "pub-archives/vm_snapshot_analysis-0.7.6.tar.gz",
+        "bytes": 129193
+      },
+      {
+        "name": "watcher",
+        "version": "1.2.1",
+        "sha256": "1398c9f081a753f9226febe8900fce8f7d0a67163334e1c94a2438339d79d635",
+        "url": "https://pub.dev/api/archives/watcher-1.2.1.tar.gz",
+        "file": "pub-archives/watcher-1.2.1.tar.gz",
+        "bytes": 57442
+      },
+      {
+        "name": "web",
+        "version": "1.1.1",
+        "sha256": "868d88a33d8a87b18ffc05f9f030ba328ffefba92d6c127917a2ba740f9cfe4a",
+        "url": "https://pub.dev/api/archives/web-1.1.1.tar.gz",
+        "file": "pub-archives/web-1.1.1.tar.gz",
+        "bytes": 539843
+      },
+      {
+        "name": "web_socket",
+        "version": "1.0.1",
+        "sha256": "34d64019aa8e36bf9842ac014bb5d2f5586ca73df5e4d9bf5c936975cae6982c",
+        "url": "https://pub.dev/api/archives/web_socket-1.0.1.tar.gz",
+        "file": "pub-archives/web_socket-1.0.1.tar.gz",
+        "bytes": 9038
+      },
+      {
+        "name": "web_socket_channel",
+        "version": "3.0.3",
+        "sha256": "d645757fb0f4773d602444000a8131ff5d48c9e47adfe9772652dd1a4f2d45c8",
+        "url": "https://pub.dev/api/archives/web_socket_channel-3.0.3.tar.gz",
+        "file": "pub-archives/web_socket_channel-3.0.3.tar.gz",
+        "bytes": 14525
+      },
+      {
+        "name": "webdriver",
+        "version": "3.1.0",
+        "sha256": "2f3a14ca026957870cfd9c635b83507e0e51d8091568e90129fbf805aba7cade",
+        "url": "https://pub.dev/api/archives/webdriver-3.1.0.tar.gz",
+        "file": "pub-archives/webdriver-3.1.0.tar.gz",
+        "bytes": 78450
+      },
+      {
+        "name": "webkit_inspection_protocol",
+        "version": "1.2.1",
+        "sha256": "87d3f2333bb240704cd3f1c6b5b7acd8a10e7f0bc28c28dcf14e782014f4a572",
+        "url": "https://pub.dev/api/archives/webkit_inspection_protocol-1.2.1.tar.gz",
+        "file": "pub-archives/webkit_inspection_protocol-1.2.1.tar.gz",
+        "bytes": 24985
+      },
+      {
+        "name": "xml",
+        "version": "6.6.1",
+        "sha256": "971043b3a0d3da28727e40ed3e0b5d18b742fa5a68665cca88e74b7876d5e025",
+        "url": "https://pub.dev/api/archives/xml-6.6.1.tar.gz",
+        "file": "pub-archives/xml-6.6.1.tar.gz",
+        "bytes": 199307
+      },
+      {
+        "name": "yaml",
+        "version": "3.1.3",
+        "sha256": "b9da305ac7c39faa3f030eccd175340f968459dae4af175130b3fc47e40d76ce",
+        "url": "https://pub.dev/api/archives/yaml-3.1.3.tar.gz",
+        "file": "pub-archives/yaml-3.1.3.tar.gz",
+        "bytes": 46513
+      },
+      {
+        "name": "yaml_edit",
+        "version": "2.2.4",
+        "sha256": "07c9e63ba42519745182b88ca12264a7ba2484d8239958778dfe4d44fe760488",
+        "url": "https://pub.dev/api/archives/yaml_edit-2.2.4.tar.gz",
+        "file": "pub-archives/yaml_edit-2.2.4.tar.gz",
+        "bytes": 53911
+      },
+      {
+        "name": "characters",
+        "version": "1.4.1",
+        "sha256": "faf38497bda5ead2a8c7615f4f7939df04333478bf32e4173fcb06d428b5716b",
+        "url": "https://pub.dev/api/archives/characters-1.4.1.tar.gz",
+        "file": "pub-archives/characters-1.4.1.tar.gz",
+        "bytes": 528692
+      },
+      {
+        "name": "clock",
+        "version": "1.1.3",
+        "sha256": "e51d50bca3217c9a9fa2b41a30e4a38971133f5f9ec7a3d57bae095007f1d28e",
+        "url": "https://pub.dev/api/archives/clock-1.1.3.tar.gz",
+        "file": "pub-archives/clock-1.1.3.tar.gz",
+        "bytes": 11965
+      },
+      {
+        "name": "leak_tracker",
+        "version": "11.0.2",
+        "sha256": "33e2e26bdd85a0112ec15400c8cbffea70d0f9c3407491f672a2fad47915e2de",
+        "url": "https://pub.dev/api/archives/leak_tracker-11.0.2.tar.gz",
+        "file": "pub-archives/leak_tracker-11.0.2.tar.gz",
+        "bytes": 34448
+      },
+      {
+        "name": "leak_tracker_flutter_testing",
+        "version": "3.0.10",
+        "sha256": "1dbc140bb5a23c75ea9c4811222756104fbcd1a27173f0c34ca01e16bea473c1",
+        "url": "https://pub.dev/api/archives/leak_tracker_flutter_testing-3.0.10.tar.gz",
+        "file": "pub-archives/leak_tracker_flutter_testing-3.0.10.tar.gz",
+        "bytes": 10363
+      },
+      {
+        "name": "leak_tracker_testing",
+        "version": "3.0.2",
+        "sha256": "8d5a2d49f4a66b49744b23b018848400d23e54caf9463f4eb20df3eb8acb2eb1",
+        "url": "https://pub.dev/api/archives/leak_tracker_testing-3.0.2.tar.gz",
+        "file": "pub-archives/leak_tracker_testing-3.0.2.tar.gz",
+        "bytes": 7535
+      },
+      {
+        "name": "material_color_utilities",
+        "version": "0.13.0",
+        "sha256": "9c337007e82b1889149c82ed242ed1cb24a66044e30979c44912381e9be4c48b",
+        "url": "https://pub.dev/api/archives/material_color_utilities-0.13.0.tar.gz",
+        "file": "pub-archives/material_color_utilities-0.13.0.tar.gz",
+        "bytes": 2115434
+      },
+      {
+        "name": "meta",
+        "version": "1.19.0",
+        "sha256": "307249ce4ff29d58a18e97f6345f539382eb9c9c29ecda628900f31de0443dd9",
+        "url": "https://pub.dev/api/archives/meta-1.19.0.tar.gz",
+        "file": "pub-archives/meta-1.19.0.tar.gz",
+        "bytes": 17258
+      },
+      {
+        "name": "stack_trace",
+        "version": "1.12.2",
+        "sha256": "277654b3034d17ac6f9f1cb5595db011b1d5d41e8806866db28e0abaa101c490",
+        "url": "https://pub.dev/api/archives/stack_trace-1.12.2.tar.gz",
+        "file": "pub-archives/stack_trace-1.12.2.tar.gz",
+        "bytes": 34019
+      },
+      {
+        "name": "vector_math",
+        "version": "2.4.2",
+        "sha256": "f36f9f3be64c6198714492bb455c11056e33e2f85d9a0b676a48301e44fdcf47",
+        "url": "https://pub.dev/api/archives/vector_math-2.4.2.tar.gz",
+        "file": "pub-archives/vector_math-2.4.2.tar.gz",
+        "bytes": 181488
+      },
+      {
+        "name": "vm_service",
+        "version": "15.3.0",
+        "sha256": "5f37239c4851efcef929cea7824e76df7f2f0970aef85d66bbc430afa40e72f0",
+        "url": "https://pub.dev/api/archives/vm_service-15.3.0.tar.gz",
+        "file": "pub-archives/vm_service-15.3.0.tar.gz",
+        "bytes": 998996
+      }
+    ],
+    "framework_patch": {
+      "file": "linux-readonly-cache.patch",
+      "sha256": "8021324b6eb1398aa638f9acabe4a9d3f91098824483e962c725a84c95efda84",
+      "purpose": "Skip irrelevant macOS USB artifact cache writes on Linux, matching upstream download platform filtering."
+    },
+    "capabilities": [
+      "Flutter widget rendering and interaction",
+      "Dart controller execution",
+      "Atomic local JSON file persistence",
+      "Offline resolved SDK-only Flutter application dependencies"
+    ],
+    "unsupported": [
+      "Android/iOS native build and signing",
+      "Desktop native executable build",
+      "Remote message delivery or device services"
+    ],
+    "cache_policy": "Immutable SDK and hosted package sources; per-run writable HOME stores pub active roots and tool metadata."
+  }
+}

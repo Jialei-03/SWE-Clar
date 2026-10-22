@@ -1,0 +1,1241 @@
+diff --git a/app.py b/app.py
+index 85c34fc5c7a4332b145fc5fe2bdae110c154f415..ce4ade2f162e0dd922a3a136dadefaceb9404128 100644
+--- a/app.py
++++ b/app.py
+@@ -8,170 +8,629 @@ import secrets
+ import uuid
+ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
+-from urllib.parse import urlparse,parse_qs
++from urllib.parse import parse_qs, urlparse
++
+ import policies
+-from storage import connect,initialize,password_hash,public_user
++from storage import connect, initialize, password_hash, public_user
+ 
+ 
+ class Problem(Exception):
+-    def __init__(self,status,code):self.status=status;self.code=code
++    def __init__(self, status, code):
++        self.status = status
++        self.code = code
++        super().__init__(code)
+ 
+ 
+-def require(condition,code='invalid',status=400):
+-    if not condition:raise Problem(status,code)
++def require(condition, code='invalid', status=400):
++    if not condition:
++        raise Problem(status, code)
+ 
+ 
+-def text(value,limit):
+-    require(isinstance(value,str) and 1<=len(value.strip())<=limit)
+-    return value.strip()
++def text(value, limit):
++    require(isinstance(value, str))
++    trimmed = value.strip()
++    require(1 <= len(trimmed) <= limit)
++    return trimmed
+ 
+ 
+-def number(value,lo,hi):
+-    require(type(value) in (int,float) and math.isfinite(value) and lo<=value<=hi)
++def number(value, lo, hi):
++    # bool is an int subclass, but is not a coordinate/radius number in the
++    # public schema.  Guard very large JSON integers before math.isfinite.
++    require(type(value) in (int, float))
++    try:
++        finite = math.isfinite(value)
++    except (OverflowError, TypeError, ValueError):
++        finite = False
++    require(finite and lo <= value <= hi)
+     return value
+ 
+ 
+-def fields(body,required):
+-    require(isinstance(body,dict) and set(body)==set(required))
++def fields(body, required):
++    require(isinstance(body, dict) and set(body) == set(required))
++
++
++def strict_object(pairs):
++    """Reject duplicate JSON object keys rather than silently choosing one."""
++    result = {}
++    for key, value in pairs:
++        if key in result:
++            raise ValueError('duplicate JSON key')
++        result[key] = value
++    return result
++
++
++def reject_json_constant(_value):
++    raise ValueError('non-finite JSON number')
+ 
+ 
+ class Handler(BaseHTTPRequestHandler):
+-    def log_message(self,*_):pass
+-    def send(self,status,data,kind='application/json'):
+-        raw=json.dumps(data,ensure_ascii=False,allow_nan=False).encode() if kind=='application/json' else data
+-        self.send_response(status);self.send_header('Content-Type',kind+'; charset=utf-8')
+-        self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(raw)))
+-        self.end_headers();self.wfile.write(raw)
+-    def do_GET(self):self.handle_request()
+-    def do_POST(self):self.handle_request()
+-    def do_PUT(self):self.handle_request()
++    # Only these files are public.  In particular, do not turn the web
++    # directory into a general-purpose file server.
++    STATIC = {
++        '/': ('index.html', 'text/html'),
++        '/ui.js': ('ui.js', 'text/javascript'),
++        '/style.css': ('style.css', 'text/css'),
++    }
++    ENDPOINTS = {
++        ('POST', '/api/login'),
++        ('POST', '/api/logout'),
++        ('GET', '/api/me'),
++        ('GET', '/api/people'),
++        ('PUT', '/api/profile'),
++        ('GET', '/api/matches'),
++        ('POST', '/api/connection'),
++        ('POST', '/api/block'),
++        ('POST', '/api/message'),
++        ('POST', '/api/group'),
++        ('POST', '/api/invite'),
++        ('POST', '/api/post'),
++        ('POST', '/api/like'),
++        ('POST', '/api/subscribe'),
++        ('GET', '/api/dashboard'),
++        ('GET', '/health'),
++    }
++    NO_QUERY = {
++        '/health',
++        '/api/login',
++        '/api/logout',
++        '/api/me',
++        '/api/people',
++        '/api/profile',
++        '/api/connection',
++        '/api/block',
++        '/api/message',
++        '/api/group',
++        '/api/invite',
++        '/api/post',
++        '/api/like',
++        '/api/subscribe',
++        '/api/dashboard',
++    }
++
++    def log_message(self, *_):
++        # The service is intended for local test use and must not log bearer
++        # headers or user-entered content.
++        pass
++
++    def send(self, status, data, kind='application/json'):
++        if kind == 'application/json':
++            raw = json.dumps(
++                data, ensure_ascii=False, allow_nan=False, separators=(',', ':')
++            ).encode('utf-8')
++        else:
++            raw = data
++        self.send_response(status)
++        self.send_header('Content-Type', kind + '; charset=utf-8')
++        self.send_header('Cache-Control', 'no-store')
++        self.send_header('Content-Length', str(len(raw)))
++        self.end_headers()
++        self.wfile.write(raw)
++
++    def do_GET(self):
++        self.handle_request()
++
++    def do_POST(self):
++        self.handle_request()
++
++    def do_PUT(self):
++        self.handle_request()
++
++    # Return the same JSON-shaped error for accidental unsupported methods
++    # instead of BaseHTTPRequestHandler's HTML error page.
++    def do_DELETE(self):
++        self.handle_request()
++
++    def do_PATCH(self):
++        self.handle_request()
++
++    def do_OPTIONS(self):
++        self.handle_request()
++
+     def handle_request(self):
+         try:
+-            route=urlparse(self.path)
+-            if self.command=='GET' and route.path in {'/','/ui.js','/style.css'}:
+-                file,kind={'/':('index.html','text/html'),'/ui.js':('ui.js','text/javascript'),'/style.css':('style.css','text/css')}[route.path]
+-                self.send(200,(Path(__file__).parent/'web'/file).read_bytes(),kind);return
+-            if self.command=='GET' and route.path=='/health':self.send(200,{'ok':True});return
+-            body={}
+-            if self.command in ('POST','PUT'):
+-                length=int(self.headers.get('Content-Length','0'));require(0<length<=16384)
+-                body=json.loads(self.rfile.read(length),parse_constant=lambda _:None)
+-                require(isinstance(body,dict))
+-            with connect(self.server.db_path) as db:
+-                result=self.dispatch(db,route,body)
+-            self.send(200,result)
+-        except Problem as e:self.send(e.status,{'error':{'code':e.code}})
+-        except (ValueError,UnicodeError):self.send(400,{'error':{'code':'invalid'}})
+-    def user(self,db):
+-        auth=self.headers.get('Authorization','')
+-        require(auth.startswith('Bearer '),'unauthorized',401)
+-        row=db.execute('SELECT users.* FROM sessions JOIN users ON users.id=sessions.user_id WHERE token=?',(auth[7:],)).fetchone()
+-        require(row is not None,'unauthorized',401)
++            route = urlparse(self.path)
++            static = self.STATIC.get(route.path) if self.command == 'GET' else None
++            if static is not None:
++                filename, kind = static
++                self.send(200, (Path(__file__).parent / 'web' / filename).read_bytes(), kind)
++                return
++
++            if (self.command, route.path) not in self.ENDPOINTS:
++                raise Problem(404, 'not_found')
++            if route.path in self.NO_QUERY:
++                require(not route.query)
++
++            body = {}
++            if self.command in ('POST', 'PUT'):
++                body = self.read_json_body()
++
++            db = connect(self.server.db_path)
++            try:
++                result = self.dispatch(db, route, body)
++                db.commit()
++            except BaseException:
++                db.rollback()
++                raise
++            finally:
++                db.close()
++            self.send(200, result)
++        except Problem as problem:
++            self.send(problem.status, {'error': {'code': problem.code}})
++        except (ValueError, UnicodeError, OverflowError, TypeError, json.JSONDecodeError):
++            self.send(400, {'error': {'code': 'invalid'}})
++
++    def read_json_body(self):
++        raw_length = self.headers.get('Content-Length')
++        require(raw_length is not None)
++        try:
++            length = int(raw_length)
++        except (TypeError, ValueError, OverflowError):
++            raise Problem(400, 'invalid')
++        require(0 < length <= 16384)
++        raw = self.rfile.read(length)
++        require(len(raw) == length)
++        try:
++            decoded = raw.decode('utf-8')
++            value = json.loads(
++                decoded,
++                object_pairs_hook=strict_object,
++                parse_constant=reject_json_constant,
++            )
++        except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError):
++            raise Problem(400, 'invalid')
++        require(isinstance(value, dict))
++        return value
++
++    def user(self, db):
++        authorization = self.headers.get('Authorization', '')
++        require(
++            isinstance(authorization, str)
++            and authorization.startswith('Bearer ')
++            and bool(authorization[7:])
++            and not any(ch.isspace() for ch in authorization[7:]),
++            'unauthorized',
++            401,
++        )
++        row = db.execute(
++            '''SELECT users.* FROM sessions
++               JOIN users ON users.id=sessions.user_id
++               WHERE sessions.token=?''',
++            (authorization[7:],),
++        ).fetchone()
++        require(row is not None, 'unauthorized', 401)
+         return row
+-    def target(self,db,body):
+-        require(isinstance(body.get('target'),str))
+-        row=db.execute('SELECT * FROM users WHERE id=?',(body['target'],)).fetchone()
+-        require(row is not None,'not_found',404)
++
++    def target(self, db, body):
++        require(isinstance(body.get('target'), str))
++        row = db.execute(
++            'SELECT * FROM users WHERE id=?', (body['target'],)
++        ).fetchone()
++        require(row is not None, 'not_found', 404)
+         return row['id']
+-    def group(self,db,ident):
+-        require(isinstance(ident,str))
+-        row=db.execute('SELECT * FROM groups WHERE id=?',(ident,)).fetchone()
+-        require(row is not None,'not_found',404)
++
++    def group(self, db, ident):
++        require(isinstance(ident, str))
++        row = db.execute('SELECT * FROM groups WHERE id=?', (ident,)).fetchone()
++        require(row is not None, 'not_found', 404)
+         return row
+-    def dispatch(self,db,route,body):
+-        path=route.path;method=self.command
+-        if method=='POST' and path=='/api/login':
+-            fields(body,{'id','password'});require(isinstance(body['id'],str) and isinstance(body['password'],str))
+-            row=db.execute('SELECT * FROM users WHERE id=?',(body['id'],)).fetchone()
+-            require(row is not None and hmac.compare_digest(row['password_hash'],password_hash(body['password'])),'unauthorized',401)
+-            token=secrets.token_urlsafe(32);db.execute('INSERT INTO sessions VALUES(?,?)',(token,row['id']))
+-            return {'token':token,'user':public_user(row)}
+-        user=self.user(db);actor=user['id']
+-        if method=='POST' and path=='/api/logout':
+-            fields(body,set());db.execute('DELETE FROM sessions WHERE token=?',(self.headers['Authorization'][7:],));return {'ok':True}
+-        if method=='GET' and path=='/api/me':return {'user':public_user(user)}
+-        if method=='GET' and path=='/api/people':
+-            return {'people':[dict(r) for r in db.execute('SELECT id,display,role FROM users ORDER BY id')]}
+-        if method=='PUT' and path=='/api/profile':
+-            fields(body,{'interests','x','y'});items=body['interests']
+-            require(isinstance(items,list) and len(items)<=10 and all(isinstance(i,str) and re.fullmatch('[a-z][a-z0-9_-]{0,23}',i) for i in items) and len(set(items))==len(items))
+-            x=number(body['x'],-1000,1000);y=number(body['y'],-1000,1000)
+-            db.execute('UPDATE users SET interests=?,x=?,y=? WHERE id=?',(json.dumps(items),x,y,actor))
+-            return {'user':public_user(db.execute('SELECT * FROM users WHERE id=?',(actor,)).fetchone())}
+-        if method=='GET' and path=='/api/matches':
+-            query=parse_qs(route.query,keep_blank_values=True);require(set(query)<={'radius','role'} and all(len(v)==1 for v in query.values()))
+-            radius=number(float(query.get('radius',['100'])[0]),0,3000);role=query.get('role',['all'])[0]
+-            require(role in {'all','user','business'})
+-            return {'matches':policies.matches(db,actor,radius,role)}
+-        if method=='POST' and path=='/api/connection':
+-            fields(body,{'target','decision'});target=self.target(db,body);decision=body['decision']
+-            require(target!=actor and decision in {'request','accept'})
+-            a,b=sorted([actor,target]);existing=db.execute('SELECT * FROM connections WHERE a=? AND b=?',(a,b)).fetchone()
+-            require(policies.connection_allowed(db,actor,target,decision,existing),'denied',403)
+-            if existing is None:db.execute('INSERT INTO connections VALUES(?,?,?,0)',(a,b,actor))
+-            elif decision=='accept':db.execute('UPDATE connections SET accepted=1 WHERE a=? AND b=?',(a,b))
+-            row=db.execute('SELECT * FROM connections WHERE a=? AND b=?',(a,b)).fetchone()
+-            return {'accepted':bool(row['accepted'])}
+-        if method=='POST' and path=='/api/block':
+-            fields(body,{'target','blocked'});target=self.target(db,body)
+-            require(target!=actor and type(body['blocked']) is bool)
+-            if body['blocked']:db.execute('INSERT OR IGNORE INTO blocks VALUES(?,?)',(actor,target))
+-            else:db.execute('DELETE FROM blocks WHERE actor=? AND target=?',(actor,target))
+-            return {'ok':True}
+-        if method=='POST' and path=='/api/message':
+-            fields(body,{'target','content'});target=self.target(db,body);content=text(body['content'],2000)
+-            require(target!=actor and policies.message_allowed(db,actor,target),'denied',403)
+-            ident=uuid.uuid4().hex;db.execute('INSERT INTO messages VALUES(?,?,?,?)',(ident,actor,target,content));return {'id':ident}
+-        if method=='POST' and path=='/api/group':
+-            fields(body,{'name'});name=text(body['name'],80);ident=uuid.uuid4().hex
+-            db.execute('INSERT INTO groups VALUES(?,?,?)',(ident,actor,name));db.execute('INSERT INTO members VALUES(?,?)',(ident,actor));return {'id':ident}
+-        if method=='POST' and path=='/api/invite':
+-            fields(body,{'group_id','target'});group=self.group(db,body['group_id']);target=self.target(db,body)
+-            require(policies.invite_allowed(db,actor,target,group),'denied',403)
+-            db.execute('INSERT OR IGNORE INTO members VALUES(?,?)',(group['id'],target));return {'ok':True}
+-        if method=='POST' and path=='/api/post':
+-            fields(body,{'group_id','content','featured'});group=self.group(db,body['group_id']);content=text(body['content'],2000)
++
++    def begin_write(self, db):
++        # All authenticated mutations inspect policy state and write it as one
++        # serialized operation.  This also makes concurrent receipt replay and
++        # connection creation deterministic.
++        db.execute('BEGIN IMMEDIATE')
++
++    def dispatch(self, db, route, body):
++        path = route.path
++        method = self.command
++
++        if method == 'GET' and path == '/health':
++            return {'ok': True}
++
++        if method == 'POST' and path == '/api/login':
++            fields(body, {'id', 'password'})
++            require(
++                isinstance(body['id'], str) and isinstance(body['password'], str)
++            )
++            row = db.execute(
++                'SELECT * FROM users WHERE id=?', (body['id'],)
++            ).fetchone()
++            valid = row is not None and hmac.compare_digest(
++                row['password_hash'], password_hash(body['password'])
++            )
++            require(valid, 'unauthorized', 401)
++            self.begin_write(db)
++            token = secrets.token_urlsafe(32)
++            # The token is overwhelmingly unlikely to collide, but retaining
++            # the loop makes distinct-token behavior explicit even if a random
++            # source is replaced in a test.
++            while True:
++                try:
++                    db.execute(
++                        'INSERT INTO sessions(token,user_id) VALUES(?,?)',
++                        (token, row['id']),
++                    )
++                    break
++                except Exception as error:
++                    if 'UNIQUE' not in str(error).upper():
++                        raise
++                    token = secrets.token_urlsafe(32)
++            current = db.execute(
++                'SELECT * FROM users WHERE id=?', (row['id'],)
++            ).fetchone()
++            return {'token': token, 'user': public_user(current)}
++
++        # Every route after login is protected.  The actor is obtained only
++        # from this server-side session lookup.
++        user = self.user(db)
++        actor = user['id']
++
++        if method in ('POST', 'PUT'):
++            self.begin_write(db)
++            # Revalidate after acquiring the writer lock so a request racing
++            # with logout cannot mutate state using a token that was already
++            # revoked by the time its write began.
++            user = self.user(db)
++            actor = user['id']
++
++        if method == 'POST' and path == '/api/logout':
++            fields(body, set())
++            authorization = self.headers['Authorization']
++            db.execute(
++                'DELETE FROM sessions WHERE token=?', (authorization[7:],)
++            )
++            return {'ok': True}
++
++        if method == 'GET' and path == '/api/me':
++            return {'user': public_user(user)}
++
++        if method == 'GET' and path == '/api/people':
++            people = [
++                dict(row)
++                for row in db.execute('SELECT id,display,role FROM users')
++            ]
++            people.sort(key=lambda person: person['id'])
++            return {'people': people}
++
++        if method == 'PUT' and path == '/api/profile':
++            fields(body, {'interests', 'x', 'y'})
++            interests = body['interests']
++            require(
++                isinstance(interests, list)
++                and len(interests) <= 10
++                and len(set(interests)) == len(interests)
++                and all(
++                    isinstance(item, str)
++                    and re.fullmatch(r'[a-z][a-z0-9_-]{0,23}', item)
++                    for item in interests
++                )
++            )
++            x = number(body['x'], -1000, 1000)
++            y = number(body['y'], -1000, 1000)
++            db.execute(
++                'UPDATE users SET interests=?,x=?,y=? WHERE id=?',
++                (json.dumps(interests, ensure_ascii=False), x, y, actor),
++            )
++            return {
++                'user': public_user(
++                    db.execute('SELECT * FROM users WHERE id=?', (actor,)).fetchone()
++                )
++            }
++
++        if method == 'GET' and path == '/api/matches':
++            query = parse_qs(route.query, keep_blank_values=True)
++            require(
++                set(query) <= {'radius', 'role'}
++                and all(len(values) == 1 for values in query.values())
++            )
++            raw_radius = query.get('radius', ['100'])[0]
++            try:
++                radius = float(raw_radius)
++            except (TypeError, ValueError, OverflowError):
++                raise Problem(400, 'invalid')
++            require(math.isfinite(radius) and 0 <= radius <= 3000)
++            role = query.get('role', ['all'])[0]
++            require(role in {'all', 'user', 'business'})
++            return {'matches': policies.matches(db, actor, radius, role)}
++
++        if method == 'POST' and path == '/api/connection':
++            fields(body, {'target', 'decision'})
++            target = self.target(db, body)
++            decision = body['decision']
++            require(target != actor and decision in {'request', 'accept'})
++            left, right = sorted((actor, target))
++            existing = db.execute(
++                'SELECT * FROM connections WHERE a=? AND b=?',
++                (left, right),
++            ).fetchone()
++            require(
++                policies.connection_allowed(
++                    db, actor, target, decision, existing
++                ),
++                'denied',
++                403,
++            )
++            if existing is None:
++                db.execute(
++                    '''INSERT INTO connections(a,b,requester,accepted)
++                       VALUES(?,?,?,0)''',
++                    (left, right, actor),
++                )
++            elif decision == 'accept':
++                # The policy has already established that actor is the
++                # original recipient.  A repeated accept is idempotent.
++                db.execute(
++                    'UPDATE connections SET accepted=1 WHERE a=? AND b=?',
++                    (left, right),
++                )
++            current = db.execute(
++                'SELECT accepted FROM connections WHERE a=? AND b=?',
++                (left, right),
++            ).fetchone()
++            return {'accepted': bool(current['accepted'])}
++
++        if method == 'POST' and path == '/api/block':
++            fields(body, {'target', 'blocked'})
++            target = self.target(db, body)
++            require(target != actor and type(body['blocked']) is bool)
++            if body['blocked']:
++                db.execute(
++                    'INSERT OR IGNORE INTO blocks(actor,target) VALUES(?,?)',
++                    (actor, target),
++                )
++            else:
++                db.execute(
++                    'DELETE FROM blocks WHERE actor=? AND target=?',
++                    (actor, target),
++                )
++            return {'ok': True}
++
++        if method == 'POST' and path == '/api/message':
++            fields(body, {'target', 'content'})
++            target = self.target(db, body)
++            content = text(body['content'], 2000)
++            require(target != actor)
++            require(
++                policies.message_allowed(db, actor, target),
++                'denied',
++                403,
++            )
++            ident = uuid.uuid4().hex
++            db.execute(
++                '''INSERT INTO messages(id,sender,recipient,content)
++                   VALUES(?,?,?,?)''',
++                (ident, actor, target, content),
++            )
++            return {'id': ident}
++
++        if method == 'POST' and path == '/api/group':
++            fields(body, {'name'})
++            name = text(body['name'], 80)
++            ident = uuid.uuid4().hex
++            db.execute(
++                'INSERT INTO groups(id,owner,name) VALUES(?,?,?)',
++                (ident, actor, name),
++            )
++            db.execute(
++                'INSERT INTO members(group_id,user_id) VALUES(?,?)',
++                (ident, actor),
++            )
++            return {'id': ident}
++
++        if method == 'POST' and path == '/api/invite':
++            fields(body, {'group_id', 'target'})
++            group = self.group(db, body['group_id'])
++            target = self.target(db, body)
++            require(
++                policies.invite_allowed(db, actor, target, group),
++                'denied',
++                403,
++            )
++            db.execute(
++                'INSERT OR IGNORE INTO members(group_id,user_id) VALUES(?,?)',
++                (group['id'], target),
++            )
++            return {'ok': True}
++
++        if method == 'POST' and path == '/api/post':
++            fields(body, {'group_id', 'content', 'featured'})
++            group = self.group(db, body['group_id'])
++            content = text(body['content'], 2000)
+             require(type(body['featured']) is bool)
+-            require(policies.post_allowed(db,actor,group),'denied',403)
+-            require(not body['featured'] or policies.featured_allowed(user),'denied',403)
+-            ident=uuid.uuid4().hex;db.execute('INSERT INTO posts VALUES(?,?,?,?,?)',(ident,group['id'],actor,content,int(body['featured'])));return {'id':ident}
+-        if method=='POST' and path=='/api/like':
+-            fields(body,{'post_id'});require(isinstance(body['post_id'],str))
+-            post=db.execute('SELECT * FROM posts WHERE id=?',(body['post_id'],)).fetchone();require(post is not None,'not_found',404)
+-            group=self.group(db,post['group_id']);require(policies.like_allowed(db,actor,post,group),'denied',403)
+-            policies.store_like(db,actor,post['id'])
+-            return {'likes':db.execute('SELECT COUNT(*) FROM likes WHERE post_id=?',(post['id'],)).fetchone()[0]}
+-        if method=='POST' and path=='/api/subscribe':
+-            fields(body,{'receipt_id'});require(isinstance(body['receipt_id'],str))
+-            receipt=next((r for r in self.server.fixtures['receipts'] if r['id']==body['receipt_id']),None)
+-            require(receipt is not None and policies.membership_allowed(user,receipt),'denied',403)
+-            # Serialize receipt consumption and the active-plan update together.
+-            db.execute('BEGIN IMMEDIATE')
+-            policies.apply_membership(db,user,receipt)
+-            return {'plan':db.execute('SELECT plan FROM users WHERE id=?',(actor,)).fetchone()[0]}
+-        if method=='GET' and path=='/api/dashboard':
+-            connections=[]
+-            for c in db.execute('SELECT * FROM connections WHERE a=? OR b=?',(actor,actor)):
+-                target=c['b'] if c['a']==actor else c['a']
+-                if not policies.blocked(db,actor,target):connections.append({'target':target,'accepted':bool(c['accepted']),'incoming':c['requester']!=actor})
+-            groups=[dict(g) for g in db.execute('SELECT groups.* FROM groups JOIN members ON groups.id=members.group_id WHERE user_id=? ORDER BY groups.rowid',(actor,)) if not policies.blocked(db,actor,g['owner'])]
+-            group_ids={g['id'] for g in groups};posts=[]
+-            for p in db.execute('SELECT * FROM posts ORDER BY rowid'):
+-                if p['group_id'] in group_ids and not policies.blocked(db,actor,p['author']):
+-                    item=dict(p);item['featured']=bool(item['featured']);item['likes']=db.execute('SELECT COUNT(*) FROM likes WHERE post_id=?',(p['id'],)).fetchone()[0];posts.append(item)
+-            messages=[dict(m) for m in db.execute('SELECT * FROM messages WHERE sender=? OR recipient=? ORDER BY rowid',(actor,actor)) if not policies.blocked(db,m['sender'],m['recipient'])]
+-            return {'connections':connections,'groups':groups,'posts':posts,'messages':messages,
+-                'blocked':[r['target'] for r in db.execute('SELECT target FROM blocks WHERE actor=? ORDER BY target',(actor,))]}
+-        raise Problem(404,'not_found')
++            require(
++                policies.post_allowed(db, actor, group),
++                'denied',
++                403,
++            )
++            # Fetch the current row rather than trusting any client-supplied
++            # plan (there is no plan field in this request at all).
++            current_user = db.execute(
++                'SELECT * FROM users WHERE id=?', (actor,)
++            ).fetchone()
++            require(
++                not body['featured'] or policies.featured_allowed(current_user),
++                'denied',
++                403,
++            )
++            ident = uuid.uuid4().hex
++            db.execute(
++                '''INSERT INTO posts(id,group_id,author,content,featured)
++                   VALUES(?,?,?,?,?)''',
++                (ident, group['id'], actor, content, int(body['featured'])),
++            )
++            return {'id': ident}
++
++        if method == 'POST' and path == '/api/like':
++            fields(body, {'post_id'})
++            require(isinstance(body['post_id'], str))
++            post = db.execute(
++                'SELECT * FROM posts WHERE id=?', (body['post_id'],)
++            ).fetchone()
++            require(post is not None, 'not_found', 404)
++            group = self.group(db, post['group_id'])
++            require(
++                policies.like_allowed(db, actor, post, group),
++                'denied',
++                403,
++            )
++            policies.store_like(db, actor, post['id'])
++            count = db.execute(
++                'SELECT COUNT(*) AS count FROM likes WHERE post_id=?',
++                (post['id'],),
++            ).fetchone()['count']
++            return {'likes': int(count)}
++
++        if method == 'POST' and path == '/api/subscribe':
++            fields(body, {'receipt_id'})
++            require(isinstance(body['receipt_id'], str))
++            receipt = next(
++                (
++                    item
++                    for item in self.server.fixtures.get('receipts', [])
++                    if item.get('id') == body['receipt_id']
++                ),
++                None,
++            )
++            require(
++                receipt is not None and policies.membership_allowed(user, receipt),
++                'denied',
++                403,
++            )
++            # begin_write above serializes the catalog lookup, consumption
++            # check and plan replacement with identical concurrent requests.
++            applied = policies.apply_membership(db, user, receipt)
++            require(applied, 'denied', 403)
++            current_plan = db.execute(
++                'SELECT plan FROM users WHERE id=?', (actor,)
++            ).fetchone()['plan']
++            return {'plan': current_plan}
++
++        if method == 'GET' and path == '/api/dashboard':
++            connections = []
++            for connection in db.execute(
++                '''SELECT * FROM connections
++                   WHERE a=? OR b=? ORDER BY rowid''',
++                (actor, actor),
++            ):
++                target = (
++                    connection['b']
++                    if connection['a'] == actor
++                    else connection['a']
++                )
++                if not policies.blocked_either(db, actor, target):
++                    connections.append(
++                        {
++                            'target': target,
++                            'accepted': bool(connection['accepted']),
++                            'incoming': connection['requester'] != actor,
++                        }
++                    )
++
++            groups = []
++            for group in db.execute(
++                '''SELECT groups.id,groups.owner,groups.name
++                   FROM groups JOIN members ON groups.id=members.group_id
++                   WHERE members.user_id=? ORDER BY groups.rowid''',
++                (actor,),
++            ):
++                if policies.unblocked_pair(db, actor, group['owner']):
++                    groups.append(dict(group))
++            group_ids = {group['id'] for group in groups}
++
++            posts = []
++            for post in db.execute('SELECT * FROM posts ORDER BY rowid'):
++                if post['group_id'] not in group_ids:
++                    continue
++                group = db.execute(
++                    'SELECT * FROM groups WHERE id=?', (post['group_id'],)
++                ).fetchone()
++                if group is None or not policies.post_visible(
++                    db, actor, post, group
++                ):
++                    continue
++                item = {
++                    'id': post['id'],
++                    'group_id': post['group_id'],
++                    'author': post['author'],
++                    'content': post['content'],
++                    'featured': bool(post['featured']),
++                    'likes': int(
++                        db.execute(
++                            'SELECT COUNT(*) AS count FROM likes WHERE post_id=?',
++                            (post['id'],),
++                        ).fetchone()['count']
++                    ),
++                }
++                posts.append(item)
++
++            messages = []
++            for message in db.execute(
++                '''SELECT id,sender,recipient,content FROM messages
++                   WHERE sender=? OR recipient=? ORDER BY rowid''',
++                (actor, actor),
++            ):
++                if not policies.blocked_either(
++                    db, message['sender'], message['recipient']
++                ):
++                    messages.append(dict(message))
++
++            blocked_list = sorted(
++                row['target']
++                for row in db.execute(
++                    'SELECT target FROM blocks WHERE actor=?',
++                    (actor,),
++                )
++            )
++            return {
++                'connections': connections,
++                'groups': groups,
++                'posts': posts,
++                'messages': messages,
++                'blocked': blocked_list,
++            }
++
++        # ENDPOINTS prevents this for normal requests, but keep the dispatch
++        # boundary explicit if it is ever called directly.
++        raise Problem(404, 'not_found')
+ 
+ 
+ def main():
+-    parser=argparse.ArgumentParser();parser.add_argument('--db',default='network.sqlite');parser.add_argument('--fixtures',default='fixtures/demo.json');parser.add_argument('--port',type=int,default=8000)
+-    args=parser.parse_args();fixtures=json.loads(Path(args.fixtures).read_text());initialize(args.db,fixtures)
+-    server=ThreadingHTTPServer(('127.0.0.1',args.port),Handler);server.db_path=args.db;server.fixtures=fixtures
+-    print(server.server_port,flush=True)
+-    try:server.serve_forever()
+-    finally:server.server_close()
++    parser = argparse.ArgumentParser()
++    parser.add_argument('--db', default='network.sqlite')
++    parser.add_argument('--fixtures', default='fixtures/demo.json')
++    parser.add_argument('--port', type=int, default=8000)
++    args = parser.parse_args()
++    fixtures = json.loads(Path(args.fixtures).read_text(encoding='utf-8'))
++    initialize(args.db, fixtures)
++    server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
++    server.db_path = args.db
++    server.fixtures = fixtures
++    print(server.server_port, flush=True)
++    try:
++        server.serve_forever()
++    finally:
++        server.server_close()
+ 
+ 
+-if __name__=='__main__':main()
++if __name__ == '__main__':
++    main()
+diff --git a/policies.py b/policies.py
+index d2644daba978f48e20353061d6757167278b9eab..2d8cf5e6ae0a8c164f86cc57455f2596dcb4438a 100644
+--- a/policies.py
++++ b/policies.py
+@@ -1,25 +1,233 @@
+-"""Starter discovery and interaction behavior; business policies need completion."""
+-import json,math
+-
+-def blocked(db,a,b):
+-    return bool(db.execute('SELECT 1 FROM blocks WHERE actor=? AND target=?',(a,b)).fetchone())
+-
+-def matches(db,actor,radius,role):
+-    source=db.execute('SELECT * FROM users WHERE id=?',(actor,)).fetchone()
+-    result=[]
+-    for u in db.execute('SELECT * FROM users ORDER BY id'):
+-        if u['id']==actor or (role!='all' and role!=u['role']):continue
+-        result.append({'id':u['id'],'display':u['display'],'role':u['role'],'shared':len(set(json.loads(source['interests'])) & set(json.loads(u['interests']))),'degree':0,'distance':math.hypot(u['x']-source['x'],u['y']-source['y'])})
++"""Server-side relationship, discovery, group and membership policies."""
++from collections import deque
++import json
++import math
++
++
++def blocked(db, actor, target):
++    """Whether actor has blocked target (one direction only)."""
++    return bool(
++        db.execute(
++            'SELECT 1 FROM blocks WHERE actor=? AND target=?',
++            (actor, target),
++        ).fetchone()
++    )
++
++
++def blocked_either(db, first, second):
++    return blocked(db, first, second) or blocked(db, second, first)
++
++
++def unblocked_pair(db, first, second):
++    return not blocked_either(db, first, second)
++
++
++def _accepted_graph(db):
++    """Build the accepted, currently usable undirected graph.
++
++    A connection is an edge only while neither endpoint blocks the other.
++    Blocked users may still occur as intermediate vertices when an available
++    path reaches them through another edge; the rule removes edges, rather
++    than removing vertices from the graph.
++    """
++    graph = {}
++    for connection in db.execute(
++        'SELECT a,b FROM connections WHERE accepted=1'
++    ):
++        left, right = connection['a'], connection['b']
++        if blocked_either(db, left, right):
++            continue
++        graph.setdefault(left, set()).add(right)
++        graph.setdefault(right, set()).add(left)
++    return graph
++
++
++def _degrees_from(db, actor, maximum=6):
++    graph = _accepted_graph(db)
++    distances = {actor: 0}
++    queue = deque([actor])
++    while queue:
++        current = queue.popleft()
++        distance = distances[current]
++        if distance >= maximum:
++            continue
++        for neighbor in graph.get(current, ()):
++            if neighbor not in distances:
++                distances[neighbor] = distance + 1
++                queue.append(neighbor)
++    return distances
++
++
++def matches(db, actor, radius, role):
++    source = db.execute('SELECT * FROM users WHERE id=?', (actor,)).fetchone()
++    # The authenticated actor is always a real user, but retaining this guard
++    # makes the policy safe when called independently.
++    if source is None:
++        return []
++
++    source_interests = set(json.loads(source['interests']))
++    degrees = _degrees_from(db, actor)
++    result = []
++    for candidate in db.execute('SELECT * FROM users'):
++        candidate_id = candidate['id']
++        if candidate_id == actor:
++            continue
++        if role != 'all' and candidate['role'] != role:
++            continue
++        if blocked_either(db, actor, candidate_id):
++            continue
++
++        euclidean_distance = math.hypot(
++            candidate['x'] - source['x'], candidate['y'] - source['y']
++        )
++        # Keep radius eligibility and ordering based on the actual geometric
++        # distance, but expose a taxicab distance in the match record.
++        if euclidean_distance > radius:
++            continue
++        reported_distance = abs(candidate['x'] - source['x']) + abs(
++            candidate['y'] - source['y']
++        )
++        shared = len(source_interests & set(json.loads(candidate['interests'])))
++        degree = degrees.get(candidate_id, 7)
++        result.append(
++            {
++                'id': candidate_id,
++                'display': candidate['display'],
++                'role': candidate['role'],
++                'shared': shared,
++                'degree': degree,
++                'distance': euclidean_distance,
++                '_reported_distance': reported_distance,
++            }
++        )
++
++    result.sort(key=lambda item: (-item['shared'], item['degree'], item['distance'], item['id']))
++    for item in result:
++        item['distance'] = item.pop('_reported_distance')
+     return result
+ 
+-def connection_allowed(db,actor,target,decision,existing):return True
+-def message_allowed(db,actor,target):return True
+-def invite_allowed(db,actor,target,group):return True
+-def post_allowed(db,actor,group):return True
+-def like_allowed(db,actor,post,group):return True
+-def store_like(db,actor,post):db.execute('INSERT OR IGNORE INTO likes VALUES(?,?)',(post,actor))
+-def membership_allowed(user,receipt):return True
+-def apply_membership(db,user,receipt):
+-    db.execute('INSERT OR IGNORE INTO payments VALUES(?,?,?)',(receipt['id'],user['id'],receipt['plan']))
+-    db.execute('UPDATE users SET plan=? WHERE id=?',(receipt['plan'],user['id']))
+-def featured_allowed(user):return True
++
++def connection_allowed(db, actor, target, decision, existing):
++    """Check a request/accept operation without changing any state."""
++    if blocked_either(db, actor, target):
++        return False
++
++    if decision == 'request':
++        # A second request from either endpoint is an idempotent no-op.  It is
++        # still subject to the current blocking rule above.
++        return True
++
++    # Acceptance requires a connection request to exist.  The original
++    # requester may never approve their own request.  Once accepted, only the
++    # original recipient can repeat the accept operation idempotently.
++    if existing is None:
++        return False
++    if existing['requester'] == actor:
++        return False
++    return True
++
++
++def message_allowed(db, actor, target):
++    connection = db.execute(
++        '''SELECT accepted FROM connections
++           WHERE (a=? AND b=?) OR (a=? AND b=?)''',
++        (actor, target, target, actor),
++    ).fetchone()
++    return bool(
++        connection is not None
++        and connection['accepted']
++        and unblocked_pair(db, actor, target)
++    )
++
++
++def _member(db, group_id, user_id):
++    return bool(
++        db.execute(
++            'SELECT 1 FROM members WHERE group_id=? AND user_id=?',
++            (group_id, user_id),
++        ).fetchone()
++    )
++
++
++def invite_allowed(db, actor, target, group):
++    return (
++        actor == group['owner']
++        and unblocked_pair(db, group['owner'], target)
++    )
++
++
++def post_allowed(db, actor, group):
++    return (
++        _member(db, group['id'], actor)
++        and unblocked_pair(db, actor, group['owner'])
++    )
++
++
++def post_visible(db, actor, post, group):
++    """Whether actor can see a post under dashboard/group visibility rules."""
++    return (
++        post_allowed(db, actor, group)
++        and unblocked_pair(db, actor, post['author'])
++    )
++
++
++def like_allowed(db, actor, post, group):
++    # A like is a write on a visible post.  The explicit author check is kept
++    # in addition to post_visible so both block directions are enforced even
++    # if this function is reused outside the dashboard.
++    return (
++        post_visible(db, actor, post, group)
++        and unblocked_pair(db, actor, post['author'])
++    )
++
++
++def store_like(db, actor, post):
++    db.execute(
++        'INSERT OR IGNORE INTO likes(post_id,user_id) VALUES(?,?)',
++        (post, actor),
++    )
++
++
++def membership_allowed(user, receipt):
++    if receipt.get('user_id') != user['id']:
++        return False
++    if user['role'] == 'user':
++        allowed = {'free', 'plus'}
++    elif user['role'] == 'business':
++        allowed = {'free', 'local', 'regional', 'global'}
++    else:
++        return False
++    return receipt.get('plan') in allowed
++
++
++def apply_membership(db, user, receipt):
++    """Record a first redemption and replace the active plan.
++
++    The caller owns an IMMEDIATE transaction.  Returning False means a
++    redemption was already consumed by this same account and must not restore
++    the old plan on replay.  A receipt consumed by another account is not
++    applied either.
++    """
++    consumed = db.execute(
++        'SELECT user_id FROM payments WHERE receipt_id=?',
++        (receipt['id'],),
++    ).fetchone()
++    if consumed is not None:
++        return consumed['user_id'] == user['id']
++
++    db.execute(
++        'INSERT INTO payments(receipt_id,user_id,plan) VALUES(?,?,?)',
++        (receipt['id'], user['id'], receipt['plan']),
++    )
++    db.execute(
++        'UPDATE users SET plan=? WHERE id=?',
++        (receipt['plan'], user['id']),
++    )
++    return True
++
++
++def featured_allowed(user):
++    return (
++        user['role'] == 'business'
++        and user['plan'] in {'local', 'regional', 'global'}
++    )
+diff --git a/storage.py b/storage.py
+index 19eb54003bf974818f623ba8878f2ea059a5d655..7fbe31c7de2becf7fe615ffaad5253f8381c89c5 100644
+--- a/storage.py
++++ b/storage.py
+@@ -5,44 +5,143 @@ import sqlite3
+ 
+ 
+ def connect(path):
++    """Open one short-lived application connection.
++
++    A connection is deliberately opened per HTTP request.  SQLite's busy
++    timeout makes concurrent requests wait for the writer holding the lock,
++    while the request handler uses an immediate transaction for mutations.
++    """
+     db = sqlite3.connect(path, timeout=10)
+     db.row_factory = sqlite3.Row
+     db.execute('PRAGMA foreign_keys=ON')
++    db.execute('PRAGMA busy_timeout=10000')
+     return db
+ 
+ 
+ def password_hash(value):
+-    return hashlib.sha256(value.encode()).hexdigest()
++    return hashlib.sha256(value.encode('utf-8')).hexdigest()
+ 
+ 
+ def initialize(path, fixtures):
++    """Create the schema and seed a database exactly once.
++
++    The fixture file is an input to a new database, not a source of data to
++    merge on every restart.  Consequently profiles, sessions, relationships,
++    posts, messages, likes and membership redemptions all survive a restart.
++    """
+     with connect(path) as db:
+         db.executescript('''
+-        CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, display TEXT NOT NULL,
+-          role TEXT NOT NULL, password_hash TEXT NOT NULL, x REAL NOT NULL, y REAL NOT NULL,
+-          interests TEXT NOT NULL, plan TEXT NOT NULL DEFAULT 'free');
+-        CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id));
+-        CREATE TABLE IF NOT EXISTS connections(a TEXT, b TEXT, requester TEXT, accepted INTEGER,
+-          PRIMARY KEY(a,b));
+-        CREATE TABLE IF NOT EXISTS blocks(actor TEXT, target TEXT, PRIMARY KEY(actor,target));
+-        CREATE TABLE IF NOT EXISTS groups(id TEXT PRIMARY KEY, owner TEXT, name TEXT);
+-        CREATE TABLE IF NOT EXISTS members(group_id TEXT, user_id TEXT, PRIMARY KEY(group_id,user_id));
+-        CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY, sender TEXT, recipient TEXT, content TEXT);
+-        CREATE TABLE IF NOT EXISTS posts(id TEXT PRIMARY KEY, group_id TEXT, author TEXT, content TEXT, featured INTEGER);
+-        CREATE TABLE IF NOT EXISTS likes(post_id TEXT, user_id TEXT, PRIMARY KEY(post_id,user_id));
+-        CREATE TABLE IF NOT EXISTS payments(receipt_id TEXT PRIMARY KEY, user_id TEXT, plan TEXT);
+-        CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY, value TEXT);
++        CREATE TABLE IF NOT EXISTS users(
++          id TEXT PRIMARY KEY,
++          display TEXT NOT NULL,
++          role TEXT NOT NULL,
++          password_hash TEXT NOT NULL,
++          x REAL NOT NULL,
++          y REAL NOT NULL,
++          interests TEXT NOT NULL,
++          plan TEXT NOT NULL DEFAULT 'free'
++        );
++        CREATE TABLE IF NOT EXISTS sessions(
++          token TEXT PRIMARY KEY,
++          user_id TEXT REFERENCES users(id)
++        );
++        CREATE TABLE IF NOT EXISTS connections(
++          a TEXT NOT NULL,
++          b TEXT NOT NULL,
++          requester TEXT NOT NULL,
++          accepted INTEGER NOT NULL,
++          PRIMARY KEY(a,b)
++        );
++        CREATE TABLE IF NOT EXISTS blocks(
++          actor TEXT NOT NULL,
++          target TEXT NOT NULL,
++          PRIMARY KEY(actor,target)
++        );
++        CREATE TABLE IF NOT EXISTS groups(
++          id TEXT PRIMARY KEY,
++          owner TEXT NOT NULL,
++          name TEXT NOT NULL
++        );
++        CREATE TABLE IF NOT EXISTS members(
++          group_id TEXT NOT NULL,
++          user_id TEXT NOT NULL,
++          PRIMARY KEY(group_id,user_id)
++        );
++        CREATE TABLE IF NOT EXISTS messages(
++          id TEXT PRIMARY KEY,
++          sender TEXT NOT NULL,
++          recipient TEXT NOT NULL,
++          content TEXT NOT NULL
++        );
++        CREATE TABLE IF NOT EXISTS posts(
++          id TEXT PRIMARY KEY,
++          group_id TEXT NOT NULL,
++          author TEXT NOT NULL,
++          content TEXT NOT NULL,
++          featured INTEGER NOT NULL
++        );
++        CREATE TABLE IF NOT EXISTS likes(
++          post_id TEXT NOT NULL,
++          user_id TEXT NOT NULL,
++          PRIMARY KEY(post_id,user_id)
++        );
++        CREATE TABLE IF NOT EXISTS payments(
++          receipt_id TEXT PRIMARY KEY,
++          user_id TEXT NOT NULL,
++          plan TEXT NOT NULL
++        );
++        CREATE TABLE IF NOT EXISTS metadata(
++          key TEXT PRIMARY KEY,
++          value TEXT NOT NULL
++        );
++        CREATE INDEX IF NOT EXISTS connections_a_idx ON connections(a);
++        CREATE INDEX IF NOT EXISTS connections_b_idx ON connections(b);
++        CREATE INDEX IF NOT EXISTS messages_sender_idx ON messages(sender);
++        CREATE INDEX IF NOT EXISTS messages_recipient_idx ON messages(recipient);
++        CREATE INDEX IF NOT EXISTS posts_group_idx ON posts(group_id);
++        CREATE INDEX IF NOT EXISTS blocks_target_idx ON blocks(target);
+         ''')
+-        if not db.execute("SELECT 1 FROM metadata WHERE key='seeded'").fetchone():
+-            for u in fixtures['accounts']:
+-                db.execute('INSERT INTO users VALUES(?,?,?,?,?,?,?,?)',
+-                    (u['id'],u['display'],u['role'],password_hash(u['password']),u['x'],u['y'],json.dumps(u['interests']),'free'))
+-            for a,b in fixtures.get('connections',[]):
+-                a,b=sorted([a,b])
+-                db.execute('INSERT INTO connections VALUES(?,?,?,1)',(a,b,a))
+-            db.execute("INSERT INTO metadata VALUES('seeded','yes')")
++
++        seeded = db.execute(
++            "SELECT 1 FROM metadata WHERE key='seeded'"
++        ).fetchone()
++        if seeded is None:
++            # A database containing users is already an existing application
++            # database even if it predates the marker.  This avoids merging a
++            # newly supplied fixture into user-created state.
++            has_users = db.execute('SELECT 1 FROM users LIMIT 1').fetchone()
++            if has_users is None:
++                for account in fixtures.get('accounts', []):
++                    db.execute(
++                        '''INSERT INTO users
++                           (id,display,role,password_hash,x,y,interests,plan)
++                           VALUES(?,?,?,?,?,?,?,?)''',
++                        (
++                            account['id'],
++                            account['display'],
++                            account['role'],
++                            password_hash(account['password']),
++                            account['x'],
++                            account['y'],
++                            json.dumps(account['interests'], ensure_ascii=False),
++                            'free',
++                        ),
++                    )
++                for pair in fixtures.get('connections', []):
++                    # Fixture connections are accepted and undirected.  Store
++                    # one canonical row, as all later connection operations do.
++                    left, right = sorted((pair[0], pair[1]))
++                    db.execute(
++                        '''INSERT OR IGNORE INTO connections
++                           (a,b,requester,accepted) VALUES(?,?,?,1)''',
++                        (left, right, left),
++                    )
++            db.execute("INSERT OR REPLACE INTO metadata(key,value) VALUES('seeded','yes')")
+ 
+ 
+ def public_user(row):
+-    return {k:json.loads(row[k]) if k=='interests' else row[k]
+-            for k in ('id','display','role','x','y','interests','plan')}
++    """Return only the public account fields promised by the HTTP contract."""
++    return {
++        key: json.loads(row[key]) if key == 'interests' else row[key]
++        for key in ('id', 'display', 'role', 'x', 'y', 'interests', 'plan')
++    }
+diff --git a/web/index.html b/web/index.html
+index 2bc8c6ffa63661a5b668778a921c27479ed17421..2a07d2841223a04e545bf8b5e7af65123dbfba9e 100644
+--- a/web/index.html
++++ b/web/index.html
+@@ -1,7 +1,7 @@
+ <!doctype html>
+ <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Local Network</title><link rel="stylesheet" href="/style.css"></head>
+ <body><header><h1>Local Network</h1><p>Discover shared interests. Build local connections.</p><p>Synthetic accounts and coordinates · Offline demonstration</p></header>
+-<main><form id="login"><h2>Sign in</h2><label>Account <input id="username" required value="u1"></label><label>Password <input id="password" type="password" required value="demo-u1"></label><button>Sign in</button></form>
++<main><form id="login"><h2>Sign in</h2><label>Account <input id="username" required></label><label>Password <input id="password" type="password" required></label><button>Sign in</button></form>
+ <p id="feedback" role="status" aria-live="polite"></p>
+ <div id="workspace" hidden><section class="identity"><h2 id="identity"></h2><span id="plan"></span><button id="logout">Sign out</button></section>
+ <div class="columns"><section><h2>Your interests</h2><form id="profile"><label>Interest tokens, comma separated <input id="interests"></label><div class="coordinates"><label>X (km) <input id="x" type="number" step="any" required></label><label>Y (km) <input id="y" type="number" step="any" required></label></div><button>Save profile</button></form></section>
+diff --git a/web/style.css b/web/style.css
+index 6f0892a2ad492d2460d4f3056476c47d06808bc0..cf6113ec54d4d33ab00ca58720cf104eec47e352 100644
+--- a/web/style.css
++++ b/web/style.css
+@@ -1 +1 @@
+-:root{font-family:system-ui,sans-serif;color:#182f31;background:#f3f5ef}*{box-sizing:border-box}body{margin:0}header{padding:2rem max(1rem,calc((100vw - 1120px)/2));background:#173e40;color:white}h1{font-size:2.4rem;margin:0}header p{margin:.6rem 0}main{max-width:1160px;margin:auto;padding:1.3rem}section,#login{padding:1.3rem;background:white;border:1px solid #d2dcd2;border-radius:8px}h2{font-size:1.25rem;margin-top:0}.columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.identity{display:flex;align-items:center;gap:1rem;margin-bottom:1rem}.identity h2{margin:0}.identity button{margin-left:auto}label{display:block;margin:.7rem 0}input,select,textarea{display:block;width:100%;padding:.6rem;border:1px solid #718583;border-radius:4px;font:inherit}textarea{min-height:80px}button{padding:.6rem .85rem;border:0;border-radius:4px;background:#24666b;color:white;cursor:pointer;font:inherit}button:hover{background:#173e40}.actions{display:flex;gap:.4rem;flex-wrap:wrap}.coordinates{display:grid;grid-template-columns:1fr 1fr;gap:.7rem}.check{display:flex;gap:.5rem;align-items:center}.check input{width:auto}article{border-top:1px solid #dde4de;padding:.8rem 0;overflow-wrap:anywhere}article h3{font-size:1rem;margin:.2rem 0}article p{margin:.4rem 0}#feedback{min-height:1.5rem;font-weight:600}#login{max-width:430px}#plan{background:#eaf0d5;padding:.4rem;border-radius:4px}@media(max-width:700px){.columns{grid-template-columns:1fr}.identity{flex-wrap:wrap}header{padding:1.5rem}h1{font-size:2rem}}
++:root{font-family:system-ui,sans-serif;color:#182f31;background:#f3f5ef}*{box-sizing:border-box}body{margin:0}header{padding:2rem max(1rem,calc((100vw - 1120px)/2));background:#173e40;color:white}h1{font-size:2.4rem;margin:0;overflow-wrap:anywhere}header p{margin:.6rem 0}main{max-width:1160px;margin:auto;padding:1.3rem}section,#login{padding:1.3rem;background:white;border:1px solid #d2dcd2;border-radius:8px}h2{font-size:1.25rem;margin-top:0}.columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.identity{display:flex;align-items:center;gap:1rem;margin-bottom:1rem}.identity h2{margin:0;min-width:0;overflow-wrap:anywhere}.identity button{margin-left:auto}label{display:block;margin:.7rem 0}input,select,textarea{display:block;width:100%;padding:.6rem;border:1px solid #718583;border-radius:4px;font:inherit}textarea{min-height:80px}button{padding:.6rem .85rem;border:0;border-radius:4px;background:#24666b;color:white;cursor:pointer;font:inherit}button:hover{background:#173e40}.actions{display:flex;gap:.4rem;flex-wrap:wrap}.coordinates{display:grid;grid-template-columns:1fr 1fr;gap:.7rem}.check{display:flex;gap:.5rem;align-items:center}.check input{width:auto}article{border-top:1px solid #dde4de;padding:.8rem 0;overflow-wrap:anywhere}article h3{font-size:1rem;margin:.2rem 0}article p{margin:.4rem 0}#feedback{min-height:1.5rem;font-weight:600}#login{max-width:430px}#plan{background:#eaf0d5;padding:.4rem;border-radius:4px}@media(max-width:700px){.columns{grid-template-columns:1fr}.identity{flex-wrap:wrap}header{padding:1.5rem}h1{font-size:2rem}}
+diff --git a/web/ui.js b/web/ui.js
+index 51fd37a7b93418cbe2e39e92658a448fda747ab7..040cc32a970af3db7bb7c341a731ff39b530cde7 100644
+--- a/web/ui.js
++++ b/web/ui.js
+@@ -5,7 +5,7 @@ async function api(path,method='GET',body){
+   const response=await fetch(path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
+   const data=await response.json();if(!response.ok)throw Error(data.error?.code||'request_failed');return data;
+ }
+-function clearSession(){token=null;generation++;$('workspace').hidden=true;$('login').hidden=false;for(const id of ['results','connections','messages','posts','target','group-select'])$(id).replaceChildren();$('message').value='';$('content').value='';$('receipt').value='';$('identity').textContent='';$('plan').textContent='';}
++function clearSession(){token=null;generation++;$('workspace').hidden=true;$('login').hidden=false;for(const id of ['results','connections','messages','posts','target','group-select'])$(id).replaceChildren();for(const id of ['message','content','receipt','interests','x','y','password','group-name'])$(id).value='';$('featured').checked=false;$('identity').textContent='';$('plan').textContent='';$('feedback').textContent='';}
+ async function refresh(){
+   const epoch=generation;
+   const [me,people,dash]=await Promise.all([api('/api/me'),api('/api/people'),api('/api/dashboard')]);

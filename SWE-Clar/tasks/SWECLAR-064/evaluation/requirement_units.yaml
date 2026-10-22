@@ -1,0 +1,197 @@
+schema_version: 1
+task_id: SWECLAR-064
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Event matching, attendance and conversation-permission module
+requirement_units:
+- ru_id: RU-001
+  name: MVP domain entry point
+  content: process_matchmaker_command(state,command) returns a new JSON-compatible state without mutating
+    inputs. No returned user record, result, message, report or alert may expose stored phone or OTP credentials.
+    The supplied SQLite CLI keeps local synthetic credentials separately, exposes a sanitized state, and
+    injects credentials for command processing. Preserve init/show/act persistence and atomic rejection.
+    Unknown/malformed commands reject with a nonempty error.code and leave existing business state intact,
+    except required credential stripping from returned snapshots. Extra metadata, alternate error wording
+    and internal key choices are allowed.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for mvp domain entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_matchmaker_command
+      signature: process_matchmaker_command(state,command) -> dict
+    inputs:
+      state: Synthetic local records
+      command: Public command schema in README
+    output:
+      type: dict
+      meaning: New sanitized state and result/error; actual CLI persistence
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Bounded backend component, no external SMS/Firebase/full dating application. Mutual-interest-only
+    matching and exact waitlist transitions are reconstruction choices.
+- ru_id: RU-002
+  name: Phone authentication and profiles
+  content: verify_otp requires an existing user and a nonempty string OTP exactly matching that user's
+    supplied local otp; set verified=true and result.verified=true. A missing/incorrect code rejects without
+    changing verification state. Only a verified user may update_profile. Store dance_style, skill_level
+    and preferred_role as profile fields and return result.profile; the first two are nonempty strings
+    and preferred_role is lead or follow. Do not allow additional command fields to overwrite identity,
+    phone, OTP, approval or verified status. Phone/OTP values are private local authentication fixtures,
+    never public profile fields or emitted delivery records. This module does not send SMS.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for phone authentication and profiles.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_matchmaker_command
+      signature: process_matchmaker_command(state,command) -> dict
+    inputs:
+      state: Synthetic local records
+      command: Public command schema in README
+    output:
+      type: dict
+      meaning: New sanitized state and result/error; actual CLI persistence
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Bounded backend component, no external SMS/Firebase/full dating application. Mutual-interest-only
+    matching and exact waitlist transitions are reconstruction choices.
+- ru_id: RU-003
+  name: Approved-organizer events
+  content: Only a known user whose approved_organizer is boolean true can create a unique nonempty event_id.
+    Capacity contains nonnegative integer lead/follow limits, excluding booleans. Event records store
+    organizer_id, capacity, attendees and waitlist arrays; entries have user_id and role. Existing users
+    may register once per event as lead/follow; available capacity confirms, otherwise waitlists. Duplicate
+    registration may reject or return the unchanged existing registration. registration_status is confirmed
+    or waitlisted. Only that event's still-approved organizer may override an existing attendee/waitlisted
+    role. A confirmed attendee can move only if destination capacity (excluding self) allows; otherwise
+    reject atomically. An overridden waitlisted entry moves to attendees if the requested role has space,
+    otherwise remains waitlisted with its updated role. No automatic waitlist promotion is required when
+    another entry moves; use explicit override. Capacity can never be exceeded.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for approved-organizer events.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_matchmaker_command
+      signature: process_matchmaker_command(state,command) -> dict
+    inputs:
+      state: Synthetic local records
+      command: Public command schema in README
+    output:
+      type: dict
+      meaning: New sanitized state and result/error; actual CLI persistence
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Bounded backend component, no external SMS/Firebase/full dating application. Mutual-interest-only
+    matching and exact waitlist transitions are reconstruction choices.
+- ru_id: RU-004
+  name: Matching and chat access
+  content: express_interest requires two distinct existing users and records directed interest at most
+    once. A match becomes active only after reciprocal interest and only when neither has blocked the
+    other. Repeated interest cannot create duplicate active matches. Internal match keys are free; match
+    records expose users (the pair of IDs) and active. send_message requires two distinct existing users
+    in an active unblocked match and nonempty string text. Append exactly one message with sender_id,recipient_id,text.
+    Otherwise reject without appending. list_matches(user_id) returns result.matches containing only that
+    user's active unblocked match records, preserving the users/active fields. Existing users can use
+    these commands; only profile editing specifically requires verified=true. Supplied IDs represent trusted
+    upstream actors, not a network authentication implementation.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for matching and chat access.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_matchmaker_command
+      signature: process_matchmaker_command(state,command) -> dict
+    inputs:
+      state: Synthetic local records
+      command: Public command schema in README
+    output:
+      type: dict
+      meaning: New sanitized state and result/error; actual CLI persistence
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Bounded backend component, no external SMS/Firebase/full dating application. Mutual-interest-only
+    matching and exact waitlist transitions are reconstruction choices.
+- ru_id: RU-005
+  name: Blocking and reporting
+  content: block requires distinct existing user_id/target_id, is repeat-safe, prevents interest from
+    creating a new match in either direction, deactivates/removes any mutual match and disallows chat
+    and list_matches visibility in both directions. Other pairs remain unaffected. report requires distinct
+    existing users and nonempty string reason; append one audit record to reports and one corresponding
+    admin_alerts record containing reporter_id,target_id,reason. Blocking does not prevent reporting.
+    Both records and all returned public data must exclude stored phone/OTP credentials. Alerts are internal
+    records, not external delivery.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for blocking and reporting.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_matchmaker_command
+      signature: process_matchmaker_command(state,command) -> dict
+    inputs:
+      state: Synthetic local records
+      command: Public command schema in README
+    output:
+      type: dict
+      meaning: New sanitized state and result/error; actual CLI persistence
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Bounded backend component, no external SMS/Firebase/full dating application. Mutual-interest-only
+    matching and exact waitlist transitions are reconstruction choices.

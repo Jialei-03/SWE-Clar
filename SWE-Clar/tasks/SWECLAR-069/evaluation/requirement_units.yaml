@@ -1,0 +1,381 @@
+schema_version: 1
+task_id: SWECLAR-069
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Transactional SQLite credits ledger and lead entitlement CLI
+requirement_units:
+- ru_id: RU-001
+  name: Marketplace action entry point
+  content: Process one marketplace action into a new state without mutating the supplied state or action.
+    Retain the supplied transactional SQLite/CLI adapter; grants, debits and entitlement state must survive
+    fresh processes, with concurrent actions serialized atomically. Extra result metadata is allowed.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for marketplace action entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_marketplace_action
+      signature: 'process_marketplace_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        create_user:
+          fields:
+          - categories
+          - role
+          - type
+          - user_id
+      protocol_fields:
+      - categories
+      - role
+      - type
+      - user_id
+      - users
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Credits, user roles, category limits and subscription periods are source-grounded. Exact IDs,
+    retries/conflicts and completed-debit behavior are local component conventions. Non-refund here does
+    not decide all commercial dispute, cancellation or chargeback workflows.
+- ru_id: RU-002
+  name: Users and category preferences
+  content: Create contractor or supplier users with one through five unique categories and reject unsupported
+    roles or category counts.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for users and category preferences.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_marketplace_action
+      signature: 'process_marketplace_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        create_user:
+          fields:
+          - categories
+          - role
+          - type
+          - user_id
+      protocol_fields:
+      - categories
+      - role
+      - type
+      - user_id
+      - users
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - error
+      - error.code
+      - users
+      - users.<id>
+      - users.<id>.role
+      required_tokens:
+        error.code:
+        - invalid_user
+      field_schemas:
+        error.code:
+          type: string
+        users.<id>.role:
+          type: string
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Credits, user roles, category limits and subscription periods are source-grounded. Exact IDs,
+    retries/conflicts and completed-debit behavior are local component conventions. Non-refund here does
+    not decide all commercial dispute, cancellation or chargeback workflows.
+- ru_id: RU-003
+  name: Subscriptions and credits
+  content: Activate monthly, quarterly, or yearly subscriptions, add the supplied positive credit grant
+    exactly once per payment ID, and expose balances only as credits rather than tokens.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for subscriptions and credits.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_marketplace_action
+      signature: 'process_marketplace_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        create_user:
+          fields:
+          - categories
+          - role
+          - type
+          - user_id
+        subscribe:
+          fields:
+          - credit_grant
+          - payment_id
+          - period
+          - type
+          - user_id
+      protocol_fields:
+      - categories
+      - credit_grant
+      - jobs
+      - ledger
+      - payment_id
+      - period
+      - processed_ids
+      - role
+      - type
+      - user_id
+      - users
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - error
+      - error.code
+      - ledger
+      - users
+      - users.<id>
+      - users.<id>.credits
+      required_tokens:
+        error.code:
+        - invalid_subscription
+        - event_conflict
+      field_schemas:
+        error.code:
+          type: string
+        ledger:
+          type: array
+          items:
+            type: object
+        users.<id>.credits:
+          type: integer
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Credits, user roles, category limits and subscription periods are source-grounded. Exact IDs,
+    retries/conflicts and completed-debit behavior are local component conventions. Non-refund here does
+    not decide all commercial dispute, cancellation or chargeback workflows.
+- ru_id: RU-004
+  name: Job access and category cap
+  content: Unlock an eligible job by debiting its positive credit cost once, reject insufficient balances,
+    and allow at most five distinct unlocked jobs per category for each user.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for job access and category cap.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_marketplace_action
+      signature: 'process_marketplace_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        create_user:
+          fields:
+          - categories
+          - role
+          - type
+          - user_id
+        subscribe:
+          fields:
+          - credit_grant
+          - payment_id
+          - period
+          - type
+          - user_id
+        unlock_job:
+          fields:
+          - event_id
+          - job_id
+          - type
+          - user_id
+      protocol_fields:
+      - categories
+      - credit_grant
+      - event_id
+      - job_id
+      - jobs
+      - ledger
+      - payment_id
+      - period
+      - processed_ids
+      - role
+      - type
+      - user_id
+      - users
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - error
+      - error.code
+      - users
+      - users.<id>
+      - users.<id>.credits
+      required_tokens:
+        error.code:
+        - category_access_cap
+        - ineligible_category
+        - insufficient_credits
+        - invalid_unlock
+      field_schemas:
+        error.code:
+          type: string
+        users.<id>.credits:
+          type: integer
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Credits, user roles, category limits and subscription periods are source-grounded. Exact IDs,
+    retries/conflicts and completed-debit behavior are local component conventions. Non-refund here does
+    not decide all commercial dispute, cancellation or chargeback workflows.
+- ru_id: RU-005
+  name: Non-refundable ledger and idempotency
+  content: Every grant and debit creates an immutable ledger entry keyed by its external ID; replaying
+    an identical event is idempotent, conflicting reuse of an ID is rejected, a job cannot be unlocked
+    twice under a new ID, and completed debits are not refunded by later failures. This applies to failed
+    later unlock attempts in this local component; broader disputes, refunds and chargebacks are outside
+    scope.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for non-refundable ledger and idempotency.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_marketplace_action
+      signature: 'process_marketplace_action(state: dict, action: dict) -> dict'
+    inputs:
+      arguments:
+      - state
+      - action
+      action_variants:
+        create_user:
+          fields:
+          - categories
+          - role
+          - type
+          - user_id
+        subscribe:
+          fields:
+          - credit_grant
+          - payment_id
+          - period
+          - type
+          - user_id
+        unlock_job:
+          fields:
+          - event_id
+          - job_id
+          - type
+          - user_id
+      protocol_fields:
+      - categories
+      - credit_grant
+      - event_id
+      - job_id
+      - jobs
+      - ledger
+      - payment_id
+      - period
+      - processed_ids
+      - role
+      - type
+      - user_id
+      - users
+    output:
+      type: dict
+      meaning: A deterministic JSON-compatible result; input objects are not mutated.
+      asserted_field_paths:
+      - error
+      - error.code
+      - jobs
+      - jobs.<id>
+      - jobs.<id>.credit_cost
+      - ledger
+      - result
+      - result.replayed
+      - users
+      - users.<id>
+      - users.<id>.credits
+      required_tokens:
+        error.code:
+        - event_conflict
+        - job_already_unlocked
+        result.replayed:
+        - true
+      field_schemas:
+        error.code:
+          type: string
+        ledger:
+          type: array
+          items:
+            type: object
+        result.replayed:
+          type: boolean
+        users.<id>.credits:
+          type: integer
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Credits, user roles, category limits and subscription periods are source-grounded. Exact IDs,
+    retries/conflicts and completed-debit behavior are local component conventions. Non-refund here does
+    not decide all commercial dispute, cancellation or chargeback workflows.

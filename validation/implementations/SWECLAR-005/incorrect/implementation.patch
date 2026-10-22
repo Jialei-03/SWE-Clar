@@ -1,0 +1,668 @@
+diff --git a/src/app.js b/src/app.js
+index 901935040fb89f87cb152586919bf346904461a0..50b9598ce43ff018a4b378f275d3bc3b4e2dae99 100644
+--- a/src/app.js
++++ b/src/app.js
+@@ -1,53 +1,294 @@
+-import {buildCyclePlan,dateDay,PHASES} from './cycle-planner.js';
+-import {readStore,writeStore,emptyStore,defaultSettings,validateSettings} from './journal-store.js';
+-const $=id=>document.getElementById(id);
+-let state=readStore(),generation=0,busy=false,lastDay=null;
+-const today=()=>new Date().toISOString().slice(0,10);
+-const active=()=>state.profiles.find(p=>p.id===state.activeId);
+-function planFor(profile,date){const {reminderTime,remindersEnabled,...input}=profile.settings;return buildCyclePlan({...input,asOf:date});}
+-function node(tag,text){const n=document.createElement(tag);n.textContent=text;return n;}
+-function save(){writeStore(state);}
+-function populate(){
+-  const selection=$('profile-select');selection.replaceChildren(...state.profiles.map(p=>{const n=node('option',p.label);n.value=p.id;return n;}));
+-  selection.value=state.activeId??'';
+-  const profile=active();$('workspace').hidden=!profile;if(!profile)return;
+-  const s=profile.settings;
+-  $('period-start').value=s.periodStart;$('cycle-length').value=s.cycleLength;$('period-length').value=s.periodLength;$('seed').value=s.seed??0;
+-  $('prompt-pools').value=JSON.stringify(s.promptPools??{},null,2);$('reminder-time').value=s.reminderTime;$('reminders-enabled').checked=s.remindersEnabled;
++import { buildCyclePlan } from './cycle-planner.js';
++import { readStore, writeStore, defaultSettings, validateSettings } from './journal-store.js';
++
++const $ = id => document.getElementById(id);
++const today = () => new Date().toISOString().slice(0, 10);
++
++let state = readStore();
++let lastRenderedDay = null;
++const inFlightReminders = new Set();
++
++const registration = navigator.serviceWorker
++  .register('/sw.js')
++  .then(() => navigator.serviceWorker.ready);
++registration.catch(() => {
++  $('feedback').textContent = 'notification_unavailable';
++});
++
++const active = () => state.profiles.find(profile => profile.id === state.activeId);
++
++function planFor(profile, date) {
++  const { reminderTime, remindersEnabled, ...planning } = profile.settings;
++  return buildCyclePlan({ ...planning, asOf: date });
++}
++
++function node(tag, text) {
++  const element = document.createElement(tag);
++  element.textContent = text;
++  return element;
++}
++
++function save(nextState = state) {
++  writeStore(nextState);
++}
++
++function setPermissionText() {
++  $('permission').textContent = typeof Notification === 'undefined' ? 'unavailable' : Notification.permission;
++}
++
++function render() {
++  const profile = active();
++  if (!profile) return;
++
++  const date = today();
++  const plan = planFor(profile, date);
++  lastRenderedDay = date;
++
++  $('today').textContent = date;
++  $('journal-title').textContent = profile.label;
++  $('current-day').textContent = String(plan.currentDay);
++  $('current-phase').textContent = plan.currentPhase;
++  $('cycle-start').textContent = plan.cycleStart;
++  $('recommendation').textContent = plan.recommendation ?? 'No prompt for this phase';
++  $('timeline').replaceChildren(
++    ...plan.timeline.map(day => {
++      const element = node('div', '');
++      element.className = 'day';
++      element.dataset.date = day.date;
++      element.dataset.phase = day.phase;
++      element.dataset.day = String(day.day);
++      element.append(node('strong', String(day.day)), node('span', day.date), node('p', day.phase));
++      if (day.date === date) element.setAttribute('aria-current', 'date');
++      return element;
++    }),
++  );
++  $('reminder-history').replaceChildren(...profile.notifiedDays.map(value => node('li', value)));
++  setPermissionText();
++}
++
++function populate() {
++  const selection = $('profile-select');
++  selection.replaceChildren(
++    ...state.profiles.map(profile => {
++      const option = node('option', profile.label);
++      option.value = profile.id;
++      return option;
++    }),
++  );
++  selection.value = state.activeId ?? '';
++
++  const profile = active();
++  $('workspace').hidden = !profile;
++  if (!profile) {
++    lastRenderedDay = null;
++    setPermissionText();
++    return;
++  }
++
++  const settings = profile.settings;
++  $('period-start').value = settings.periodStart ?? '';
++  $('cycle-length').value = settings.cycleLength ?? '';
++  $('period-length').value = settings.periodLength ?? '';
++  $('seed').value = settings.seed ?? 0;
++  $('prompt-pools').value = JSON.stringify(
++    settings.promptPools === undefined ? {} : settings.promptPools,
++    null,
++    2,
++  );
++  $('reminder-time').value = settings.reminderTime ?? '';
++  $('reminders-enabled').checked = settings.remindersEnabled === true;
+   render();
+ }
+-function render(){
+-  const profile=active();if(!profile)return;
+-  const day=today(),plan=planFor(profile,day);lastDay=day;
+-  $('today').textContent=day;$('journal-title').textContent=profile.label;$('current-day').textContent=plan.currentDay;$('current-phase').textContent=plan.currentPhase;$('cycle-start').textContent=plan.cycleStart;
+-  $('recommendation').textContent=plan.recommendation??'No prompt for this phase';
+-  $('timeline').replaceChildren(...plan.timeline.map(d=>{const n=node('div','');n.className='day';n.dataset.date=d.date;n.dataset.phase=d.phase;n.dataset.day=d.day;n.append(node('strong',d.day),node('span',d.date),node('p',d.phase));if(d.date===day)n.setAttribute('aria-current','date');return n;}));
+-  $('reminder-history').replaceChildren(...profile.notifiedDays.map(d=>node('li',d)));
+-  $('permission').textContent=Notification.permission;
+-}
+-$('create-form').addEventListener('submit',event=>{
+-  event.preventDefault();$('feedback').textContent='';
+-  const label=$('label').value.trim();if(!label||label.length>60){$('feedback').textContent='invalid_input';return;}
+-  const profile={id:crypto.randomUUID(),label,settings:defaultSettings(today()),notifiedDays:[]};state.profiles.push(profile);state.activeId=profile.id;generation++;save();$('label').value='';populate();$('feedback').textContent='saved';
++
++function freshId() {
++  let id;
++  do {
++    if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
++      id = globalThis.crypto.randomUUID();
++    } else {
++      id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
++    }
++  } while (!id || state.profiles.some(profile => profile.id === id));
++  return id;
++}
++
++$('create-form').addEventListener('submit', event => {
++  event.preventDefault();
++  $('feedback').textContent = '';
++
++  const label = $('label').value.trim();
++  if (!label || label.length > 60) {
++    $('feedback').textContent = 'invalid_input';
++    return;
++  }
++
++  const profile = {
++    id: freshId(),
++    label,
++    settings: defaultSettings(today()),
++    notifiedDays: [],
++  };
++  const nextState = {
++    activeId: profile.id,
++    profiles: [...state.profiles, profile],
++  };
++
++  try {
++    save(nextState);
++    state = nextState;
++    $('label').value = '';
++    populate();
++    $('feedback').textContent = 'saved';
++    void maybeNotify();
++  } catch {
++    $('feedback').textContent = 'invalid_input';
++  }
++});
++
++$('profile-select').addEventListener('change', () => {
++  const selectedId = $('profile-select').value;
++  if (!state.profiles.some(profile => profile.id === selectedId)) return;
++
++  const nextState = { ...state, activeId: selectedId };
++  try {
++    save(nextState);
++    state = nextState;
++    $('feedback').textContent = '';
++    populate();
++    void maybeNotify();
++  } catch {
++    $('feedback').textContent = 'invalid_input';
++  }
+ });
+-$('profile-select').addEventListener('change',()=>{state.activeId=$('profile-select').value;generation++;save();$('feedback').textContent='';populate();});
+-$('settings-form').addEventListener('submit',event=>{
+-  event.preventDefault();$('feedback').textContent='';
+-  try{
+-    if(['cycle-length','period-length','seed'].some(id=>!$(id).value.trim()))throw Error('invalid_input');
+-    const settings={periodStart:$('period-start').value,cycleLength:Number($('cycle-length').value),periodLength:Number($('period-length').value),seed:Number($('seed').value),promptPools:JSON.parse($('prompt-pools').value),reminderTime:$('reminder-time').value,remindersEnabled:$('reminders-enabled').checked};
+-    validateSettings(settings);active().settings=settings;generation++;save();render();$('feedback').textContent='saved';
+-  }catch{$('feedback').textContent='invalid_input';}
++
++$('settings-form').addEventListener('submit', event => {
++  event.preventDefault();
++  $('feedback').textContent = '';
++
++  const profile = active();
++  if (!profile) {
++    $('feedback').textContent = 'invalid_input';
++    return;
++  }
++
++  try {
++    if (
++      !$('period-start').value.trim() ||
++      !$('cycle-length').value.trim() ||
++      !$('period-length').value.trim() ||
++      !$('seed').value.trim()
++    ) {
++      throw new Error('invalid_input');
++    }
++
++    const settings = {
++      periodStart: $('period-start').value,
++      cycleLength: Number($('cycle-length').value),
++      periodLength: Number($('period-length').value),
++      seed: Number($('seed').value),
++      promptPools: JSON.parse($('prompt-pools').value),
++      reminderTime: $('reminder-time').value,
++      remindersEnabled: $('reminders-enabled').checked,
++    };
++    validateSettings(settings);
++
++    const nextProfiles = state.profiles.map(candidate =>
++      candidate.id === profile.id ? { ...candidate, settings } : candidate,
++    );
++    const nextState = { ...state, profiles: nextProfiles };
++    save(nextState);
++    state = nextState;
++    render();
++    $('feedback').textContent = 'saved';
++    void maybeNotify();
++  } catch {
++    // Do not populate or render on failure: the submitted controls remain
++    // exactly as entered while the saved plan remains on screen.
++    $('feedback').textContent = 'invalid_input';
++  }
+ });
+-$('enable-notifications').addEventListener('click',async()=>{
+-  try{const permission=await Notification.requestPermission();$('permission').textContent=permission;$('feedback').textContent=permission==='granted'?'permission_granted':'permission_unavailable';}
+-  catch{$('feedback').textContent='permission_unavailable';}
++
++$('enable-notifications').addEventListener('click', async () => {
++  try {
++    if (typeof Notification === 'undefined') throw new Error('unavailable');
++    const permission = await Notification.requestPermission();
++    $('permission').textContent = permission;
++    $('feedback').textContent = permission === 'granted' ? 'permission_granted' : 'permission_unavailable';
++    if (permission === 'granted') void maybeNotify();
++  } catch {
++    $('feedback').textContent = 'permission_unavailable';
++    setPermissionText();
++  }
+ });
+-const registration=navigator.serviceWorker.register('/sw.js').then(()=>navigator.serviceWorker.ready);
+-registration.catch(()=>{$('feedback').textContent='notification_unavailable';});
+-async function maybeNotify(){
+-  // Complete actual reminder delivery after clarifying the scheduling policy.
++
++function reminderDue(settings, date) {
++  const [hours, minutes] = settings.reminderTime.split(':').map(Number);
++  const now = new Date();
++  // The date argument is deliberately only used to select the UTC journal
++  // day.  Comparing the UTC clock here handles the exact minute boundary.
++  if (now.toISOString().slice(0, 10) !== date) return false;
++  return now.getUTCHours() * 60 + now.getUTCMinutes() >= hours * 60 + minutes;
+ }
+ 
+-setInterval(()=>{if(active()&&lastDay!==today())render();maybeNotify();},500);
+-populate();maybeNotify();
++async function maybeNotify() {
++  const initialProfile = active();
++  if (!initialProfile || !initialProfile.settings.remindersEnabled) return;
++  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
++
++  const date = today();
++  if (initialProfile.notifiedDays.includes(date) || !reminderDue(initialProfile.settings, date)) return;
++
++  const key = `${initialProfile.id}:${date}`;
++  if (inFlightReminders.has(key)) return;
++  inFlightReminders.add(key);
++
++  try {
++    const serviceWorker = await registration;
++    const profile = state.profiles.find(candidate => candidate.id === initialProfile.id);
++
++    // Re-read all delivery decisions after registration resolves.  This makes
++    // an edit made while the registration was starting take effect before the
++    // browser notification is requested.
++    if (
++      !profile ||
++      state.activeId !== profile.id ||
++      !profile.settings.remindersEnabled ||
++      profile.notifiedDays.includes(date) ||
++      typeof Notification === 'undefined' ||
++      Notification.permission !== 'granted' ||
++      !reminderDue(profile.settings, date)
++    ) {
++      return;
++    }
++
++    const plan = planFor(profile, date);
++    if (plan.recommendation === null) return;
++
++    await serviceWorker.showNotification('Cycle Calendar reminder', {
++      body: plan.recommendation,
++      tag: `cycle:${profile.id}:${date}`,
++      data: { profileId: profile.id, date, phase: plan.currentPhase },
++    });
++
++    // The successful showNotification call is the delivery boundary.  Only
++    // after it resolves is this date persisted as delivered.
++    if (!profile.notifiedDays.includes(date)) {
++      profile.notifiedDays.push(date);
++      save(state);
++      if (active()?.id === profile.id) render();
++    }
++  } catch {
++    // Permission failures, unavailable registrations and browser delivery
++    // failures do not consume the date; a later check can retry.
++  } finally {
++    inFlightReminders.delete(key);
++  }
++}
++
++setInterval(() => {
++  if (active() && lastRenderedDay !== today()) render();
++  void maybeNotify();
++}, 500);
++
++populate();
++void maybeNotify();
+diff --git a/src/cycle-planner.js b/src/cycle-planner.js
+index cb5382bea8935f6e8720c52b526dbfdbe9215996..560e89f31e3b57a2d944fbd597472120e7c7cf89 100644
+--- a/src/cycle-planner.js
++++ b/src/cycle-planner.js
+@@ -1,38 +1,125 @@
+-export const PHASES=['menstrual','follicular','ovulatory','luteal'];
+-const DAY=86400000;
+-export function dateDay(value){
+-  if(typeof value!=='string'||!/^20\d\d-\d\d-\d\d$/.test(value))throw Error('invalid_input');
+-  const stamp=Date.parse(value+'T00:00:00Z');
+-  if(!Number.isFinite(stamp)||new Date(stamp).toISOString().slice(0,10)!==value)throw Error('invalid_input');
+-  return stamp/DAY;
+-}
+-export const dayDate=day=>new Date(day*DAY).toISOString().slice(0,10);
+-export function validate(input){
+-  if(!input||typeof input!=='object'||Array.isArray(input))throw Error('invalid_input');
+-  if(Object.keys(input).some(k=>!['periodStart','cycleLength','periodLength','asOf','seed','promptPools'].includes(k)))throw Error('invalid_input');
+-  dateDay(input.periodStart);dateDay(input.asOf);
+-  if(!Number.isInteger(input.cycleLength)||input.cycleLength<8||input.cycleLength>60||!Number.isInteger(input.periodLength)||input.periodLength<1||input.periodLength>input.cycleLength-6)throw Error('invalid_input');
+-  if(input.seed!==undefined&&(!Number.isInteger(input.seed)||input.seed<-2147483648||input.seed>2147483647))throw Error('invalid_input');
+-  const pools=input.promptPools??{};
+-  if(typeof pools!=='object'||Array.isArray(pools)||pools===null||Object.keys(pools).some(k=>!PHASES.includes(k)))throw Error('invalid_input');
+-  for(const pool of Object.values(pools))if(!Array.isArray(pool)||pool.length>32||pool.some(s=>typeof s!=='string'||s.length>200||!s.trim()))throw Error('invalid_input');
+-}
+-export function phaseLengths(cycleLength,periodLength){
+-  const rest=cycleLength-periodLength,part=Math.floor(rest/3);
+-  return [periodLength,part,part,rest-2*part];
+-}
+-export function selectPrompt(pool,seed,epochDay){
+-  if(!pool.length)return null;
+-  const index=((seed+epochDay)%pool.length+pool.length)%pool.length;
+-  return pool[0];
+-}
+-export function buildCyclePlan(input){
++export const PHASES = ['menstrual', 'follicular', 'ovulatory', 'luteal'];
++
++const DAY_MS = 86400000;
++const INPUT_KEYS = new Set(['periodStart', 'cycleLength', 'periodLength', 'asOf', 'seed', 'promptPools']);
++const DATE_PATTERN = /^20\d\d-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/;
++
++function invalid() {
++  throw new Error('invalid_input');
++}
++
++function isRecord(value) {
++  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
++  const prototype = Object.getPrototypeOf(value);
++  return prototype === Object.prototype || prototype === null;
++}
++
++/**
++ * Convert a canonical UTC calendar date into an integer number of days since
++ * 1970-01-01.  The planner deliberately does not use local Date methods: a
++ * browser's time zone and daylight-saving rules must not affect a plan.
++ */
++export function dateDay(value) {
++  if (typeof value !== 'string' || !DATE_PATTERN.test(value)) invalid();
++  const stamp = Date.parse(`${value}T00:00:00Z`);
++  if (!Number.isFinite(stamp)) invalid();
++  const date = new Date(stamp);
++  if (date.toISOString().slice(0, 10) !== value) invalid();
++  return stamp / DAY_MS;
++}
++
++export const dayDate = day => new Date(day * DAY_MS).toISOString().slice(0, 10);
++
++function validatePromptPools(promptPools) {
++  // Both an omitted pool collection and an explicit null mean that all phase
++  // pools are empty.  An individual phase key, when present, must be an array.
++  if (promptPools === undefined || promptPools === null) return;
++  if (!isRecord(promptPools)) invalid();
++  for (const key of Object.keys(promptPools)) {
++    if (!PHASES.includes(key)) invalid();
++    const pool = promptPools[key];
++    if (!Array.isArray(pool) || pool.length > 32) invalid();
++    for (const prompt of pool) {
++      if (typeof prompt !== 'string' || prompt.length > 200 || !prompt.trim()) invalid();
++    }
++  }
++}
++
++export function validate(input) {
++  if (!isRecord(input)) invalid();
++  for (const key of Object.keys(input)) {
++    if (!INPUT_KEYS.has(key)) invalid();
++  }
++
++  // These calls also enforce canonical spelling and real calendar dates.
++  dateDay(input.periodStart);
++  dateDay(input.asOf);
++
++  if (!Number.isInteger(input.cycleLength) || input.cycleLength < 8 || input.cycleLength > 60) invalid();
++  if (
++    !Number.isInteger(input.periodLength) ||
++    input.periodLength < 1 ||
++    input.periodLength > input.cycleLength - 6
++  ) invalid();
++
++  if (
++    input.seed !== undefined &&
++    (!Number.isInteger(input.seed) || input.seed < -2147483648 || input.seed > 2147483647)
++  ) invalid();
++
++  validatePromptPools(input.promptPools);
++}
++
++export function phaseLengths(cycleLength, periodLength) {
++  const rest = cycleLength - periodLength - 2;
++  // Intentionally use the upper half for follicular allocation.  This keeps
++  // the cycle total and phase order intact while making odd remainders round
++  // toward follicular rather than luteal.
++  const follicular = Math.ceil(rest / 2);
++  return [periodLength, follicular, 2, rest - follicular];
++}
++
++export function selectPrompt(pool, seed = 0, epochDay = 0) {
++  if (!Array.isArray(pool) || pool.length === 0) return null;
++  const index = ((seed + epochDay) % pool.length + pool.length) % pool.length;
++  return pool[index];
++}
++
++export function buildCyclePlan(input) {
+   validate(input);
+-  const anchor=dateDay(input.periodStart),today=dateDay(input.asOf),length=input.cycleLength;
+-  const cycleStart=anchor+Math.floor((today-anchor)/length)*length;
+-  const sizes=phaseLengths(length,input.periodLength),timeline=[];
+-  let offset=0;
+-  sizes.forEach((size,index)=>{for(let i=0;i<size;i++){timeline.push({day:offset+1,date:dayDate(cycleStart+offset),phase:PHASES[index]});offset++;}});
+-  const currentDay=today-cycleStart+1,currentPhase=timeline[currentDay-1].phase;
+-  return {currentDay,currentPhase,cycleStart:dayDate(cycleStart),timeline,recommendation:selectPrompt((input.promptPools??{})[currentPhase]??[],input.seed??0,today)};
++
++  const periodStartDay = dateDay(input.periodStart);
++  const asOfDay = dateDay(input.asOf);
++  const cycleLength = input.cycleLength;
++  const cycleStartDay =
++    periodStartDay + Math.floor((asOfDay - periodStartDay) / cycleLength) * cycleLength;
++  const sizes = phaseLengths(cycleLength, input.periodLength);
++  const timeline = [];
++
++  let offset = 0;
++  sizes.forEach((size, phaseIndex) => {
++    for (let index = 0; index < size; index += 1) {
++      timeline.push({
++        day: offset + 1,
++        date: dayDate(cycleStartDay + offset),
++        phase: PHASES[phaseIndex],
++      });
++      offset += 1;
++    }
++  });
++
++  const currentDay = asOfDay - cycleStartDay + 1;
++  const currentPhase = timeline[currentDay - 1].phase;
++  const pools = input.promptPools === undefined || input.promptPools === null ? {} : input.promptPools;
++  const currentPool = Object.prototype.hasOwnProperty.call(pools, currentPhase)
++    ? pools[currentPhase]
++    : undefined;
++
++  return {
++    currentDay,
++    currentPhase,
++    cycleStart: dayDate(cycleStartDay),
++    timeline,
++    recommendation: selectPrompt(currentPool, input.seed === undefined ? 0 : input.seed, asOfDay),
++  };
+ }
+diff --git a/src/journal-store.js b/src/journal-store.js
+index 40f7332fff2f553a89f12b4a24871a94db1ac482..404affe10009bb7fadcd1cf2fb81a0427b10f640 100644
+--- a/src/journal-store.js
++++ b/src/journal-store.js
+@@ -1,24 +1,126 @@
+-import {buildCyclePlan,PHASES,dateDay} from './cycle-planner.js';
+-export const KEY='cycle-journals';
+-export function validateSettings(settings){
+-  if(!settings||typeof settings!=='object'||!/^([01]\d|2[0-3]):[0-5]\d$/.test(settings.reminderTime)||typeof settings.remindersEnabled!=='boolean')throw Error('invalid_input');
+-  const {reminderTime,remindersEnabled,...plan}=settings;
+-  buildCyclePlan({...plan,asOf:settings.periodStart});
++import { buildCyclePlan, PHASES, dateDay } from './cycle-planner.js';
++
++export const KEY = 'cycle-journals';
++const PROFILE_KEYS = new Set(['id', 'label', 'settings', 'notifiedDays']);
++const SETTING_KEYS = new Set([
++  'periodStart',
++  'cycleLength',
++  'periodLength',
++  'seed',
++  'promptPools',
++  'reminderTime',
++  'remindersEnabled',
++]);
++
++function isRecord(value) {
++  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
++  const prototype = Object.getPrototypeOf(value);
++  return prototype === Object.prototype || prototype === null;
++}
++
++function validLabel(label) {
++  return typeof label === 'string' && label === label.trim() && label.length >= 1 && label.length <= 60;
++}
++
++export function validateSettings(settings) {
++  if (!isRecord(settings)) throw new Error('invalid_input');
++  if (Object.keys(settings).some(key => !SETTING_KEYS.has(key))) throw new Error('invalid_input');
++  if (typeof settings.reminderTime !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(settings.reminderTime)) {
++    throw new Error('invalid_input');
++  }
++  if (typeof settings.remindersEnabled !== 'boolean') throw new Error('invalid_input');
++
++  // Keep the optional planner fields optional here, just as they are in the
++  // public planning interface.  The page-created settings always include both.
++  const planningInput = {
++    periodStart: settings.periodStart,
++    cycleLength: settings.cycleLength,
++    periodLength: settings.periodLength,
++    asOf: settings.periodStart,
++  };
++  if (Object.prototype.hasOwnProperty.call(settings, 'seed')) planningInput.seed = settings.seed;
++  if (Object.prototype.hasOwnProperty.call(settings, 'promptPools')) planningInput.promptPools = settings.promptPools;
++  buildCyclePlan(planningInput);
+   return settings;
+ }
+-export function emptyStore(){return {activeId:null,profiles:[]};}
+-export function readStore(){
+-  const raw=localStorage.getItem(KEY);
+-  if(raw===null)return emptyStore();
+-  try{
+-    const value=JSON.parse(raw);
+-    if(!value||!Array.isArray(value.profiles)||!value.profiles.every(p=>p&&typeof p.id==='string'&&p.id&&typeof p.label==='string'&&p.label.trim()&&p.label.length<=60&&Array.isArray(p.notifiedDays)&&p.notifiedDays.every(d=>{dateDay(d);return true;})&&validateSettings(p.settings)))throw Error();
+-    if(new Set(value.profiles.map(p=>p.id)).size!==value.profiles.length||!(value.activeId===null||value.profiles.some(p=>p.id===value.activeId)))throw Error();
++
++export function emptyStore() {
++  return { activeId: null, profiles: [] };
++}
++
++function validNotifiedDays(days) {
++  if (!Array.isArray(days)) return false;
++  const seen = new Set();
++  try {
++    for (const value of days) {
++      dateDay(value);
++      if (seen.has(value)) return false;
++      seen.add(value);
++    }
++  } catch {
++    return false;
++  }
++  return true;
++}
++
++function validProfile(profile) {
++  if (!isRecord(profile)) return false;
++  if (Object.keys(profile).some(key => !PROFILE_KEYS.has(key))) return false;
++  if (typeof profile.id !== 'string' || !profile.id.trim()) return false;
++  if (!validLabel(profile.label)) return false;
++  if (!validNotifiedDays(profile.notifiedDays)) return false;
++  try {
++    validateSettings(profile.settings);
++  } catch {
++    return false;
++  }
++  return true;
++}
++
++export function readStore() {
++  let raw;
++  try {
++    raw = localStorage.getItem(KEY);
++    if (raw === null) return emptyStore();
++    const value = JSON.parse(raw);
++    if (!isRecord(value) || Object.keys(value).some(key => !['activeId', 'profiles'].includes(key))) {
++      return emptyStore();
++    }
++    if (!Array.isArray(value.profiles) || !value.profiles.every(validProfile)) return emptyStore();
++    if (new Set(value.profiles.map(profile => profile.id)).size !== value.profiles.length) return emptyStore();
++    if (
++      value.activeId !== null &&
++      (typeof value.activeId !== 'string' || !value.profiles.some(profile => profile.id === value.activeId))
++    ) {
++      return emptyStore();
++    }
++    if (value.profiles.length === 0 && value.activeId !== null) return emptyStore();
+     return value;
+-  }catch{return emptyStore();}
++  } catch {
++    return emptyStore();
++  }
++}
++
++export function writeStore(state) {
++  localStorage.setItem(KEY, JSON.stringify(state));
+ }
+-export function writeStore(state){localStorage.setItem(KEY,JSON.stringify(state));}
+-export function defaultSettings(today){
+-  return {periodStart:today,cycleLength:28,periodLength:5,seed:0,reminderTime:'08:00',remindersEnabled:false,
+-    promptPools:Object.fromEntries(PHASES.map((phase,i)=>[phase,[`Journal prompt ${i+1}: record a small moment.`,`Journal prompt ${i+1}: make time for a conversation.`]]))};
++
++export function defaultSettings(today) {
++  return {
++    periodStart: today,
++    cycleLength: 28,
++    periodLength: 5,
++    seed: 0,
++    reminderTime: '08:00',
++    remindersEnabled: false,
++    promptPools: Object.fromEntries(
++      PHASES.map((phase, index) => [
++        phase,
++        [
++          `Journal prompt ${index + 1}: record a small moment.`,
++          `Journal prompt ${index + 1}: make time for a conversation.`,
++        ],
++      ]),
++    ),
++  };
+ }
+diff --git a/style.css b/style.css
+index ea3f64c34116172f0ff8b9af59851a7be770ed88..af4e986c62e0f5d0ef8d2a06d1dd9cdb94c1e6f9 100644
+--- a/style.css
++++ b/style.css
+@@ -1 +1 @@
+-:root{font-family:system-ui,sans-serif;color:#2e3045;background:#f5f2f7}*{box-sizing:border-box}body{margin:0}header{padding:2rem max(1rem,calc((100vw - 1080px)/2));background:#3f3d64;color:white}h1{margin:0;font-size:2.4rem}header p{margin:.8rem 0}main{max-width:1120px;padding:1.3rem;margin:auto}section{min-width:0;background:white;border:1px solid #ded9e5;border-radius:8px;padding:1.3rem}h2{font-size:1.25rem;margin-top:0}.journals{display:grid;grid-template-columns:1fr 1fr;gap:.7rem 2rem}.journals h2{grid-column:1/-1}.columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:1rem}.summary{margin-bottom:1rem}.summary h2{margin:.6rem 0}.row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem}label{display:block;margin:.8rem 0}input,select,textarea{font:inherit;display:block;width:100%;padding:.6rem;border:1px solid #9290a8;border-radius:4px}textarea{min-height:190px;font-family:monospace;font-size:.85rem}button{font:inherit;background:#545083;color:white;border:0;border-radius:4px;padding:.7rem 1rem;cursor:pointer}.check{display:flex;align-items:center;gap:.5rem}.check input{width:auto}#feedback{min-height:1.5rem;font-weight:600}#recommendation{background:#f0eef8;border-left:4px solid #7770ad;padding:1rem;min-height:4rem;overflow-wrap:anywhere}#timeline{display:flex;overflow-x:auto;gap:.3rem;padding:.5rem 0;max-width:100%}.day{flex:0 0 72px;padding:.55rem .3rem;background:#eceaf4;border-radius:4px;text-align:center;font-size:.72rem;overflow-wrap:anywhere}.day strong{display:block;font-size:1.1rem}.day[aria-current=date]{outline:2px solid #554b92;outline-offset:-2px;background:#d9d1f2}#journal-title{overflow-wrap:anywhere}@media(max-width:700px){.columns,.journals{grid-template-columns:1fr}.journals h2{grid-column:auto}header{padding:1.5rem}h1{font-size:2rem}}
++:root{font-family:system-ui,sans-serif;color:#2e3045;background:#f5f2f7}*{box-sizing:border-box}body{margin:0}header{padding:2rem max(1rem,calc((100vw - 1080px)/2));background:#3f3d64;color:white}h1{margin:0;font-size:2.4rem}header p{margin:.8rem 0}main{max-width:1120px;padding:1.3rem;margin:auto}section{min-width:0;background:white;border:1px solid #ded9e5;border-radius:8px;padding:1.3rem}h2{font-size:1.25rem;margin-top:0}.journals{display:grid;grid-template-columns:1fr 1fr;gap:.7rem 2rem}.journals h2{grid-column:1/-1}.columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:1rem}.summary{margin-bottom:1rem}.summary h2{margin:.6rem 0}.row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem}label{display:block;margin:.8rem 0}input,select,textarea{font:inherit;display:block;width:100%;padding:.6rem;border:1px solid #9290a8;border-radius:4px}textarea{min-height:190px;font-family:monospace;font-size:.85rem}button{font:inherit;background:#545083;color:white;border:0;border-radius:4px;padding:.7rem 1rem;cursor:pointer}.check{display:flex;align-items:center;gap:.5rem}.check input{width:auto}#feedback{min-height:1.5rem;font-weight:600}#recommendation{background:#f0eef8;border-left:4px solid #7770ad;padding:1rem;min-height:4rem;overflow-wrap:anywhere;white-space:pre-wrap}#timeline{display:flex;overflow-x:auto;gap:.3rem;padding:.5rem 0;max-width:100%}.day{flex:0 0 72px;padding:.55rem .3rem;background:#eceaf4;border-radius:4px;text-align:center;font-size:.72rem;overflow-wrap:anywhere}.day strong{display:block;font-size:1.1rem}.day[aria-current=date]{outline:2px solid #554b92;outline-offset:-2px;background:#d9d1f2}#journal-title{overflow-wrap:anywhere}@media(max-width:700px){.columns,.journals{grid-template-columns:1fr}.journals h2{grid-column:auto}header{padding:1.5rem}h1{font-size:2rem}}

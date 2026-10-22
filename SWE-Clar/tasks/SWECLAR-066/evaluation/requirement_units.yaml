@@ -1,0 +1,177 @@
+schema_version: 1
+task_id: SWECLAR-066
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Playable minimal three-dimensional WebGL escape room
+requirement_units:
+- ru_id: RU-001
+  name: Puzzle state transition
+  content: Preserve a real playable WebGL three-dimensional room with perspective/depth, synthetic geometric
+    clues, two answer-entry locks and an exit. apply_escape_room_action(state,action) returns a new state
+    without mutating either input. solve requires a known puzzle ID and a string answer equal to its configured
+    answer after trimming surrounding whitespace. Only a correct submitted answer adds that puzzle once
+    to solved; wrong/unknown/malformed answers reject without changing gameplay state. Repeated correct
+    submissions are safe. The browser must obtain submitted answers from actual controls and visibly update
+    each lock; a solved flag alone is insufficient. Extra metadata and alternate nonempty error codes
+    are permitted.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for puzzle state transition.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: apply_escape_room_action
+      signature: apply_escape_room_action(state,action) -> dict
+    inputs:
+      state: Synthetic room scenario
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: New state with actual WebGL/browser actions and observations
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+- ru_id: RU-002
+  name: Exit gating
+  content: exit_open is true exactly when every required_puzzles ID is in solved. A correct solve recalculates
+    this gate, without counting duplicate/unknown IDs as missing requirements. exit action succeeds only
+    while every required puzzle is solved, sets escaped=true and produces an observable room completion;
+    before that it rejects atomically. Actual browser interaction must solve both geometry puzzles and
+    activate the exit. HTTP /state and subsequent browser state must agree. No original assets or full
+    commercial game are required.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for exit gating.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: apply_escape_room_action
+      signature: apply_escape_room_action(state,action) -> dict
+    inputs:
+      state: Synthetic room scenario
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: New state with actual WebGL/browser actions and observations
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+- ru_id: RU-003
+  name: Orientation behavior
+  content: viewport(width,height) requires positive finite numeric dimensions excluding booleans. rotate_prompt
+    is true iff height>width. aspect_supported is true iff abs(width/height-16/9)<=0.02. Landscape/square
+    non-16:9 views may letterbox without blocking play. The actual page sends viewport updates when resized,
+    presents a rotation prompt that blocks puzzle/exit interaction in portrait, and restores play in landscape
+    without losing solved progress. The room canvas keeps a16:9 display area.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for orientation behavior.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: apply_escape_room_action
+      signature: apply_escape_room_action(state,action) -> dict
+    inputs:
+      state: Synthetic room scenario
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: New state with actual WebGL/browser actions and observations
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+- ru_id: RU-004
+  name: Standalone and embedded presentation
+  content: presentation(mode) accepts only standalone and embedded; other values reject without changing
+    state. /game serves standalone play. /embed serves a real local iframe of the same playable game;
+    the child uses embedded mode, stays within the host frame, and retains working puzzle/exit controls.
+    The two presentations use the same rules. Tests observe actual frame context and interaction, not
+    only presentation state. No external host or service is needed.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for standalone and embedded presentation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: apply_escape_room_action
+      signature: apply_escape_room_action(state,action) -> dict
+    inputs:
+      state: Synthetic room scenario
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: New state with actual WebGL/browser actions and observations
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+- ru_id: RU-005
+  name: Localization fallback
+  content: text(locale,key) looks up a string in texts[locale][key], otherwise the English string in texts.en[key],
+    otherwise the key itself. Empty strings count as available translations. Non-string locale/key values
+    reject. Lookups preserve dictionaries and gameplay state; returned text is in top-level text. The
+    actual locale selector refreshes visible puzzle/title/exit text using the backend lookup, including
+    English/key fallback for missing translations. Geometry, puzzles and progress remain unchanged. All
+    source strings/translations in this component are independently synthetic.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Describe the required behavior for localization fallback.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: apply_escape_room_action
+      signature: apply_escape_room_action(state,action) -> dict
+    inputs:
+      state: Synthetic room scenario
+      action: Public operation schema in README
+    output:
+      type: dict
+      meaning: New state with actual WebGL/browser actions and observations
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py

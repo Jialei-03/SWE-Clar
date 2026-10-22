@@ -1,0 +1,447 @@
+(() => {
+  // The data and the objects handed to dispatch are both caller-owned.  Keep all
+  // application state in a JSON-shaped copy so rendering and persistence cannot
+  // accidentally modify either one.
+  const clone = (value) => {
+    if (value === undefined) return undefined;
+    return JSON.parse(JSON.stringify(value));
+  };
+
+  const seed = clone(window.ASSISTANT_DATA || {});
+  const storageKey = 'assistant-workspace';
+
+  function loadState() {
+    let saved;
+    try {
+      saved = JSON.parse(localStorage.getItem(storageKey));
+    } catch (_) {
+      saved = undefined;
+    }
+
+    // A malformed value in storage should not prevent the interface from
+    // starting.  The seed is copied before any of the defaults below are
+    // installed.
+    const value = saved && typeof saved === 'object' && !Array.isArray(saved)
+      ? saved
+      : seed;
+    const initial = clone(value || {});
+
+    // `hasOwn` is declared below for the renderer; use the prototype-safe
+    // equivalent while constructing the initial state.
+    const owns = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+
+    if (!initial.conversations || typeof initial.conversations !== 'object') {
+      initial.conversations = {};
+    }
+    if (!initial.routes || typeof initial.routes !== 'object' || Array.isArray(initial.routes)) {
+      initial.routes = clone(seed.routes || {});
+    } else if (seed.routes && typeof seed.routes === 'object') {
+      for (const key of ['chat', 'chat_prefill', 'schedule']) {
+        if (!owns(initial.routes, key) && owns(seed.routes, key)) {
+          initial.routes[key] = clone(seed.routes[key]);
+        }
+      }
+    }
+    if (!owns(initial, 'report_endpoint') && owns(seed, 'report_endpoint')) {
+      initial.report_endpoint = clone(seed.report_endpoint);
+    }
+    if (!initial.bug_reports || typeof initial.bug_reports !== 'object' || Array.isArray(initial.bug_reports)) {
+      initial.bug_reports = {};
+    }
+    if (!Array.isArray(initial.outbox)) initial.outbox = [];
+
+    if (!initial.view || typeof initial.view !== 'object') {
+      initial.view = { screen: 'main' };
+    }
+    if (!['main', 'clinic', 'chat'].includes(initial.view.screen)) {
+      initial.view = { screen: 'main' };
+    }
+    if (initial.view.screen === 'chat' &&
+        !Object.prototype.hasOwnProperty.call(initial.conversations, initial.view.conversation_id)) {
+      initial.view = { screen: 'main' };
+    }
+
+    return initial;
+  }
+
+  let state = loadState();
+  // A report request is deliberately kept outside persisted state.  It is a
+  // browser-process concern, and this map makes duplicate clicks share one
+  // HTTP delivery.
+  const inFlightReports = new Map();
+
+  const element = (id) => document.getElementById(id);
+  const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+
+  function persist() {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(state));
+    } catch (_) {
+      // Rendering and dispatch still work if storage is unavailable or full.
+    }
+  }
+
+  function textValue(value) {
+    if (value === null || value === undefined) return '';
+    return typeof value === 'string' ? value : String(value);
+  }
+
+  function paragraph(text) {
+    const p = document.createElement('p');
+    // textContent is intentional: transcript, pending questions, tips and
+    // acknowledgements are text, not HTML supplied by the user.
+    p.textContent = textValue(text);
+    return p;
+  }
+
+  function resolvedUrl(destination, prefill) {
+    if (typeof destination !== 'string') return '';
+    try {
+      const url = new URL(destination, window.location.href);
+      if (prefill !== undefined) {
+        // URLSearchParams handles existing query parameters and applies URL
+        // encoding without losing the route's other parameters or fragment.
+        url.searchParams.set('text', textValue(prefill));
+      }
+      return url.href;
+    } catch (_) {
+      return destination;
+    }
+  }
+
+  function conversationFor(id) {
+    if (!state.conversations || typeof state.conversations !== 'object') return undefined;
+    return hasOwn(state.conversations, id) ? state.conversations[id] : undefined;
+  }
+
+  function renderConversationList() {
+    const list = element('conversation-list');
+    list.replaceChildren();
+    for (const [id, conversation] of Object.entries(state.conversations || {})) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.conversation = id;
+      button.textContent = textValue(conversation && conversation.title) || id;
+      button.addEventListener('click', () => {
+        dispatch({ type: 'open_chat', conversation_id: id });
+      });
+      list.append(button);
+    }
+  }
+
+  function renderTranscript(conversation) {
+    const transcript = element('transcript');
+    const entries = conversation && Array.isArray(conversation.transcript)
+      ? conversation.transcript
+      : [];
+    transcript.replaceChildren(...entries.map((entry) => paragraph(entry)));
+  }
+
+  function renderFeedback() {
+    const feedback = element('feedback');
+    feedback.replaceChildren();
+    const seen = new Set();
+    for (const notice of state.outbox || []) {
+      if (!notice || notice.type !== 'feedback_prompt') continue;
+      const bucket = hasOwn(notice, 'interval_bucket')
+        ? notice.interval_bucket
+        : notice.notice_id;
+      const key = `${textValue(notice.user_id)}\u0000${textValue(bucket)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const p = paragraph('Please share feedback on this conversation.');
+      if (notice.notice_id !== undefined) p.dataset.noticeId = textValue(notice.notice_id);
+      feedback.append(p);
+    }
+  }
+
+  function render() {
+    const screen = state.view && state.view.screen;
+    element('home').hidden = screen !== 'main';
+    element('clinic').hidden = screen !== 'clinic';
+    element('chat').hidden = screen !== 'chat';
+
+    const error = state.error && state.error.code;
+    element('error').textContent = error ? textValue(error) : '';
+
+    renderConversationList();
+
+    const conversation = conversationFor(state.view && state.view.conversation_id);
+    element('chat-title').textContent = textValue(
+      conversation && conversation.title
+    ) || textValue(state.view && state.view.conversation_id) || 'Conversation';
+    renderTranscript(conversation);
+    element('pending-question').textContent = textValue(
+      conversation && conversation.pending_question
+    );
+
+    const chatLink = element('chat-cta');
+    chatLink.href = resolvedUrl(state.routes && state.routes.chat,
+      state.routes && state.routes.chat_prefill);
+    chatLink.onclick = () => {
+      // Do not cancel the native link.  The state action is useful to callers,
+      // while the anchor itself remains a real, directly navigable control.
+      dispatch({ type: 'activate_cta', page: 'main', action: 'Chat with Assistant' });
+    };
+
+    const clinicCtas = element('clinic-ctas');
+    clinicCtas.replaceChildren();
+    for (const label of ['Schedule Demo', 'Request a Demo', 'Pre-Onboard Patients']) {
+      const anchor = document.createElement('a');
+      anchor.textContent = label;
+      anchor.href = resolvedUrl(state.routes && state.routes.schedule);
+      anchor.dataset.action = label;
+      anchor.onclick = () => {
+        dispatch({ type: 'activate_cta', page: 'clinic', action: label });
+      };
+      clinicCtas.append(anchor);
+    }
+
+    const tips = element('tips');
+    tips.replaceChildren(...(Array.isArray(state.tip_paragraphs)
+      ? state.tip_paragraphs.map((tip) => paragraph(tip))
+      : []));
+    element('acknowledgement').textContent = textValue(state.acknowledgement);
+    renderFeedback();
+
+    const reportButton = element('report-bug');
+    const reportConversation = state.view && state.view.conversation_id;
+    reportButton.dataset.reportId = `report:${textValue(reportConversation)}`;
+  }
+
+  function setFailure(code, persistFailure = false) {
+    const next = clone(state);
+    next.error = { code };
+    state = next;
+    if (persistFailure) persist();
+    render();
+    return clone(state);
+  }
+
+  function isCompletedReport(record) {
+    return !!record && (
+      record.status === 'completed' ||
+      record.status === 'accepted' ||
+      record.completed === true ||
+      record.accepted === true
+    );
+  }
+
+  function reportConversationId(event) {
+    if (event && event.conversation_id !== undefined && event.conversation_id !== null) {
+      return event.conversation_id;
+    }
+    return state.view && state.view.conversation_id;
+  }
+
+  function reportIdentifier(event, conversationId) {
+    if (event && event.report_id !== undefined && event.report_id !== null) {
+      return textValue(event.report_id);
+    }
+    return `report:${textValue(conversationId)}`;
+  }
+
+  async function deliverReport(reportId, payload, endpoint) {
+    try {
+      if (typeof endpoint !== 'string' || !endpoint) {
+        return { ok: false };
+      }
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': reportId
+        },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) return { ok: false };
+
+      let acknowledgement;
+      try {
+        acknowledgement = await response.json();
+      } catch (_) {
+        return { ok: false };
+      }
+      if (acknowledgement && acknowledgement.accepted === true &&
+          acknowledgement.report_id === reportId) {
+        return { ok: true, payload: clone(payload) };
+      }
+    } catch (_) {
+      // Network failures are represented by the public report_failed state and
+      // may be retried by a later dispatch.
+    }
+    return { ok: false };
+  }
+
+  function completeReport(reportId, payload) {
+    const next = clone(state);
+    delete next.error;
+    if (!next.bug_reports || typeof next.bug_reports !== 'object' || Array.isArray(next.bug_reports)) {
+      next.bug_reports = {};
+    }
+    next.bug_reports[reportId] = {
+      report_id: reportId,
+      conversation_id: clone(payload.conversation_id),
+      transcript: clone(payload.transcript),
+      status: 'completed',
+      completed: true
+    };
+    next.acknowledgement = `Report ${reportId} submitted successfully.`;
+    state = next;
+    persist();
+    render();
+    return clone(state);
+  }
+
+  function failReport() {
+    const next = clone(state);
+    next.error = { code: 'report_failed' };
+    // A failed response must not look like an acknowledgement.  Do not remove
+    // a previously completed report record; only the visible acknowledgement
+    // is cleared for this attempted delivery.
+    delete next.acknowledgement;
+    state = next;
+    render();
+    return clone(state);
+  }
+
+  async function dispatchReport(event) {
+    const conversationId = reportConversationId(event);
+    const reportId = reportIdentifier(event, conversationId);
+
+    // A completed record is the durable idempotency guard.  It is checked
+    // before looking up the conversation so a replay after reload never sends
+    // a second request.
+    const existing = state.bug_reports && state.bug_reports[reportId];
+    if (isCompletedReport(existing)) {
+      const next = clone(state);
+      delete next.error;
+      next.acknowledgement = `Report ${reportId} submitted successfully.`;
+      state = next;
+      persist();
+      render();
+      return clone(state);
+    }
+
+    const conversation = conversationFor(conversationId);
+    if (!conversation) return setFailure('unknown_conversation');
+
+    const payload = {
+      report_id: reportId,
+      conversation_id: clone(conversationId),
+      transcript: clone(Array.isArray(conversation.transcript) ? conversation.transcript : [])
+    };
+
+    let delivery = inFlightReports.get(reportId);
+    if (!delivery) {
+      delivery = deliverReport(reportId, payload, state.report_endpoint);
+      inFlightReports.set(reportId, delivery);
+    }
+
+    const result = await delivery;
+    if (result && result.ok) {
+      // Use the current state rather than a state captured before fetch.  A
+      // user can select another page while the report is in flight.
+      const completed = completeReport(reportId, result.payload || payload);
+      if (inFlightReports.get(reportId) === delivery) inFlightReports.delete(reportId);
+      return completed;
+    }
+    const failed = failReport();
+    if (inFlightReports.get(reportId) === delivery) inFlightReports.delete(reportId);
+    return failed;
+  }
+
+  async function dispatch(event) {
+    const e = clone(event);
+    if (!e || typeof e !== 'object' || Array.isArray(e)) {
+      return setFailure('unknown_event');
+    }
+
+    if (e.type === 'report_bug') return dispatchReport(e);
+
+    const next = clone(state);
+    delete next.error;
+
+    if (e.type === 'open_chat') {
+      if (!hasOwn(next.conversations, e.conversation_id)) {
+        return setFailure('unknown_conversation');
+      }
+      next.view = { screen: 'chat', conversation_id: e.conversation_id };
+    } else if (e.type === 'show_page') {
+      if (!['main', 'clinic'].includes(e.page)) return setFailure('unknown_page');
+      next.view = { screen: e.page };
+    } else if (e.type === 'format_tip') {
+      if (!Array.isArray(e.sentences) || e.sentences.length === 0 ||
+          !e.sentences.every((sentence) =>
+            typeof sentence === 'string' && sentence.trim().length > 0)) {
+        return setFailure('invalid_tip');
+      }
+      next.tip_paragraphs = e.sentences.map((sentence) => sentence.trim());
+      next.formatted_tip = next.tip_paragraphs.join('\n\n');
+    } else if (e.type === 'activate_cta') {
+      if (e.page === 'main' && e.action === 'Chat with Assistant') {
+        next.navigation = {
+          destination: next.routes.chat,
+          prefill: next.routes.chat_prefill
+        };
+      } else if (e.page === 'clinic' &&
+                 ['Schedule Demo', 'Request a Demo', 'Pre-Onboard Patients'].includes(e.action)) {
+        next.navigation = { destination: next.routes.chat };
+      } else {
+        return setFailure('unknown_cta');
+      }
+    } else if (e.type === 'feedback_tick') {
+      if (!Number.isInteger(e.day) || e.day < 0 ||
+          !Number.isInteger(e.interval_days) || e.interval_days <= 0 ||
+          typeof e.user_id !== 'string' || e.user_id.length === 0) {
+        return setFailure('invalid_schedule');
+      }
+
+      const bucket = Math.floor(e.day / e.interval_days);
+      const noticeId = `feedback:${e.user_id}:${bucket}`;
+      const alreadyShown = next.outbox.some((notice) => {
+        if (!notice || notice.type !== 'feedback_prompt') return false;
+        if (notice.user_id === e.user_id && notice.interval_bucket === bucket) return true;
+        // Recognise records produced by the original workspace shape too.
+        return notice.notice_id === noticeId;
+      });
+      if (!alreadyShown) {
+        next.outbox.push({
+          notice_id: noticeId,
+          user_id: e.user_id,
+          type: 'feedback_prompt'
+        });
+      }
+    } else {
+      return setFailure('unknown_event');
+    }
+
+    state = next;
+    persist();
+    render();
+    return clone(state);
+  }
+
+  document.querySelectorAll('[data-page]').forEach((button) => {
+    button.addEventListener('click', () => {
+      dispatch({ type: 'show_page', page: button.dataset.page });
+    });
+  });
+
+  element('report-bug').addEventListener('click', () => {
+    const conversationId = state.view && state.view.conversation_id;
+    dispatch({
+      type: 'report_bug',
+      conversation_id: conversationId,
+      report_id: `report:${textValue(conversationId)}`
+    });
+  });
+
+  window.assistantApp = {
+    dispatch,
+    snapshot: () => clone(state)
+  };
+  render();
+})();

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>Photo requests</title>
+  <style>
+    body {
+      font: 16px system-ui;
+      margin: 20px auto;
+      max-width: 680px;
+      padding: 0 16px;
+      background: #f6f7fb;
+      color: #142334;
+    }
+    section {
+      background: white;
+      padding: 16px;
+      margin: 12px 0;
+      border-radius: 8px;
+    }
+    input,
+    select,
+    button {
+      font: inherit;
+      margin: 4px;
+      padding: 8px;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    button {
+      cursor: pointer;
+    }
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    #grid img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    /* Keep a one-image final row visually centered without changing the
+       genuine two-column grid used by full rows. */
+    #grid > figure:last-child:nth-child(odd) {
+      grid-column: 1 / -1;
+      justify-self: center;
+      width: calc((100% - 12px) / 2);
+    }
+    figure {
+      margin: 0;
+    }
+    #status {
+      white-space: pre-wrap;
+    }
+    label {
+      display: inline-block;
+    }
+    #requests button {
+      display: block;
+    }
+    figcaption {
+      overflow-wrap: anywhere;
+    }
+  </style>
+  <h1>Photo requests</h1>
+  <section>
+    <form id="login">
+      <label>User <input name="user" value="user-b" /></label
+      ><label
+        >Password
+        <input
+          name="password"
+          type="password"
+          value="synthetic-passphrase" /></label
+      ><button>Sign in</button>
+    </form>
+  </section>
+  <main hidden>
+    <section>
+      <label
+        >Room
+        <select id="room"></select></label
+      ><button id="refresh">Refresh</button>
+      <form id="create">
+        <label
+          >Mode
+          <select name="mode">
+            <option>ask</option>
+            <option>duo</option>
+            <option>challenge</option>
+          </select></label
+        ><label>Caption <input name="caption" /></label
+        ><button>Create request</button>
+      </form>
+      <div id="requests"></div>
+    </section>
+    <section>
+      <h2>Respond</h2>
+      <p id="selected">Select a request</p>
+      <form id="upload">
+        <label
+          >JPEG
+          <input type="file" name="image" accept="image/jpeg" required /></label
+        ><button>Upload photo</button>
+      </form>
+    </section>
+    <section>
+      <h2>Selected contact</h2>
+      <form id="contact">
+        <label>Phone numbers (comma separated) <input name="numbers" /></label
+        ><button>Find contact</button>
+      </form>
+      <p id="contact-result"></p>
+    </section>
+    <section>
+      <h2>Request route</h2>
+      <form id="route">
+        <label>Request ID <input name="request" /></label
+        ><button>Open route</button>
+      </form>
+      <p id="route-result"></p>
+    </section>
+    <section>
+      <h2>Timeline</h2>
+      <div id="timeline"></div>
+      <h2>Group photos</h2>
+      <div id="grid"></div>
+    </section>
+  </main>
+  <p id="status" role="status"></p>
+  <script>
+    let token = "",
+      current = "",
+      objectURLs = [];
+    const $ = (s) => document.querySelector(s);
+    async function api(path, body) {
+      let response = await fetch(path, {
+        method: body === undefined ? "GET" : "POST",
+        headers: {
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json",
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      let value = await response.json();
+      if (!response.ok) throw Error(value.error || "Request failed");
+      return value;
+    }
+    function action(form, fn) {
+      $(form).addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+          await fn(new FormData(e.target));
+          $("#status").textContent = "Ready";
+        } catch (e) {
+          $("#status").textContent = e.message;
+        }
+      });
+    }
+    async function refresh() {
+      let room = $("#room").value;
+      if (!room) return;
+      let requests = await api("/requests?room=" + encodeURIComponent(room));
+      $("#requests").replaceChildren();
+      for (let request of requests) {
+        let button = document.createElement("button");
+        button.textContent =
+          request.mode + " " + request.caption + " (" + request.id + ")";
+        button.dataset.request = request.id;
+        button.onclick = async () => {
+          try {
+            let opened = await api("/open", { request: request.id });
+            current = request.id;
+            $("#selected").textContent =
+              current + " — countdown " + opened.countdown + " seconds";
+          } catch (e) {
+            $("#status").textContent = e.message;
+          }
+        };
+        $("#requests").append(button);
+      }
+      let rows = await api("/timeline?room=" + encodeURIComponent(room));
+      objectURLs.forEach(URL.revokeObjectURL);
+      objectURLs = [];
+      $("#timeline").replaceChildren();
+      $("#grid").replaceChildren();
+      for (let row of rows) {
+        let response = await fetch(row.url, {
+          headers: { Authorization: "Bearer " + token },
+        });
+        if (!response.ok) throw Error("Image download failed");
+        let url = URL.createObjectURL(await response.blob());
+        objectURLs.push(url);
+        let figure = document.createElement("figure"),
+          image = document.createElement("img"),
+          caption = document.createElement("figcaption");
+        image.src = url;
+        image.alt = row.caption;
+        await image.decode();
+        caption.textContent = row.caption + " · " + row.user;
+        figure.append(image, caption);
+        figure.dataset.photo = row.id;
+        $("#timeline").append(figure);
+        if (row.eligible) {
+          let tile = figure.cloneNode(true);
+          $("#grid").append(tile);
+          // Decode the second, rendered copy as well; the grid is not a
+          // placeholder/state-only representation of the timeline photo.
+          await tile.querySelector("img").decode();
+        }
+      }
+    }
+    action("#login", async (data) => {
+      token = (
+        await api("/login", {
+          user: data.get("user"),
+          password: data.get("password"),
+        })
+      ).token;
+      let rooms = await api("/rooms");
+      $("#room").replaceChildren(
+        ...rooms.map((r) => new Option(r.title, r.id))
+      );
+      $("main").hidden = false;
+      await refresh();
+    });
+    action("#create", async (data) => {
+      let row = await api("/requests", {
+        id: crypto.randomUUID(),
+        room: $("#room").value,
+        mode: data.get("mode"),
+        caption: data.get("caption"),
+      });
+      $("#route [name=request]").value = row.id;
+      await refresh();
+    });
+    action("#upload", async (data) => {
+      let bytes = new Uint8Array(await data.get("image").arrayBuffer()),
+        binary = "";
+      for (let byte of bytes) binary += String.fromCharCode(byte);
+      await api("/respond", { request: current, image: btoa(binary) });
+      await refresh();
+    });
+    action("#contact", async (data) => {
+      let result = await api("/contact", {
+        numbers: data
+          .get("numbers")
+          .split(",")
+          .map((x) => x.trim()),
+      });
+      $("#contact-result").textContent =
+        result.action === "added"
+          ? "Added: " + result.users.join(", ")
+          : "Invite: " + result.numbers.join(", ");
+    });
+    action("#route", async (data) => {
+      let result = await api(
+        "/route?room=" +
+          encodeURIComponent($("#room").value) +
+          "&request=" +
+          encodeURIComponent(data.get("request"))
+      );
+      $("#route-result").textContent = result.route;
+    });
+    $("#refresh").onclick = () =>
+      refresh().catch((e) => ($("#status").textContent = e.message));
+    $("#room").onchange = $("#refresh").onclick;
+  </script>
+</html>

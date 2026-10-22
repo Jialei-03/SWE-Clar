@@ -1,0 +1,186 @@
+schema_version: 1
+task_id: SWECLAR-100
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual bilingual tablet catalogue web component, published image bundles, browser navigation
+  and local managed-device bridge
+requirement_units:
+- ru_id: RU-001
+  name: Kiosk workflow entry point
+  content: Repair the supplied Python/SQLite HTTP service and browser application. Runtime identities
+    and SVG asset paths come from private config, never from actor or role fields in the request. Preserve
+    caller inputs and unrelated records. The page must display actual catalogue text/images using the
+    documented HTTP schema; source code and runtime credentials must not be publicly served.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for kiosk workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.edit
+      signature: Store.edit(actor,action) -> dict
+    inputs:
+      actor: trusted runtime identity
+      action: catalogue edit
+    output:
+      type: dict
+      meaning: stored catalogue record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/kiosk_contract.py
+  notes: Independent web/SQLite reconstruction with synthetic catalogue, artwork and device identities.
+    Local HTTP bridge tests do not certify Android kiosk mode. Precise storage/version/checksum rules
+    are benchmark conventions.
+- ru_id: RU-002
+  name: Bilingual ordered catalogue
+  content: Only editors/admins can edit the draft catalogue. Require nonempty English and Spanish text,
+    an integer order, and existing category/asset references for products. Render categories and products
+    by configured order (ID breaks ties), switch language for every displayed label, and show actual decoded
+    images and full wrapping text. Reject invalid edits without changing the draft.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for bilingual ordered catalogue.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.edit
+      signature: Store.edit(actor,action) -> dict
+    inputs:
+      actor: trusted runtime identity
+      action: catalogue edit
+    output:
+      type: dict
+      meaning: stored catalogue record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/kiosk_contract.py
+  notes: Independent web/SQLite reconstruction with synthetic catalogue, artwork and device identities.
+    Local HTTP bridge tests do not certify Android kiosk mode. Precise storage/version/checksum rules
+    are benchmark conventions.
+- ru_id: RU-003
+  name: Logo and back navigation
+  content: On a product page the logo returns to the selected category; Back restores the immediately
+    preceding page. Preserve navigation history through language changes. Responsive layouts must keep
+    product text and controls usable without horizontal overflow. Synthetic artwork and design are independent
+    of the original client interface.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for logo and back navigation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.edit
+      signature: Store.edit(actor,action) -> dict
+    inputs:
+      actor: trusted runtime identity
+      action: catalogue edit
+    output:
+      type: dict
+      meaning: stored catalogue record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/kiosk_contract.py
+  notes: Independent web/SQLite reconstruction with synthetic catalogue, artwork and device identities.
+    Local HTTP bridge tests do not certify Android kiosk mode. Precise storage/version/checksum rules
+    are benchmark conventions.
+- ru_id: RU-004
+  name: Versioned publication and device sync
+  content: Publishing a unique change ID saves a complete immutable catalogue snapshot and advances its
+    integer version once; retrying the same ID returns that publication. Browser sync must fetch the actual
+    snapshot and every referenced image, verify their SHA-256 bytes, and replace persisted content only
+    after all succeed. Offline reload or a failed sync retains the previous working content. Ignore an
+    in-flight sync when the access session changes. Versioning, checksum and localStorage are reconstructed
+    protocol choices supporting content distribution, not verbatim source requirements.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for versioned publication and device sync.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.edit
+      signature: Store.edit(actor,action) -> dict
+    inputs:
+      actor: trusted runtime identity
+      action: catalogue edit
+    output:
+      type: dict
+      meaning: stored catalogue record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/kiosk_contract.py
+  notes: Independent web/SQLite reconstruction with synthetic catalogue, artwork and device identities.
+    Local HTTP bridge tests do not certify Android kiosk mode. Precise storage/version/checksum rules
+    are benchmark conventions.
+- ru_id: RU-005
+  name: Managed settings and analytics
+  content: Only an authenticated admin may request network settings for a known device, and success requires
+    a matching actual HTTP bridge acknowledgement. A device cannot gain permission using actor/role fields.
+    Analytics events must target a published page/category/product, use the authenticated device identity,
+    deduplicate an identical event ID and reject conflicting reuse. Editors/admins can retrieve persisted
+    events. The test bridge is synthetic and does not establish actual Android Wi-Fi control.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for managed settings and analytics.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.edit
+      signature: Store.edit(actor,action) -> dict
+    inputs:
+      actor: trusted runtime identity
+      action: catalogue edit
+    output:
+      type: dict
+      meaning: stored catalogue record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/kiosk_contract.py
+  notes: Independent web/SQLite reconstruction with synthetic catalogue, artwork and device identities.
+    Local HTTP bridge tests do not certify Android kiosk mode. Precise storage/version/checksum rules
+    are benchmark conventions.

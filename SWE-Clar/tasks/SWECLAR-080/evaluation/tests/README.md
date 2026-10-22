@@ -1,0 +1,3 @@
+# Evaluator runtime
+
+Requires Python 3.13, Docker Desktop with preloaded wordpress:6.8.3-php8.3-apache and mariadb:11.4.5, and Node with Playwright/Chromium. Optional image overrides: WORDPRESS_IMAGE and MARIADB_IMAGE; set SWECLAR_NODE_REQUIRE_ROOT for Playwright resolution. The harness owns temporary containers and a dedicated network, publishes only a loopback web port, disables external WordPress HTTP/update activity and suppresses installation email. It never connects to an existing WordPress database. Browser metrics use a controlled 60 ms interaction workload and allow native animation/idle frames to flush buffered observations; this is a lab test, not field performance certification.

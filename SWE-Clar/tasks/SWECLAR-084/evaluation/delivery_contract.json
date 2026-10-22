@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-084",
+  "public": {
+    "readme": "# Local coaching directory backend\nImplement process_coaching_action(state,action) in solution.py. Return a new internal state with result or nonempty error.code; preserve input objects and business state on rejection. Extra metadata and alternate errors are accepted. SQLite CLI --db PATH init/show/act persists successful changes across invocations; init cannot overwrite state; act emits only result/error. show is local operator inspection. Operation user IDs are trusted upstream context, not an unauthenticated public network interface.\n\nInitial users maps IDs to coach/athlete roles. Optional dictionary collections: credits,services,sessions,plans; list collections: checkins,reviews,messages. Incorrect collection types reject.\n\npublish_service(coach_id,service_id,specialty,modality,price,slots): coach only, unique nonempty ID, nonblank specialty, online/in_person/hybrid, finite nonnegative price excluding bool, nonempty nonblank string slots. Trim specialty/slots; dedupe slots preserving order. Store service active=true. discover(specialty?,modality?) returns active services; specialty case-insensitive trimmed substring; exact supported modality. Order casefolded specialty then service_id. Result.services includes service_id and service fields.\n\nFurther operations: book(athlete_id,service_id,session_id,slot,purchase_type); assign_plan(coach_id,athlete_id,plan_id,plan_type,content); checkin(athlete_id,plan_id,week,content); complete_session(coach_id,session_id); review(athlete_id,session_id,review_id,rating); message(session_id,message_id,sender_id,recipient_id,text); view_session(actor_id,session_id). Clarify credit, session lifecycle, relationship and replay rules as needed.\n\nThis is a bounded synthetic backend. Purchases are local intents; no live billing, full mobile marketplace, coach profile import, or medical/nutrition advice generation. Plan content is supplied synthetic data and stored unchanged.\n\nRun python cli.py --db /tmp/coaching.sqlite init with {\"users\":{\"coach\":{\"role\":\"coach\"},\"athlete\":{\"role\":\"athlete\"}},\"credits\":{\"athlete\":1}} on stdin, then act with an operation. Python standard library only.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_coaching_action",
+          "signature": "process_coaching_action(state,action) -> dict"
+        },
+        "inputs": {
+          "state": "Internal synthetic backend records",
+          "action": "Supported action schema in README"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "Next internal state; CLI persists and emits result/error only"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_coaching_action",
+        "signature": "process_coaching_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Internal synthetic backend records",
+        "action": "Supported action schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next internal state; CLI persists and emits result/error only"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_coaching_action",
+        "signature": "process_coaching_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Internal synthetic backend records",
+        "action": "Supported action schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next internal state; CLI persists and emits result/error only"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_coaching_action",
+        "signature": "process_coaching_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Internal synthetic backend records",
+        "action": "Supported action schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next internal state; CLI persists and emits result/error only"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_coaching_action",
+        "signature": "process_coaching_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Internal synthetic backend records",
+        "action": "Supported action schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next internal state; CLI persists and emits result/error only"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_coaching_action",
+        "signature": "process_coaching_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Internal synthetic backend records",
+        "action": "Supported action schema in README"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next internal state; CLI persists and emits result/error only"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "a21716b34e852fdaebb5b2583b16e071d6c1994c76873e313073f1434123fb31",
+  "test_sources_sha256": {
+    "evaluation/tests/candidate_proxy.py": "9ea177c9d61bc5715ab44f36613cc85560842954fa9c65146c2203d7b2f368f9",
+    "evaluation/tests/conftest.py": "8b7860e7d8d0902169fab1abc22d2daff6c02906e44d3d565cdd16e3cb0ac45f",
+    "evaluation/tests/evaluate.py": "2d235ecbe7745653f3942a95a228e5105e6b2badf2d37fc290b47acd0c6687ca",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "0221a47fe5db05d44342bb40685540dfeaaf4c107772a9bcc299c1ebf733604e"
+  },
+  "public_environment_sha256": "971240e57e0d180372d78c37d7ce48267f2bb9ca4e334cc66786bd6b6fc3ffb3",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

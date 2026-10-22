@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {createRequire} from 'node:module';
+const modules=process.env.UI_NODE_MODULES;
+if(!modules)throw Error('Manager-prepared UI_NODE_MODULES is required');
+const require=createRequire(import.meta.url);
+const {build}=require(path.join(modules,'esbuild'));
+const out=path.resolve(process.argv[2]||'dist');
+await build({entryPoints:['entry.web.jsx'],bundle:true,outfile:path.join(out,'app.js'),alias:{'react-native':'react-native-web'},nodePaths:[modules],define:{'process.env.NODE_ENV':'"production"'},format:'iife'});
+fs.copyFileSync('index.html',path.join(out,'index.html'));

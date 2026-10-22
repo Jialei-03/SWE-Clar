@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+export FLUTTER_ROOT=/opt/flutter
+export PUB_CACHE="${HOME:?A writable HOME is required}/.cache/sweclar-pub"
+mkdir -p "$PUB_CACHE"
+for area in hosted hosted-hashes; do
+    if [ ! -e "$PUB_CACHE/$area" ]; then ln -s "/opt/pub-cache/$area" "$PUB_CACHE/$area"; fi
+done
+export FLUTTER_ALREADY_LOCKED=true
+export FLUTTER_SUPPRESS_ANALYTICS=true
+exec /opt/flutter/bin/cache/dart-sdk/bin/dart --disable-dart-dev /opt/flutter/bin/cache/flutter_tools.snapshot --no-version-check --suppress-analytics "$@"

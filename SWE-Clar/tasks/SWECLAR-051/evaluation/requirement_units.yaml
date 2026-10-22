@@ -1,0 +1,213 @@
+schema_version: 1
+task_id: SWECLAR-051
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independently reconstructed piano MIDI performance batch application with actual VST3
+  audio delivery.
+requirement_units:
+- ru_id: RU-001
+  name: MIDI application and public input contract
+  content: Preserve the public README command-line and Standard MIDI File contracts. Invalid arguments,
+    a missing input directory, non-directory output or overlapping input/output directory trees exit 2
+    before processing or creating outputs, with an explanation on stderr. Support type 0/1, positive PPQN/tempo,
+    1–10000 notes and up to 120 seconds, multiple tracks, channels, polyphony, tempo changes and note-on-zero
+    releases. Pair within original track/channel/pitch without same-key overlap. Keep file type, track
+    count, PPQN, note count, pitch/channel and all non-note events at their original ticks. Reject unsupported
+    percussion channel 9, type 2, SMPTE, unmatched/cross-track pairing or unterminated notes. Produce
+    the public per-file result schema and real self-contained MIDI/WAV deliverables; implementation organization
+    is free.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for midi application and public input contract?
+  matching_keywords:
+  - MIDI
+  - format
+  - input
+  - command
+  - track
+  - validation
+  test_interface:
+    type: command
+    entry:
+      command: python app.py INPUT_DIRECTORY OUTPUT_DIRECTORY --seed INTEGER --articulation normal|staccato
+      runtime: Prepared Python/Mido/VST3 environment described in README
+    inputs: Synthetic Standard MIDI Files and CLI options
+    output: Per-input transformed SMF and actual PCM WAV, plus the public JSON result list
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business scenario motivates piano MIDI performance processing and VST3 audio delivery. Exact
+    seeded transformations, batch policy, instrument and Linux execution are independent benchmark design;
+    no customer code/media or commercial platform compatibility claim.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/audio_contract.py
+- ru_id: RU-002
+  name: Reproducible attack timing
+  content: For each original positive-velocity note-on, use its zero-based track index and its original
+    zero-based note-on ordinal within that track. SHA-256 the UTF-8 string seed:track:ordinal, using decimal
+    integers with colon separators. Byte 0 modulo 25 minus 12 gives onset jitter in ticks. New start is
+    original start plus jitter, clamped to [lower,original end-1], where lower is max(0,the previous original
+    end for the same track/channel/pitch). Pair all original notes first and use original, not transformed,
+    previous ends. Move attacks only; normal articulation keeps the original note-off tick. Keep tempo
+    and other messages at original ticks. The same input and seed must produce the same performance regardless
+    of file name, absolute path, surrounding files or their failures. Chord notes can receive different
+    jitter. Same-tick releases precede attacks, and original non-note events retain their relative order.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for reproducible attack timing?
+  matching_keywords:
+  - timing
+  - seed
+  - random
+  - jitter
+  - attack
+  - repeatability
+  - duration
+  test_interface:
+    type: command
+    entry:
+      command: python app.py INPUT_DIRECTORY OUTPUT_DIRECTORY --seed INTEGER --articulation normal|staccato
+      runtime: Prepared Python/Mido/VST3 environment described in README
+    inputs: Synthetic Standard MIDI Files and CLI options
+    output: Per-input transformed SMF and actual PCM WAV, plus the public JSON result list
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business scenario motivates piano MIDI performance processing and VST3 audio delivery. Exact
+    seeded transformations, batch policy, instrument and Linux execution are independent benchmark design;
+    no customer code/media or commercial platform compatibility claim.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/audio_contract.py
+- ru_id: RU-003
+  name: Velocity and articulation
+  content: Use the same SHA-256 digest of decimal seed:track:ordinal. Byte 1 modulo 17 minus 8 is the
+    velocity delta; clamp the new velocity to 1–127. Keep note pitch, channel, track and count, including
+    very quiet notes. normal retains original end. staccato uses duration=max(1,floor((original end-new
+    start)/2)) ticks after the attack timing transformation, and end=new start+duration. Do not change
+    tempo to emulate articulation or only report the selected mode. Serialize valid paired notes; equivalent
+    note-off encoding is allowed.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for velocity and articulation?
+  matching_keywords:
+  - velocity
+  - loudness
+  - articulation
+  - staccato
+  - normal
+  - quiet
+  test_interface:
+    type: command
+    entry:
+      command: python app.py INPUT_DIRECTORY OUTPUT_DIRECTORY --seed INTEGER --articulation normal|staccato
+      runtime: Prepared Python/Mido/VST3 environment described in README
+    inputs: Synthetic Standard MIDI Files and CLI options
+    output: Per-input transformed SMF and actual PCM WAV, plus the public JSON result list
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business scenario motivates piano MIDI performance processing and VST3 audio delivery. Exact
+    seeded transformations, batch policy, instrument and Linux execution are independent benchmark design;
+    no customer code/media or commercial platform compatibility claim.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/audio_contract.py
+- ru_id: RU-004
+  name: Independent batch publication and recovery
+  content: Recursively discover regular .mid/.midi files, case-insensitive by extension, in sorted POSIX
+    relative-path order. Ignore other files and all symbolic links, including linked directories. An empty
+    batch yields results=[] and exit 0. Each input gets one result. Invalid MIDI gets invalid_midi, renderer
+    failure gets render_failed, and an already-existing result path gets existing_output without changing
+    existing content. Continue later inputs after any per-file error. A successful pair of performance.mid
+    and render.wav is published in OUTPUT/<relative input path including extension>/ only after both files
+    are fully written and decodable; no failed input leaves a final result directory or partial artifacts.
+    Other successful files remain committed. Exit 0 for a wholly successful or empty batch, 1 if any input
+    fails. Keep input paths relative in the summary; do not expose absolute host locations. The public
+    CLARSWE_AUDIO_RENDER_ERROR=1 switch simulates the renderer returning failure and is subject to these
+    same rules.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for independent batch publication and recovery?
+  matching_keywords:
+  - batch
+  - recursive
+  - error
+  - existing
+  - overwrite
+  - atomic
+  - partial
+  - failure
+  - order
+  test_interface:
+    type: command
+    entry:
+      command: python app.py INPUT_DIRECTORY OUTPUT_DIRECTORY --seed INTEGER --articulation normal|staccato
+      runtime: Prepared Python/Mido/VST3 environment described in README
+    inputs: Synthetic Standard MIDI Files and CLI options
+    output: Per-input transformed SMF and actual PCM WAV, plus the public JSON result list
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business scenario motivates piano MIDI performance processing and VST3 audio delivery. Exact
+    seeded transformations, batch policy, instrument and Linux execution are independent benchmark design;
+    no customer code/media or commercial platform compatibility claim.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/audio_contract.py
+- ru_id: RU-005
+  name: Real tempo-aware VST3 audio
+  content: Use transformed performance.mid events and its original tempo map to drive the prepared offline
+    host and independently synthesized VST3 instrument. Output stereo 16-bit PCM at 44100 Hz, preserving
+    the supplied instrument waveform. Map exact tempo-map event times to nearest sample frame with half-frame
+    upward rounding; retain at least one sample for a positive tick-duration note. End at the last quantized
+    note-off plus 22050 frames, ignoring trailing end-of-track silence. Sound must reflect the produced
+    note pitches, velocities, attacks and release durations. Empty/silent WAVs, copying unrelated or pre-transformation
+    audio, and self-reported rendered flags do not meet delivery. WAV metadata or serialization may differ
+    without changing the PCM signal. The protected host, MIDI dependencies and public render-failure simulator
+    are supplied before candidate execution; no commercial plugin, SDK installation, customer audio or
+    platform account is required.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for real tempo-aware vst3 audio?
+  matching_keywords:
+  - audio
+  - VST3
+  - WAV
+  - render
+  - sample
+  - tempo
+  - tail
+  test_interface:
+    type: command
+    entry:
+      command: python app.py INPUT_DIRECTORY OUTPUT_DIRECTORY --seed INTEGER --articulation normal|staccato
+      runtime: Prepared Python/Mido/VST3 environment described in README
+    inputs: Synthetic Standard MIDI Files and CLI options
+    output: Per-input transformed SMF and actual PCM WAV, plus the public JSON result list
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Business scenario motivates piano MIDI performance processing and VST3 audio delivery. Exact
+    seeded transformations, batch policy, instrument and Linux execution are independent benchmark design;
+    no customer code/media or commercial platform compatibility claim.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/audio_contract.py

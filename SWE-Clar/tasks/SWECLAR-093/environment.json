@@ -1,0 +1,20 @@
+{
+  "profile": "flutter-websocket",
+  "platform": "linux/amd64",
+  "workdir": "/workspace",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 3072,
+    "pids": 256,
+    "workspace_mb": 512,
+    "evaluation_wall_seconds": 300
+  },
+  "dependencies": "Prepared Flutter 3.47.2, Dart 3.13.2, Node from pinned Playwright runtime and ws 8.19.0; offline pub cache provided.",
+  "public_test": [
+    "python",
+    "/public_tests/smoke.py"
+  ],
+  "start": "python /public_tests/start.py --port 8188",
+  "health": "Authenticated GET http://127.0.0.1:8188/catalog with Bearer demo-user",
+  "reset": "Stop and restart the local service to clear in-memory notifications, subscriptions and carts."
+}

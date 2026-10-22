@@ -1,0 +1,14 @@
+{
+  "platform": "linux/amd64",
+  "base_profile": "python-vision",
+  "source_profile": "python-cesium",
+  "wheels": [],
+  "archives": [
+    {
+      "url": "https://registry.npmjs.org/cesium/-/cesium-1.121.0.tgz",
+      "filename": "cesium-1.121.0.tgz",
+      "sha256": "fcb9f420f0f761c528f42b6e464ad0f03fed21fab58a3a36506a6bfa32858a45",
+      "bytes": 30538189
+    }
+  ]
+}

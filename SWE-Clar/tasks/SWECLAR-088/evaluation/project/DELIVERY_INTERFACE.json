@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-088",
+  "readme": "# Local license backend\nImplement process_license_action(state,action) as an immutable transition returning complete private state plus result or nonempty error.code. Invalid actions preserve business records except explicitly specified abuse-audit effects. Extra metadata/error wording accepted. SQLite cli.py --db PATH init/show/act initializes once, provides trusted operator inspection, or persists an action. act outputs only result/error; transient envelopes are not stored. Persist audited denials as specified by the policies.\n\npurchase(event_id,license_id,license_key,email,shop,paid) is trusted local confirmed-event input. paid must be true, IDs/email/shop nonblank and key at least8 characters. Email/shop trim+casefold; email has one @ with nonempty whitespace-free parts. New license ID/key unique. Store active bound license using SHA256 key_hash and last4 key_suffix. Store one private deliveries outbox row with event_id,license_id,email,body containing its synthetic key,status=queued. Results omit raw keys/hashes. Exact normalized event replay returns original license_id and does not duplicate delivery, even with a different requested license_id. Changed event email/shop/key or unpaid replay rejects.\n\nOther actions: verify(license_key,shop,ip,timestamp?,now?); trial(license_id,license_key,email,shop,now?,expires_at); set_status(admin_id,license_id,status); search(admin_id,query?). Clarify binding, audit, expiration and admin rules. state.admins contains trusted operator IDs. show/outbox are private operator storage; no public network authentication or actual mail/Shopify delivery is implemented.\n\nRun python cli.py --db /tmp/licenses.sqlite init with {\"admins\":[\"admin\"]} on stdin, then act with JSON operations. Python standard library only. All records and keys are synthetic; no original shops/emails/licenses are included.\n\nTrusted CLI inspection protocol: `show` reads `{\"admin_id\":\"admin\"}` from stdin, where admin_id must name an entry in persisted state.admins. Return the complete persisted private state for an authorized operator; otherwise return a nonempty error.code without changing storage. This is a local synthetic operator identity, not a network authentication mechanism. `init` and `act` keep their existing stdin schemas.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_license_action",
+        "signature": "process_license_action(state,action) -> dict"
+      },
+      "inputs": {
+        "state": "Private synthetic records",
+        "action": "Supported action schema"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next private state; public CLI result/error redacts keys"
+      },
+      "operations": []
+    }
+  ]
+}

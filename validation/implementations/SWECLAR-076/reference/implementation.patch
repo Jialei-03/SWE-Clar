@@ -1,0 +1,466 @@
+diff --git a/solution.py b/solution.py
+index 74766993f0b6c73d37df6df88c9a24ecce5824dd..f756d47260e60ee02cd1441b51863def8578807d 100644
+--- a/solution.py
++++ b/solution.py
+@@ -1,4 +1,459 @@
+-"""Independent portal game policy starter."""
++"""Reference policy for the independent portal training arena.
++
++The browser transport keeps the complete scenario in a JSON-compatible mapping and
++calls :func:`process_portal_event` for each action.  The policy deliberately does
++not depend on the browser: it validates an action first, copies the scenario, and
++then applies one atomic change to that copy.
++"""
++
++from __future__ import annotations
++
++from copy import deepcopy
++import math
++from numbers import Integral
++from typing import Any, Mapping
++
++
++_AXES = ("x", "y", "z")
++_MODES = {"room", "cockpit"}
++
++
++def _finite_number(value: Any) -> bool:
++    """Return whether *value* is a finite number, excluding booleans.
++
++    ``bool`` is a subclass of ``int`` in Python, but timestamps and gameplay
++    quantities use the JSON numeric meaning of a value, not its truth value.
++    ``math.isfinite`` also keeps strings, ``None`` and complex values out.
++    """
++
++    if isinstance(value, bool):
++        return False
++    try:
++        return math.isfinite(value)
++    except (TypeError, ValueError, OverflowError):
++        return False
++
++
++def _positive_number(value: Any) -> bool:
++    if not _finite_number(value):
++        return False
++    try:
++        return value > 0
++    except (TypeError, ValueError):
++        return False
++
++
++def _nonnegative_number(value: Any) -> bool:
++    if not _finite_number(value):
++        return False
++    try:
++        return value >= 0
++    except (TypeError, ValueError):
++        return False
++
++
++def _mapping_value(mapping: Any, key: Any) -> tuple[bool, Any]:
++    """Safely look up a key in a mapping-like JSON object."""
++
++    if not isinstance(mapping, Mapping):
++        return False, None
++    try:
++        if key not in mapping:
++            return False, None
++        return True, mapping[key]
++    except (TypeError, KeyError):
++        # A malformed, unhashable identifier is simply an unknown identifier.
++        return False, None
++
++
++def _xyz(value: Any, *, positive: bool = False) -> tuple[bool, dict[str, Any]]:
++    """Validate and copy an x/y/z object."""
++
++    if not isinstance(value, Mapping):
++        return False, {}
++    result: dict[str, Any] = {}
++    for axis in _AXES:
++        if axis not in value:
++            return False, {}
++        component = value[axis]
++        if not (_positive_number(component) if positive else _finite_number(component)):
++            return False, {}
++        result[axis] = component
++    return True, result
++
++
++def _copy_error_state(state: Any, code: str) -> dict[str, Any]:
++    """Build a rejection without changing the caller's mapping."""
++
++    if isinstance(state, dict):
++        result = deepcopy(state)
++    else:
++        result = {}
++    result["error"] = {"code": code}
++    return result
++
++
++def _event_log_is_valid(state: Mapping[str, Any]) -> bool:
++    # The scenario schema uses a list.  Missing logs are handled as an empty
++    # list so small synthetic states can still exercise a ripple or shot.
++    return "events" not in state or isinstance(state.get("events"), list)
++
++
++def _distinct(values: list[Any]) -> list[Any]:
++    """Return distinct JSON-ish identifiers without requiring hashability."""
++
++    distinct: list[Any] = []
++    for value in values:
++        if not any(value == previous for previous in distinct):
++            distinct.append(value)
++    return distinct
++
++
++def _valid_wave_value(value: Any) -> bool:
++    return isinstance(value, Integral) and not isinstance(value, bool) and value >= 0
++
++
++def _restart_level(new_state: dict[str, Any]) -> bool:
++    """Apply the level restart part of a life-exhausting hit.
++
++    Callers validate the relevant state fields before entering this helper.  It
++    returns ``False`` defensively if a malformed mapping is encountered, so a
++    caller can still reject rather than partially applying a restart.
++    """
++
++    initial_lives = new_state.get("initial_lives")
++    if not _nonnegative_number(initial_lives):
++        return False
++
++    level_asteroids = new_state.get("level_asteroids")
++    if level_asteroids is None:
++        # The documented state always supplies this snapshot.  Falling back to
++        # the current asteroids is useful for a minimal synthetic state while
++        # retaining the same restart semantics when the snapshot is present.
++        level_asteroids = new_state.get("asteroids", {})
++    if not isinstance(level_asteroids, Mapping):
++        return False
++
++    current_wave = new_state.get("wave", 0)
++    if not _valid_wave_value(current_wave):
++        return False
++
++    enemies = new_state.get("enemies", {})
++    if not isinstance(enemies, dict):
++        return False
++
++    restart_count = new_state.get("restart_count", 0)
++    if not isinstance(restart_count, Integral) or isinstance(restart_count, bool):
++        return False
++
++    if not _event_log_is_valid(new_state):
++        return False
++
++    # These assignments are all made to the already independent copy.
++    new_state["lives"] = initial_lives
++    new_state["shield_energy"] = 0
++    new_state["asteroids"] = deepcopy(level_asteroids)
++    full_health = current_wave + 1
++    for enemy in enemies.values():
++        if not isinstance(enemy, dict):
++            return False
++        enemy["hp"] = full_health
++    new_state["restart_count"] = restart_count + 1
++    if "events" not in new_state:
++        new_state["events"] = []
++    new_state["events"].append({"type": "level_restart"})
++    return True
++
++
++def _prepare_success(state: dict[str, Any], timestamp: Any) -> dict[str, Any]:
++    """Copy state and install the accepted event timestamp."""
++
++    result = deepcopy(state)
++    # A rejected response is itself stored by the supplied HTTP transport.  Do
++    # not let its transport-only error leak into the next successful state.
++    result.pop("error", None)
++    result.pop("result", None)
++    result["timestamp"] = timestamp
++    return result
++
++
++def _finish(state: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
++    state["result"] = deepcopy(result)
++    return state
++
+ 
+ def process_portal_event(state: dict, event: dict) -> dict:
+-    raise NotImplementedError("Implement disclosed portal gameplay rules")
++    """Process one portal-arena event atomically.
++
++    A successful return is a new state mapping with the event timestamp and a
++    small ``result`` object.  A failed return is a copy of the prior state with
++    a non-empty ``error.code``; importantly, the prior timestamp and all
++    gameplay fields remain unchanged.
++    """
++
++    if not isinstance(state, dict):
++        return _copy_error_state({}, "invalid_state")
++    if not isinstance(event, dict):
++        return _copy_error_state(state, "invalid_event")
++
++    current_timestamp = state.get("timestamp", 0)
++    if not _finite_number(current_timestamp):
++        return _copy_error_state(state, "invalid_state_timestamp")
++
++    if "timestamp" not in event or not _finite_number(event.get("timestamp")):
++        return _copy_error_state(state, "invalid_timestamp")
++    timestamp = event["timestamp"]
++    try:
++        if timestamp < current_timestamp:
++            return _copy_error_state(state, "timestamp_reversed")
++    except (TypeError, ValueError):
++        return _copy_error_state(state, "invalid_timestamp")
++
++    event_type = event.get("type")
++    if not isinstance(event_type, str) or event_type not in {
++        "transition",
++        "move_asteroid",
++        "equip",
++        "activate_shield",
++        "hit",
++        "fire",
++        "spawn_wave",
++    }:
++        return _copy_error_state(state, "unknown_event")
++
++    # Validate and then modify only this copy.  Any failed branch below returns
++    # a fresh copy of the original state instead.
++    new_state: dict[str, Any]
++
++    if event_type == "transition":
++        mode = state.get("mode")
++        target_mode = event.get("target_mode")
++        if (
++            not isinstance(mode, str)
++            or not isinstance(target_mode, str)
++            or mode not in _MODES
++            or target_mode not in _MODES
++            or target_mode == mode
++        ):
++            return _copy_error_state(state, "invalid_mode")
++
++        portals = state.get("portals")
++        found, portal = _mapping_value(portals, event.get("portal_id"))
++        if not found or not isinstance(portal, Mapping) or portal.get("active") is not True:
++            return _copy_error_state(state, "invalid_portal")
++
++        new_state = _prepare_success(state, timestamp)
++        new_state["mode"] = target_mode
++        return _finish(
++            new_state,
++            {"mode": target_mode, "lives": deepcopy(new_state.get("lives"))},
++        )
++
++    if event_type == "move_asteroid":
++        asteroids = state.get("asteroids")
++        found, asteroid = _mapping_value(asteroids, event.get("asteroid_id"))
++        if not found or not isinstance(asteroid, Mapping):
++            return _copy_error_state(state, "unknown_asteroid")
++
++        position_ok, position = _xyz(asteroid.get("position"))
++        velocity_ok, velocity = _xyz(asteroid.get("velocity"))
++        bounds_ok, bounds = _xyz(event.get("bounds"), positive=True)
++        if not position_ok or not velocity_ok or not bounds_ok:
++            return _copy_error_state(state, "invalid_motion")
++
++        if "through_portal" in event and not isinstance(event["through_portal"], bool):
++            return _copy_error_state(state, "invalid_portal_flag")
++        through_portal = event.get("through_portal", False) is True
++        angle = None
++        if through_portal:
++            angle = event.get("angle")
++            if not _finite_number(angle):
++                return _copy_error_state(state, "invalid_angle")
++
++        if not _event_log_is_valid(state):
++            return _copy_error_state(state, "invalid_events")
++
++        new_state = _prepare_success(state, timestamp)
++        new_asteroids = new_state.get("asteroids")
++        # The object was validated above and is copied by _prepare_success.
++        moved = new_asteroids[event["asteroid_id"]]
++        updated_position: dict[str, Any] = {}
++        updated_velocity: dict[str, Any] = {}
++        for axis in _AXES:
++            candidate = position[axis] + velocity[axis]
++            component_velocity = velocity[axis]
++            if candidate > bounds[axis]:
++                candidate = bounds[axis]
++                component_velocity = -component_velocity
++            elif candidate < -bounds[axis]:
++                candidate = -bounds[axis]
++                component_velocity = -component_velocity
++            updated_position[axis] = candidate
++            updated_velocity[axis] = component_velocity
++        moved["position"] = updated_position
++        moved["velocity"] = updated_velocity
++
++        if through_portal:
++            if "events" not in new_state:
++                new_state["events"] = []
++            new_state["events"].append(
++                {
++                    "type": "portal_ripple",
++                    "asteroid_id": event["asteroid_id"],
++                    "angle": angle,
++                }
++            )
++        return _finish(
++            new_state,
++            {"position": updated_position, "velocity": updated_velocity},
++        )
++
++    if event_type == "equip":
++        weapons = state.get("weapons")
++        weapon_id = event.get("weapon_id")
++        found, _weapon = _mapping_value(weapons, weapon_id)
++        if not found:
++            return _copy_error_state(state, "unknown_weapon")
++
++        equipped = state.get("equipped", [])
++        if not isinstance(equipped, list):
++            return _copy_error_state(state, "invalid_equipment")
++        if any(weapon_id == existing for existing in equipped):
++            return _copy_error_state(state, "weapon_already_equipped")
++        if len(_distinct(equipped)) >= 2:
++            return _copy_error_state(state, "weapon_limit")
++
++        new_state = _prepare_success(state, timestamp)
++        new_state.setdefault("equipped", []).append(deepcopy(weapon_id))
++        return _finish(new_state, {"equipped": deepcopy(new_state["equipped"])})
++
++    if event_type == "activate_shield":
++        energy = event.get("energy")
++        if not _nonnegative_number(energy):
++            return _copy_error_state(state, "invalid_shield_energy")
++
++        new_state = _prepare_success(state, timestamp)
++        new_state["shield_energy"] = energy
++        return _finish(new_state, {"shield_energy": energy})
++
++    if event_type == "hit":
++        damage = event.get("damage")
++        if not _nonnegative_number(damage):
++            return _copy_error_state(state, "invalid_damage")
++
++        shield_before = state.get("shield_energy", 0)
++        lives_before = state.get("lives")
++        if not _nonnegative_number(shield_before) or not _nonnegative_number(lives_before):
++            return _copy_error_state(state, "invalid_life_state")
++        remainder = damage
++        absorbed = min(damage, shield_before)
++        remainder = damage - absorbed
++        lives_after = lives_before
++        if remainder > 0:
++            lives_after = max(0, lives_before - 1)
++
++        needs_restart = remainder > 0 and lives_after == 0
++        if needs_restart:
++            # Validate the restart inputs before making the successful copy, so
++            # a malformed synthetic state cannot result in a half-restart.
++            if not _nonnegative_number(state.get("initial_lives")):
++                return _copy_error_state(state, "invalid_initial_lives")
++            if not isinstance(state.get("enemies", {}), dict):
++                return _copy_error_state(state, "invalid_enemies")
++            if not _valid_wave_value(state.get("wave", 0)):
++                return _copy_error_state(state, "invalid_wave_state")
++            level_asteroids = state.get("level_asteroids", state.get("asteroids", {}))
++            if not isinstance(level_asteroids, Mapping):
++                return _copy_error_state(state, "invalid_level_snapshot")
++            restart_count = state.get("restart_count", 0)
++            if not isinstance(restart_count, Integral) or isinstance(restart_count, bool):
++                return _copy_error_state(state, "invalid_restart_count")
++            if not _event_log_is_valid(state):
++                return _copy_error_state(state, "invalid_events")
++            for enemy in state.get("enemies", {}).values():
++                if not isinstance(enemy, dict):
++                    return _copy_error_state(state, "invalid_enemy")
++
++        new_state = _prepare_success(state, timestamp)
++        new_state["shield_energy"] = shield_before - absorbed
++        new_state["lives"] = lives_after
++        if needs_restart:
++            if not _restart_level(new_state):
++                # This is defensive; the same fields were checked above.
++                return _copy_error_state(state, "invalid_restart_state")
++        return _finish(
++            new_state,
++            {
++                "absorbed": absorbed,
++                "lives": new_state.get("lives"),
++                "shield_energy": new_state.get("shield_energy"),
++            },
++        )
++
++    if event_type == "fire":
++        weapon_id = event.get("weapon_id")
++        enemy_id = event.get("enemy_id")
++        equipped = state.get("equipped", [])
++        if not isinstance(equipped, list) or not any(weapon_id == item for item in equipped):
++            return _copy_error_state(state, "weapon_not_equipped")
++
++        found_weapon, weapon = _mapping_value(state.get("weapons"), weapon_id)
++        if not found_weapon or not isinstance(weapon, Mapping):
++            return _copy_error_state(state, "unknown_weapon")
++        power = weapon.get("power")
++        if not _positive_number(power):
++            return _copy_error_state(state, "invalid_weapon_power")
++
++        found_enemy, enemy = _mapping_value(state.get("enemies"), enemy_id)
++        if not found_enemy or not isinstance(enemy, dict):
++            return _copy_error_state(state, "unknown_enemy")
++        hp = enemy.get("hp")
++        if not _positive_number(hp):
++            return _copy_error_state(state, "enemy_not_living")
++        if not _event_log_is_valid(state):
++            return _copy_error_state(state, "invalid_events")
++
++        new_hp = hp - power if hp > power else 0
++        new_state = _prepare_success(state, timestamp)
++        new_state["enemies"][enemy_id]["hp"] = new_hp
++        if "events" not in new_state:
++            new_state["events"] = []
++        new_state["events"].append(
++            {"type": "shot", "weapon_id": weapon_id, "enemy_id": enemy_id}
++        )
++        return _finish(new_state, {"weapon_id": weapon_id, "enemy_id": enemy_id, "hp": new_hp})
++
++    # spawn_wave is the only remaining supported event type.
++    requested_wave = event.get("wave")
++    current_wave = state.get("wave", 0)
++    if (
++        not isinstance(requested_wave, Integral)
++        or isinstance(requested_wave, bool)
++        or requested_wave <= 0
++        or not _valid_wave_value(current_wave)
++        or requested_wave <= current_wave
++    ):
++        return _copy_error_state(state, "invalid_wave")
++
++    new_state = _prepare_success(state, timestamp)
++    count = requested_wave + 1
++    health = requested_wave + 1
++    enemies: dict[str, dict[str, Any]] = {}
++    # IDs and positions are intentionally deterministic but are not part of the
++    # public policy contract.  They simply make the generated wave renderable.
++    for index in range(count):
++        angle = (2 * math.pi * index / count) if count else 0.0
++        enemies[f"enemy_{index + 1}"] = {
++            "hp": health,
++            "position": {
++                "x": 1.55 * math.cos(angle),
++                "y": 0.55 * math.sin(angle),
++                "z": -0.8 - 0.15 * (index % 3),
++            },
++        }
++    new_state["enemies"] = enemies
++    new_state["wave"] = requested_wave
++    return _finish(new_state, {"count": count, "health": health})
++
++
++__all__ = ["process_portal_event"]

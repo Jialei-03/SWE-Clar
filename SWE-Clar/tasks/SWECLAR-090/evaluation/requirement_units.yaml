@@ -1,0 +1,189 @@
+schema_version: 1
+task_id: SWECLAR-090
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Real HTML archive ingestion, article selection and printable PDF generation
+requirement_units:
+- ru_id: RU-001
+  name: Article package entry point
+  content: Complete the supplied project to fetch raw archive HTML, parse article records, select articles
+    and write an actual readable PDF under output_dir. Use the supplied default HTTP reader or optional
+    fetch_text(url) adapter, preserve inputs, and return title/articles/filename or a structured error.code.
+    A manifest without a PDF is incomplete.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for article package entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: build_article_package
+      signature: build_article_package(params, archive_url, output_dir, fetch_text=None) -> dict
+    inputs:
+      params: title/start_date/end_date plus optional filters and summary option
+      archive_url: Raw HTML source URL
+      output_dir: Directory for generated PDF
+      fetch_text: Optional callable(url) returning HTML
+    output:
+      type: dict
+      meaning: title, normalized articles and filename plus observable PDF bytes, or error.code
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: The HTML schema, local adapter and print layout are benchmark reconstruction choices. Only synthetic
+    articles are used. Do not claim equivalence to a customer publisher site or an external summarization
+    model.
+- ru_id: RU-002
+  name: Parameterized archive selection
+  content: Require a title and ISO start/end dates, select records inclusively within that range, optionally
+    filter by publication and case-insensitive query, and reject reversed or malformed ranges.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for parameterized archive selection.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: build_article_package
+      signature: build_article_package(params, archive_url, output_dir, fetch_text=None) -> dict
+    inputs:
+      params: title/start_date/end_date plus optional filters and summary option
+      archive_url: Raw HTML source URL
+      output_dir: Directory for generated PDF
+      fetch_text: Optional callable(url) returning HTML
+    output:
+      type: dict
+      meaning: title, normalized articles and filename plus observable PDF bytes, or error.code
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: The HTML schema, local adapter and print layout are benchmark reconstruction choices. Only synthetic
+    articles are used. Do not claim equivalence to a customer publisher site or an external summarization
+    model.
+- ru_id: RU-003
+  name: Deterministic article ordering
+  content: Reject duplicate or missing article IDs and invalid article dates with invalid_archive; invalid
+    input must not produce a new PDF. Extract nested visible title/body text, decode HTML entities and
+    exclude script/style content. Normalize whitespace and order selected articles by date then article
+    ID.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for deterministic article ordering.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: build_article_package
+      signature: build_article_package(params, archive_url, output_dir, fetch_text=None) -> dict
+    inputs:
+      params: title/start_date/end_date plus optional filters and summary option
+      archive_url: Raw HTML source URL
+      output_dir: Directory for generated PDF
+      fetch_text: Optional callable(url) returning HTML
+    output:
+      type: dict
+      meaning: title, normalized articles and filename plus observable PDF bytes, or error.code
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: The HTML schema, local adapter and print layout are benchmark reconstruction choices. Only synthetic
+    articles are used. Do not claim equivalence to a customer publisher site or an external summarization
+    model.
+- ru_id: RU-004
+  name: Optional supplied summaries
+  content: When summaries are requested, include only a supplied non-empty summary for each article and
+    mark articles without one as summary_missing; never invent or remotely generate summary text.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for optional supplied summaries.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: build_article_package
+      signature: build_article_package(params, archive_url, output_dir, fetch_text=None) -> dict
+    inputs:
+      params: title/start_date/end_date plus optional filters and summary option
+      archive_url: Raw HTML source URL
+      output_dir: Directory for generated PDF
+      fetch_text: Optional callable(url) returning HTML
+    output:
+      type: dict
+      meaning: title, normalized articles and filename plus observable PDF bytes, or error.code
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: The HTML schema, local adapter and print layout are benchmark reconstruction choices. Only synthetic
+    articles are used. Do not claim equivalence to a customer publisher site or an external summarization
+    model.
+- ru_id: RU-005
+  name: Actual printable PDF
+  content: Write a valid PDF with one cover page and each selected article beginning on a new page. Preserve
+    all article body text; long articles may continue onto additional pages rather than being truncated.
+    Use A4 pages, 20 mm content margins, sequential visible page numbers and a deterministic safe filename
+    ending in .pdf. Include selected titles, dates, publication, bodies and any requested supplied summaries
+    in the rendered document. Repeating identical input produces identical bytes.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for print-ready manifest.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: build_article_package
+      signature: build_article_package(params, archive_url, output_dir, fetch_text=None) -> dict
+    inputs:
+      params: title/start_date/end_date plus optional filters and summary option
+      archive_url: Raw HTML source URL
+      output_dir: Directory for generated PDF
+      fetch_text: Optional callable(url) returning HTML
+    output:
+      type: dict
+      meaning: title, normalized articles and filename plus observable PDF bytes, or error.code
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: The HTML schema, local adapter and print layout are benchmark reconstruction choices. Only synthetic
+    articles are used. Do not claim equivalence to a customer publisher site or an external summarization
+    model.

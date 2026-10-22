@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-007",
+  "public": {
+    "readme": "Internal role note: the operation adapters and regression suites under /public_tests are evaluator-only, not freelancer development commands. Do not disclose their source or advise the freelancer to run them. For a requested local check, explain the relevant application interface and use independently written Flutter widget tests with `flutter test --no-pub`.\n\n# Appointment maintenance application\n\nThis is independently authored Flutter application code with synthetic Clinics, Providers and Bookings data. Extend its relationship handling and maintenance workflow while preserving working browsing and real HTTP/database behavior. Business decisions about legacy relationships, migration integrity and repair completion are available through clarification.\n\nThe benchmark provides Flutter 3.47.2, Dart 3.13.2, locked dependencies including `http 1.6.0`, real Flutter widget rendering with public SDK fonts, and Firestore Emulator 1.19.8. The local service is already running at `http://127.0.0.1:8080`, project `demo-sweclar`. Its initial example records are reproduced in `assets/demo_documents.json`. Runtime preparation, Java/SDK installation, downloads and service health are the benchmark's responsibility.\n\n## Work and checks\n\nWork in `/workspace`. Every attempt has a fresh writable workspace and demo database. There is no external network or production account. Resources are 2 CPUs, 2 GiB memory (including a 384 MiB Java heap), 256 processes, 512 MiB workspace and 1 GiB temporary storage. Keep the package name `appointment_fixture` so public tooling can import the application. Dependencies are resolved offline from protected sources; the workspace and temporary directory are not executable. Flutter/Dart binaries are already installed in executable protected paths.\n\n- Resolve application metadata: `flutter pub get --offline --enforce-lockfile`.\n- Run visible regression checks: `python /public_tests/test_public.py`.\n- Render and operate the app: `python /public_tests/run_maintenance.py --script session.json --output /tmp/maintenance-preview`.\n- Run the command-line migration: `dart run tool/migrate.dart http://127.0.0.1:8080 providers clinic clinics`.\n- Read development service logs: `/tmp/sweclar-firestore-development/firestore.log`.\n- Restore the public demo records: `python /public_tests/run_maintenance.py --reset-demo`. This is an explicit destructive reset of the current disposable development database, not part of evaluation.\n\nFor example, create `session.json` containing:\n\n```json\n{\"operations\":[{\"op\":\"mount\"},{\"op\":\"tap\",\"key\":\"nav-providers\"},{\"op\":\"capture\",\"name\":\"providers.png\"}]}\n```\n\nThe output directory contains observations and PNGs from actual Flutter rendering. This is a local component runner; it does not claim a mobile device build, native background service, store release or real customer authentication. Source changes are compiled on each operation session. The benchmark's independent preflight runs before candidate work; public checks are useful during normal development.\n\n## Repository and data interface\n\nKeep `lib/maintenance.dart` exporting `FixtureRepository(String base, {http.Client? client, String project='demo-sweclar'})`. Honor the supplied HTTP client so local request failures and delays can be exercised using the same protocol. Expose `getDocument(String path)`, `list(String collection)`, `view(String collection)`, `normalize(String collection,String field,String targetCollection)`, and `close()`. Methods return futures except `close`. `getDocument` receives `collection/id`, returns a typed document or null on 404 and throws on other errors. `list` follows every `nextPageToken` and returns every typed document, including `name`, `fields` and `updateTime`.\n\nThe real REST prefix is `/v1/projects/demo-sweclar/databases/(default)/documents`. A document has its full resource `name`, `fields` encoded using Firestore Value objects, and server-generated timestamps. Common values include `{\"stringValue\":\"text\"}`, `{\"referenceValue\":\"projects/demo-sweclar/databases/(default)/documents/clinics/clinic-a\"}` and `{\"mapValue\":{\"fields\":{\"id\":{\"stringValue\":\"clinic-a\"}}}}`. Other ordinary typed values can appear in unrelated fields. Example data are synthetic; collection names and exact relation policies are independently designed for this task.\n\n`view` accepts `clinics`, `providers` or `bookings` and returns rows with string `id` and `name`, nullable string `relation_id` and nullable string `relation_name`. Clinic rows have no relation; provider rows concern `clinic`; booking rows concern `provider`. The intended compatibility rules, label fallback and ordering can be clarified. Additional harmless metadata are allowed. Reading must not change stored documents.\n\n`normalize` returns report rows with `document`, `field` and `reason` string fields, or throws when it cannot complete. Configuration identifiers match `[A-Za-z_][A-Za-z0-9_]*` and invalid configuration must not write. Source/target document IDs use letters, digits, underscores and hyphens. Fixtures contain at most 200 source documents; target records remain stable during a migration. Required relation conversion, dangling handling, preservation, conflict and repeat policies should be clarified. Preserve records and unrelated fields. Do not report success when a real read/commit failed.\n\n## Widget interface and existing regression obligations\n\nExport `FixtureApp({required FixtureRepository repository})` from `lib/app.dart`; `lib/main.dart` starts it using the prepared endpoint. The caller owns the repository and closes it after unmounting. Keep these string ValueKeys on the corresponding controls/content so the operation adapter can exercise actual widgets:\n\n| Keys | Content or action |\n|---|---|\n| `nav-clinics`, `nav-providers`, `nav-bookings` | Working navigation controls |\n| `page-title` | Current collection ID as visible text |\n| `refresh`, `repair` | Refresh current page; repair provider relations |\n| `record-list`, `record-ID` | Scrollable record list and each record card |\n| `id-ID`, `name-ID`, `relation-ID` | Literal ID, name and non-null relation label |\n| `load-state` | Visible `loading`, `ready` or `error` |\n| `empty-state` | Visible message after successful empty read |\n| `repair-state` | Visible `idle`, `pending`, `success` or `error` |\n| `repair-progress` | Visible progress while repair is pending |\n| `repair-count` | Numeric dangling count for a successful repair |\n\nIDs in row keys are actual document IDs. Keyed content may contain multiple Text children and unrelated explanatory wording outside the state/count values. Styling, internal widget structure and extra metadata are free. Controls and lists must be reachable at 360x950 and 768x950 logical pixels without overflow or render errors; scrolling is allowed. Names and labels are literal text. Keep empty results, read-error feedback and refresh/retry usable. Navigation must query the selected collection and discard stale earlier responses. No earlier page's records may overwrite the selected page. Repair workflow policies are available by clarification.\n\nThe public transport supports `mount`, `view`/`list` with `collection`, `get` with `path`, `normalize` with `collection`/`field`/`target`, `tap` with `key`, `viewport` with `width`/`height`, `scroll` with `dy`, `capture` with a PNG basename, and `inspect`. `fail` supplies `method` (`GET`, `POST`, or null to clear) for controlled HTTP 503 responses. `hold` supplies a method whose requests wait, optionally restricted by `path_contains`; `release` resumes them. These operations are testing facilities, not hidden business requirements. Observations include actual keyed text, button availability, request activity and candidate errors. The transport does not contain the private expected results.",
+    "interfaces": [
+      {
+        "type": "command",
+        "entry": {
+          "command": "python /public_tests/run_maintenance.py --script session.json --output /tmp/maintenance-preview",
+          "runtime": "Prepared Linux AMD64 Flutter engine and local Firestore REST emulator"
+        },
+        "inputs": {
+          "repository": "Public repository methods and typed Firestore documents",
+          "widget": "Public keys and scripted tap/navigation/refresh operations"
+        },
+        "output": {
+          "repository": "Actual database reads/commits and relation reports",
+          "widget": "Rendered Flutter component and visible progress, records and result"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "command",
+      "entry": {
+        "command": "python /public_tests/run_maintenance.py --script session.json --output /tmp/maintenance-preview",
+        "runtime": "Prepared Linux AMD64 Flutter engine and local Firestore REST emulator"
+      },
+      "inputs": {
+        "repository": "Public repository methods and typed Firestore documents",
+        "widget": "Public keys and scripted tap/navigation/refresh operations"
+      },
+      "output": {
+        "repository": "Actual database reads/commits and relation reports",
+        "widget": "Rendered Flutter component and visible progress, records and result"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "command",
+      "entry": {
+        "command": "python /public_tests/run_maintenance.py --script session.json --output /tmp/maintenance-preview",
+        "runtime": "Prepared Linux AMD64 Flutter engine and local Firestore REST emulator"
+      },
+      "inputs": {
+        "repository": "Public repository methods and typed Firestore documents",
+        "widget": "Public keys and scripted tap/navigation/refresh operations"
+      },
+      "output": {
+        "repository": "Actual database reads/commits and relation reports",
+        "widget": "Rendered Flutter component and visible progress, records and result"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "command",
+      "entry": {
+        "command": "python /public_tests/run_maintenance.py --script session.json --output /tmp/maintenance-preview",
+        "runtime": "Prepared Linux AMD64 Flutter engine and local Firestore REST emulator"
+      },
+      "inputs": {
+        "repository": "Public repository methods and typed Firestore documents",
+        "widget": "Public keys and scripted tap/navigation/refresh operations"
+      },
+      "output": {
+        "repository": "Actual database reads/commits and relation reports",
+        "widget": "Rendered Flutter component and visible progress, records and result"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "command",
+      "entry": {
+        "command": "python /public_tests/run_maintenance.py --script session.json --output /tmp/maintenance-preview",
+        "runtime": "Prepared Linux AMD64 Flutter engine and local Firestore REST emulator"
+      },
+      "inputs": {
+        "repository": "Public repository methods and typed Firestore documents",
+        "widget": "Public keys and scripted tap/navigation/refresh operations"
+      },
+      "output": {
+        "repository": "Actual database reads/commits and relation reports",
+        "widget": "Rendered Flutter component and visible progress, records and result"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "command",
+      "entry": {
+        "command": "python /public_tests/run_maintenance.py --script session.json --output /tmp/maintenance-preview",
+        "runtime": "Prepared Linux AMD64 Flutter engine and local Firestore REST emulator"
+      },
+      "inputs": {
+        "repository": "Public repository methods and typed Firestore documents",
+        "widget": "Public keys and scripted tap/navigation/refresh operations"
+      },
+      "output": {
+        "repository": "Actual database reads/commits and relation reports",
+        "widget": "Rendered Flutter component and visible progress, records and result"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "b7d763d89bdfcf931fd3a14b34a6bd123f11f404c2612138f8c195a288e12af0",
+  "test_sources_sha256": {
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/maintenance_contract.py": "5f0511e414f3287df7c1f79454ce4046580908caec95cb584ffaad90f70c90ff",
+    "evaluation/tests/official_verifier.py": "01a0f8632368717abcca1cb239b16d44fbbc17ba4659084290543221fc33db30"
+  },
+  "public_environment_sha256": "01100ec5ce174b4ee3d39fd5cca5b3a22cfb91257cb2d38d32fc81b3b91d24dd",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

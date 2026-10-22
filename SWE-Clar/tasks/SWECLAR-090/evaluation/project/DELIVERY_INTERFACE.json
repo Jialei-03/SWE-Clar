@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-090",
+  "readme": "# Archive-to-PDF project\n\nComplete `build_article_package(params, archive_url, output_dir, fetch_text=None)` in solution.py. The supplied HTTP reader retrieves raw HTML; the optional callable(url) adapter returns HTML text. The archive parser and PDF renderer are extension points. Return a dictionary with title, articles and filename, and write the actual PDF under output_dir; failures return error.code. Do not change input parameters. Python 3.11+ and reportlab 4.4.9 are required.\n\nThis benchmark's synthetic HTML archive uses article.archive-entry elements with data-id, data-date and data-publication attributes. Each contains an h2 title, an element with data-field=\"body\", and optionally data-field=\"summary\". Extract nested visible text and HTML entities, excluding scripts/styles. Dates are ISO calendar dates. All text fixtures use characters supported by the standard PDF fonts. params requires title, start_date and end_date and may contain publication/query filters. The small example is fictional and contains no client article or account information.\n\nThe project evaluates actual HTML ingestion, selection and PDF generation using a local test server. The HTML schema is a disclosed reconstruction choice; it does not reproduce a private publisher's website or claim to bypass live website access controls.\n\nOptional supplied summaries are source fields, not generated AI text. The publication filter matches without case distinctions; query searches visible title and body text. Exact HTML rules and PDF layout/reproducibility policies are independent benchmark conventions, not customer-confirmed publisher specifications. The prepared environment includes rendering dependencies; run `python /public_tests/example.py` for the synthetic example.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "build_article_package",
+        "signature": "build_article_package(params, archive_url, output_dir, fetch_text=None) -> dict"
+      },
+      "inputs": {
+        "params": "title/start_date/end_date plus optional filters and summary option",
+        "archive_url": "Raw HTML source URL",
+        "output_dir": "Directory for generated PDF",
+        "fetch_text": "Optional callable(url) returning HTML"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "title, normalized articles and filename plus observable PDF bytes, or error.code"
+      },
+      "operations": []
+    }
+  ]
+}

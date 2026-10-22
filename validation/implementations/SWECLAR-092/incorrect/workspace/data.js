@@ -1,0 +1,1 @@
+window.FLEET_DATA = window.FLEET_DATA || {summary:{active:2,available:1},drivers:[{id:'driver-1',name:'Example Driver A'},{id:'driver-2',name:'Example Driver B'}],vehicles:[{id:'vehicle-1',name:'Example Van'},{id:'vehicle-2',name:'Example Truck'}]};

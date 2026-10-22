@@ -1,0 +1,228 @@
+schema_version: 1
+task_id: SWECLAR-082
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual local speech transcription, persistent classroom session CLI and translation HTTP
+  adapter
+requirement_units:
+- ru_id: RU-001
+  name: Classroom workflow entry point
+  content: Complete the supplied Python audio/session service and adapters. process_class_action returns
+    a new state without mutating inputs. cli.py reads an action, persists successful state changes atomically
+    and returns only its result/error. transcribe reads actual PCM WAV bytes through LocalWhisper; caller-supplied
+    transcript text is ignored. Audio is isolated under the configured asset root and processed locally
+    with whisper.cpp 1.7.6 and tiny.en. Preserve SQLite CLI --db PATH --assets DIR init/show/act. init
+    accepts initial state once, show is trusted operator inspection, act emits only result/error and persists
+    successes across processes atomically. Invalid/unknown actions return nonempty error.code preserving
+    all business state. Extra metadata and alternate error wording are accepted. Prepared dependencies
+    and synthetic English audio reside under /opt/sweclar; no runtime downloads.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for classroom workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_class_action
+      signature: process_class_action(state,action,transcriber=None,translator=None) -> dict
+    inputs:
+      state: Private session state with users/classes/translations
+      action: Supported action with trusted actor_id
+      transcriber: LocalWhisper(binary,model,asset_root)
+      translator: TranslationClient(url)
+    output:
+      type: dict
+      meaning: Next session state backed by actual audio transcription or translation I/O where required.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: The source requests voice-to-text classroom feedback. Local English Whisper inference, synthetic
+    audio, trusted CLI actor identity and normalized translation HTTP contract are reconstruction choices.
+    No source classroom recordings, names, document contents or cloud credentials are distributed.
+- ru_id: RU-002
+  name: Unambiguous case-insensitive class join
+  content: A class code contains ASCII letters only, is unique case-insensitively, and joins ignore letter
+    case. A known teacher creates the class, a known student joins it once, and only that class teacher
+    controls its timer. Roles come from state.users and actor_id is a trusted application identity. Unknown
+    identities and other class teachers are denied. create_class requires unique nonempty class_id and
+    nonempty ASCII-letter code; store uppercase code, teacher_id, students=[], status=created, elapsed=0,last_clock=None,
+    questions=[],transcript=[],feedback={},notes=[],documents=[]. Return class_id/code. join returns class_id
+    and adds student once. IDs come from trusted state.users; this local component is not a public authentication
+    endpoint.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for unambiguous case-insensitive class join.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_class_action
+      signature: process_class_action(state,action,transcriber=None,translator=None) -> dict
+    inputs:
+      state: Private session state with users/classes/translations
+      action: Supported action with trusted actor_id
+      transcriber: LocalWhisper(binary,model,asset_root)
+      translator: TranslationClient(url)
+    output:
+      type: dict
+      meaning: Next session state backed by actual audio transcription or translation I/O where required.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: The source requests voice-to-text classroom feedback. Local English Whisper inference, synthetic
+    audio, trusted CLI actor identity and normalized translation HTTP contract are reconstruction choices.
+    No source classroom recordings, names, document contents or cloud credentials are distributed.
+- ru_id: RU-003
+  name: Pause-aware timer and question-click timestamp
+  content: A created class is stopped at zero elapsed. start from created and resume from paused begin
+    an interval at the supplied nonnegative integer clock. pause/complete add only max(0,clock-last_clock)
+    while running and stop the interval; completed classes cannot restart. question_click records a joined
+    student’s nonnegative clicked elapsed under a unique question ID; later question_submit updates text
+    only and must preserve that original timestamp, even if another elapsed value is supplied. clocks
+    and clicked elapsed are nonnegative integers excluding bool. pause requires running, resume requires
+    paused, start requires created; complete accepts running or paused. Only owning teacher controls them.
+    Clock regression contributes zero elapsed; it does not subtract time. question_click requires running
+    class, joined student, unique nonempty class-wide question_id; stores id,student_id,timestamp,text(empty).
+    Submit requires that question's student and nonblank text, running or paused class. Submit changes
+    only text, not timestamp. Completed class disallows new questions.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for pause-aware timer and question-click timestamp.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_class_action
+      signature: process_class_action(state,action,transcriber=None,translator=None) -> dict
+    inputs:
+      state: Private session state with users/classes/translations
+      action: Supported action with trusted actor_id
+      transcriber: LocalWhisper(binary,model,asset_root)
+      translator: TranslationClient(url)
+    output:
+      type: dict
+      meaning: Next session state backed by actual audio transcription or translation I/O where required.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: The source requests voice-to-text classroom feedback. Local English Whisper inference, synthetic
+    audio, trusted CLI actor identity and normalized translation HTTP contract are reconstruction choices.
+    No source classroom recordings, names, document contents or cloud credentials are distributed.
+- ru_id: RU-004
+  name: Post-class transcript and understanding history
+  content: transcribe requires the owning teacher, a started class, unique segment_id, nonnegative elapsed
+    and a valid 16 kHz mono 16-bit PCM WAV segment of at most 30 seconds. Reject silent/missing/malformed/outside-root
+    audio without changing state. Run actual speech recognition and append recognized text with timestamp
+    and audio SHA256; exact segment replay is deduplicated and conflicting ID/audio/timestamp reuse is
+    rejected. After completion, students and teacher retain transcript/questions; each student sees only
+    their own questions, the teacher sees all class students/questions. The understanding rate uses each
+    student’s latest up/down feedback. Transcribe permits running or paused class; exact stored replay
+    after completion also permitted. Compare audio SHA256 and elapsed for segment ID. Store id,text,timestamp,audio_sha256
+    and return text,duplicate. Replay must not run recognition again. Nonnegative elapsed integer excludes
+    bool. Audio validator requires PCM16 mono16kHz,1..480000 frames with peak sample magnitude>=20; paths
+    cannot escape root, including symlinks. feedback from joined students accepts up/down, overwrites
+    their prior vote; understanding_rate is up votes / students who voted, or0 when empty. post_class_view
+    allowed in any status for owning teacher/joined students, exposes transcript,questions,notes,documents
+    and rate; teacher additionally students; student sees own questions only. No original recording or
+    child data is used.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for post-class transcript and understanding history.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_class_action
+      signature: process_class_action(state,action,transcriber=None,translator=None) -> dict
+    inputs:
+      state: Private session state with users/classes/translations
+      action: Supported action with trusted actor_id
+      transcriber: LocalWhisper(binary,model,asset_root)
+      translator: TranslationClient(url)
+    output:
+      type: dict
+      meaning: Next session state backed by actual audio transcription or translation I/O where required.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: The source requests voice-to-text classroom feedback. Local English Whisper inference, synthetic
+    audio, trusted CLI actor identity and normalized translation HTTP contract are reconstruction choices.
+    No source classroom recordings, names, document contents or cloud credentials are distributed.
+- ru_id: RU-005
+  name: Class-bound materials and translation reuse
+  content: Teacher notes and document references remain tied to their class and visible in joined-student/teacher
+    views; unrelated users cannot view or add them. translate(text,language) for a class member must POST
+    actual text/language to the configured TranslationClient provider and validate matching source_text/language
+    in its translated_text response. Cache by exact source text and language; replays reuse the cache
+    without another request. Failed or mismatched translations leave no cache entry. The caller’s translated_text
+    field is not a provider response. add_material permits owning teacher with kind note/document, unique
+    nonempty material_id per kind, nonblank content; entries id/content. Document content is a local reference
+    string, not fetched. translate requires nonblank text/language from class member; POST JSON {text,language}
+    to configured local provider, accept only 2xx JSON with matching source_text/language and nonblank
+    translated_text. Cache exact text+language globally in internal translations (key format free); cache
+    result text/cache_hit. Provider error/mismatch cannot change cache. Translation HTTP and CLI/service
+    workers run as ordinary user. No external provider credentials or requests.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for class-bound materials and translation reuse.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_class_action
+      signature: process_class_action(state,action,transcriber=None,translator=None) -> dict
+    inputs:
+      state: Private session state with users/classes/translations
+      action: Supported action with trusted actor_id
+      transcriber: LocalWhisper(binary,model,asset_root)
+      translator: TranslationClient(url)
+    output:
+      type: dict
+      meaning: Next session state backed by actual audio transcription or translation I/O where required.
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: The source requests voice-to-text classroom feedback. Local English Whisper inference, synthetic
+    audio, trusted CLI actor identity and normalized translation HTTP contract are reconstruction choices.
+    No source classroom recordings, names, document contents or cloud credentials are distributed.

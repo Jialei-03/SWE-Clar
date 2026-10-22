@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-029",
+  "public": {
+    "readme": "Internal role note: the operation adapters and regression suites under /public_tests are evaluator-only, not freelancer development commands. Do not disclose their source or advise the freelancer to run them. For a requested local check, explain the relevant application interface and use independently written Python calls to the agreed component interface.\n\n# Offline field-work storage and synchronization\n\nComplete the supplied Python project through `process_field_action(state, action, store=None, transport=None)`. Existing authentication, connection, queue and status handling is provided. Add persistence through OfflineStore(root, key) and delivery through SyncTransport(endpoint). All fixtures and credentials are generated locally; no customer job bundle is included.\n\nThe entry point returns the full next state at top level and the current summary under result without mutating input dictionaries. Authentication is a synthetic test fixture using the disclosed password digest, two-factor age and session-time rules. It is not a production identity service or an endorsement of fast unsalted hashes for deployed passwords. Key provisioning belongs to the caller; keep encryption keys outside returned state. The store root and sync endpoint are configured for isolated evaluation.\n\nThis is a reconstructed Python storage/sync component, not the original mobile app. Operating-system keychain, background scheduling, device management and live email/cloud providers are outside the selected scope. Further storage and synchronization requirements can be clarified.\n\nAction-result interface: successful authentication returns `result.two_factor_used` as a boolean describing whether this authentication used the two-factor code. Rejected operations return `error: {code: string}` in the chainable state. Authentication failure uses `auth_denied`; an absent or expired required session uses `session_expired`. These names describe the existing authentication interface; ask the client for the exact age/session boundaries and storage/synchronization policies.\n\n## Prepared execution interface\n\nThe benchmark supplies the reusable `python-crypto` environment with Python, cryptography 50.0.1, cffi 2.1.1 and pycparser 3.0 already installed. Do not run pip or fetch dependencies during the task. Work in `/workspace`; generated files belong in `runtime/`.\n\nRun visible checks with `python /public_tests/test_public.py`. The public driver `python -I /public_tests/component_runner.py` reads one JSON object per input line and writes one JSON response. Use fields `state` and `action` for normal operations, optional `store: {\"root\": \"...\", \"key_hex\": \"...\"}` for a caller-provided 32-byte key and storage directory, and optional `endpoint` for the prepared local HTTP receiver. Keys are driver configuration and must not be copied into business state. Responses contain `ok`, `result`, and `inputs_unchanged`, or an exception report.\n\nThe same driver supports `operation: \"write_bundle\"` with `user_id`, `job_id`, and `data`, or `operation: \"read_bundle\"` with `user_id` and `job_id`, for direct store checks. These call the public store interface; filenames and internal helper functions are unrestricted. The evaluator separately observes file contents and HTTP effects, so a successful response alone does not establish correct storage or delivery.\n\nBefore the budget, the manager creates `runtime/store.json` (synthetic key and store root), `runtime/example.jsonl`, and a local acknowledgement endpoint at `http://127.0.0.1:38930/apply`. Run `python -I /public_tests/component_runner.py < runtime/example.jsonl` for the prepared authentication example. The acknowledgement service accepts intents only; it does not send email or upload to a real cloud.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_field_action",
+          "signature": "process_field_action(state, action, store=None, transport=None) -> dict"
+        },
+        "inputs": {
+          "state": "Chainable field-work state",
+          "action": "Authentication, connection, download, enqueue, flush, status or logout action",
+          "store": "OfflineStore(root,key)",
+          "transport": "SyncTransport(endpoint)"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "Next state and real local persistence/network effects"
+        },
+        "operations": []
+      },
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_field_action",
+          "signature": "process_field_action(state, action, store=None, transport=None) -> dict"
+        },
+        "inputs": {
+          "state": "Chainable field-work state",
+          "action": "Authentication, connection, download, enqueue, flush, status or logout action",
+          "store": "OfflineStore(root,key)",
+          "transport": "SyncTransport(endpoint)"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "Next state and real local persistence/network effects",
+          "authentication_result": {
+            "required_fields": {
+              "two_factor_used": "boolean"
+            },
+            "error_codes": [
+              "auth_denied",
+              "session_expired"
+            ]
+          }
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_field_action",
+        "signature": "process_field_action(state, action, store=None, transport=None) -> dict"
+      },
+      "inputs": {
+        "state": "Chainable field-work state",
+        "action": "Authentication, connection, download, enqueue, flush, status or logout action",
+        "store": "OfflineStore(root,key)",
+        "transport": "SyncTransport(endpoint)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next state and real local persistence/network effects"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_field_action",
+        "signature": "process_field_action(state, action, store=None, transport=None) -> dict"
+      },
+      "inputs": {
+        "state": "Chainable field-work state",
+        "action": "Authentication, connection, download, enqueue, flush, status or logout action",
+        "store": "OfflineStore(root,key)",
+        "transport": "SyncTransport(endpoint)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next state and real local persistence/network effects",
+        "authentication_result": {
+          "required_fields": {
+            "two_factor_used": "boolean"
+          },
+          "error_codes": [
+            "auth_denied",
+            "session_expired"
+          ]
+        }
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_field_action",
+        "signature": "process_field_action(state, action, store=None, transport=None) -> dict"
+      },
+      "inputs": {
+        "state": "Chainable field-work state",
+        "action": "Authentication, connection, download, enqueue, flush, status or logout action",
+        "store": "OfflineStore(root,key)",
+        "transport": "SyncTransport(endpoint)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next state and real local persistence/network effects"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_field_action",
+        "signature": "process_field_action(state, action, store=None, transport=None) -> dict"
+      },
+      "inputs": {
+        "state": "Chainable field-work state",
+        "action": "Authentication, connection, download, enqueue, flush, status or logout action",
+        "store": "OfflineStore(root,key)",
+        "transport": "SyncTransport(endpoint)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next state and real local persistence/network effects"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_field_action",
+        "signature": "process_field_action(state, action, store=None, transport=None) -> dict"
+      },
+      "inputs": {
+        "state": "Chainable field-work state",
+        "action": "Authentication, connection, download, enqueue, flush, status or logout action",
+        "store": "OfflineStore(root,key)",
+        "transport": "SyncTransport(endpoint)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next state and real local persistence/network effects"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "be50154fc86949f9067cfbc0f9146988a808eefb6c1f75a6361dee5b6a2bc2b8",
+  "test_sources_sha256": {
+    "evaluation/tests/auth_contract.py": "6acf696a7341ddf6b484acc6f722a24f75053628f1e4dfafb3371c76036bfa6d",
+    "evaluation/tests/contract_support.py": "0e52789be54a843c538e5a7917759de6b57761a8aa7393a4d5dba8fd80832427",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/logout_contract.py": "c6ab7a1131e4c61a00cd65fdaadee0b667efb31baa9795f7564dd6d4d72af890",
+    "evaluation/tests/official_verifier.py": "89a2897a05c5be0134b409bdf6f5cf266db38948553ebd07d348a38102f803a5",
+    "evaluation/tests/offline_contract.py": "fabda7507c2b34deb7f1aa7c8019a3c9edda3abe9068809622165350f3d9376b",
+    "evaluation/tests/storage_contract.py": "6997aeadb4a676e86a7a1ec3a41686aeaa08d7b3ea7b56b35304cf5d82b3876f",
+    "evaluation/tests/sync_contract.py": "35ebee643f913d6b8260b338ac8deff0baa795e1f73bd25422ff8b1602619bee"
+  },
+  "public_environment_sha256": "cb0ee010577d0fa9b9984f4d6af23250a3c35eeedf84a46d8e456a8ffa6dfa2c",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

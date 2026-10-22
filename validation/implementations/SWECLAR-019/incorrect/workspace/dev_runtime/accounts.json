@@ -1,0 +1,7 @@
+{
+  "users": [
+    {"id": "member-a", "username": "member_alpha", "password": "synthetic-member-alpha"},
+    {"id": "member-b", "username": "member_beta", "password": "synthetic-member-beta"},
+    {"id": "member-c", "username": "member_gamma", "password": "synthetic-member-gamma"}
+  ]
+}

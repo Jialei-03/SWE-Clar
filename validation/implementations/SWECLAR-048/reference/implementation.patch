@@ -1,0 +1,783 @@
+diff --git a/control.py b/control.py
+index 3d54f26b1279bef420b3834269ccaa4ae8eaef88..5510d0d319915159222a347502532a7f2470e068 100644
+--- a/control.py
++++ b/control.py
+@@ -1,37 +1,141 @@
+-"""Application policy; capture formats and deployment details live elsewhere."""
++"""Application state and input policy for the capture desk."""
++
+ import copy
+ 
+ 
+-class ControlError(ValueError):pass
++RESOLUTIONS = ("640x480", "1280x720", "1920x1080")
++ZOOMS = (1, 2, 4)
++
++
++class ControlError(ValueError):
++    """An HTTP control request is not a valid application operation."""
++
+ 
+ 
+ def initial(settings=None):
+-    state={'devices':[],'selected':None,'resolution':'640x480','zoom':1,'display_input':'preview','kiosk':False,'last_action':None}
+-    if settings:state.update(settings)
++    """Create the non-persistent runtime state.
++
++    Device discovery, the selected device, zoom, display input and the last
++    action deliberately start fresh for every process.  Only the two settings
++    named by the storage contract are restored from SQLite.
++    """
++    state = {
++        "devices": [],
++        "selected": None,
++        "resolution": "640x480",
++        "zoom": 1,
++        "display_input": "preview",
++        "kiosk": False,
++        "last_action": None,
++    }
++    if isinstance(settings, dict):
++        resolution = settings.get("resolution")
++        if resolution in RESOLUTIONS:
++            state["resolution"] = resolution
++        kiosk = settings.get("kiosk")
++        if type(kiosk) is bool:
++            state["kiosk"] = kiosk
+     return state
+ 
+ 
++
+ def discovery(state, devices):
+-    result=copy.deepcopy(state);result['devices']=devices
+-    if result['selected'] not in {x['id'] for x in devices}:
+-        preferred=sorted(x['id'] for x in devices if x['preferred'])
+-        result['selected']=devices[0]['id'] if devices else None
++    """Apply a validated catalog while retaining the runtime controls.
++
++    The catalog's order is retained.  A selected ID is sticky while it is
++    present; otherwise preference is considered by ID, and the catalog's
++    first item is the fallback.  In particular, no property of a display
++    name participates in this decision.
++    """
++    result = copy.deepcopy(state)
++    result["devices"] = copy.deepcopy(devices)
++
++    ids = {device["id"] for device in devices}
++    if result.get("selected") in ids:
++        return result
++
++    preferred = sorted(device["id"] for device in devices if device["preferred"] is True)
++    if preferred:
++        result["selected"] = preferred[0]
++    elif devices:
++        result["selected"] = devices[0]["id"]
++    else:
++        result["selected"] = None
+     return result
+ 
+ 
+-def command(state, event):
+-    if not isinstance(event,dict):raise ControlError('invalid_event')
+-    result=copy.deepcopy(state);kind=event.get('type')
+-    if kind=='resolution':
+-        if event.get('value') not in ('640x480','1280x720','1920x1080'):raise ControlError('invalid_resolution')
+-        result['resolution']=event['value']
+-    elif kind=='device':
+-        if event.get('id') not in {x['id'] for x in state['devices']}:raise ControlError('missing_device')
+-        result['selected']=event['id']
+-    elif kind=='display':
+-        if event.get('value') not in ('preview','auxiliary'):raise ControlError('invalid_input')
+-        result['display_input']=event['value']
+-    elif kind in ('key','controller'):
+-        raise ControlError('controls_not_implemented')
+-    else:raise ControlError('invalid_event')
++
++def _device_ids(state):
++    return {device["id"] for device in state["devices"]}
++
++
++
++def _apply_action(result, action):
++    """Apply one of the canonical keyboard/controller actions."""
++    result["last_action"] = action
++    if action == "select":
++        result["kiosk"] = not result["kiosk"]
++    elif action == "back":
++        result["kiosk"] = False
++        result["display_input"] = "preview"
++    elif action == "zoom_in":
++        index = ZOOMS.index(result["zoom"])
++        result["zoom"] = ZOOMS[min(index + 1, len(ZOOMS) - 1)]
++    elif action == "zoom_out":
++        index = ZOOMS.index(result["zoom"])
++        result["zoom"] = ZOOMS[max(index - 1, 0)]
++    else:  # This is an implementation error, not a client-facing event.
++        raise AssertionError(action)
+     return result
++
++
++
++def command(state, event):
++    """Validate and apply one public control event without partial mutation."""
++    if type(event) is not dict:
++        raise ControlError("invalid_event")
++
++    kind = event.get("type")
++    if kind == "resolution":
++        value = event.get("value")
++        if value not in RESOLUTIONS:
++            raise ControlError("invalid_resolution")
++        result = copy.deepcopy(state)
++        result["resolution"] = value
++        return result
++
++    if kind == "device":
++        device_id = event.get("id")
++        if not isinstance(device_id, str) or device_id not in _device_ids(state):
++            raise ControlError("missing_device")
++        result = copy.deepcopy(state)
++        result["selected"] = device_id
++        return result
++
++    if kind == "display":
++        value = event.get("value")
++        if value not in ("preview", "auxiliary"):
++            raise ControlError("invalid_input")
++        result = copy.deepcopy(state)
++        result["display_input"] = value
++        return result
++
++    if kind == "key":
++        actions = {"Enter": "select", "Escape": "back", "Equal": "zoom_in", "Minus": "zoom_out"}
++        key = event.get("key")
++        if not isinstance(key, str):
++            raise ControlError("invalid_key")
++        action = actions.get(key)
++        if action is None:
++            raise ControlError("invalid_key")
++        return _apply_action(copy.deepcopy(state), action)
++
++    if kind == "controller":
++        actions = {0: "select", 1: "back", 4: "zoom_in", 5: "zoom_out"}
++        button = event.get("button")
++        # bool is an int subclass in Python, but it is not a controller ID.
++        if type(button) is not int or button not in actions:
++            raise ControlError("invalid_button")
++        return _apply_action(copy.deepcopy(state), actions[button])
++
++    raise ControlError("invalid_event")
+diff --git a/server.py b/server.py
+index e11f5f26045095314060c1fe14f501eb105f32c8..1187f5bf0edc7d68eee1cf09cf6de6cd76abc211 100644
+--- a/server.py
++++ b/server.py
+@@ -1,86 +1,194 @@
+ import argparse
++import copy
+ import json
+ import sqlite3
+ import threading
+-from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
+-from control import initial,discovery,command,ControlError
+-from pixels import scale,png
+-from wire import exchange,SourceError
+ 
+-ROOT=Path(__file__).resolve().parent
++from control import ControlError, discovery, initial, command
++from pixels import png, scale
++from wire import SourceError, exchange
++
++
++ROOT = Path(__file__).resolve().parent
++
+ 
+ 
+ def load(path):
++    """Create/read the small persistent settings record."""
+     with sqlite3.connect(path) as db:
+-        db.execute('CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
+-        row=db.execute('SELECT payload FROM settings WHERE id=1').fetchone()
+-        return json.loads(row[0]) if row else None
++        db.execute("CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)")
++        row = db.execute("SELECT payload FROM settings WHERE id=1").fetchone()
++    if row is None:
++        return None
++    try:
++        value = json.loads(row[0])
++    except (TypeError, ValueError, UnicodeError):
++        return None
++    return value if isinstance(value, dict) else None
++
+ 
+ 
+-def save(path,state):
+-    settings={k:state[k] for k in ('resolution','kiosk')}
++def save(path, state):
++    """Persist exactly the settings allowed to survive a process restart."""
++    settings = {key: state[key] for key in ("resolution", "kiosk")}
+     with sqlite3.connect(path) as db:
+-        db.execute('INSERT OR REPLACE INTO settings VALUES(1,?)',(json.dumps(settings),))
++        db.execute("INSERT OR REPLACE INTO settings VALUES(1, ?)", (json.dumps(settings),))
+ 
+ 
+ class Handler(BaseHTTPRequestHandler):
+-    def log_message(self,*_):pass
+-    def send(self,status,body,kind='application/json',headers=None):
+-        if not isinstance(body,bytes):body=json.dumps(body).encode()
+-        self.send_response(status);self.send_header('Content-Type',kind);self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store')
+-        for k,v in (headers or {}).items():self.send_header(k,str(v))
+-        self.end_headers();self.wfile.write(body)
++    def log_message(self, *_):
++        pass
++
++    def send(self, status, body, kind="application/json", headers=None):
++        if not isinstance(body, bytes):
++            body = json.dumps(body, separators=(",", ":")).encode("utf-8")
++        self.send_response(status)
++        self.send_header("Content-Type", kind)
++        self.send_header("Content-Length", str(len(body)))
++        self.send_header("Cache-Control", "no-store")
++        for key, value in (headers or {}).items():
++            self.send_header(key, str(value))
++        self.end_headers()
++        self.wfile.write(body)
++
++    def _json_body(self):
++        try:
++            length = int(self.headers.get("Content-Length", "0"))
++        except (TypeError, ValueError):
++            raise ControlError("invalid_event")
++        if not 0 < length <= 4096:
++            raise ControlError("invalid_event")
++        try:
++            raw = self.rfile.read(length)
++            return json.loads(raw.decode("utf-8"))
++        except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError, RecursionError):
++            raise ControlError("invalid_event")
++
+     def do_GET(self):
+-        if self.path=='/api/state':
+-            with self.server.lock:self.send(200,self.server.state)
++        if self.path == "/api/state":
++            with self.server.lock:
++                state = copy.deepcopy(self.server.state)
++            self.send(200, state)
+             return
+-        if self.path=='/api/frame':
++
++        if self.path == "/api/frame":
+             try:
+-                with self.server.lock:state=dict(self.server.state)
+-                request={'op':'frame','input':state['display_input']}
+-                if state['display_input']=='preview':
+-                    if state['selected'] is None:raise ControlError('no_device')
+-                    request['device_id']=state['selected']
+-                sequence,width,height,rgb=exchange(self.server.camera_port,request)
+-                output_width,output_height=map(int,state['resolution'].split('x'))
+-                transformed=scale(rgb,width,height,output_width,output_height,state['zoom'])
+-                self.send(200,png(transformed,output_width,output_height),'image/png',{'X-Frame-Sequence':sequence,'X-Display-Input':state['display_input']})
+-            except SourceError as error:self.send(502,{'error':str(error)})
+-            except ControlError as error:self.send(409,{'error':str(error)})
++                with self.server.lock:
++                    state = copy.deepcopy(self.server.state)
++                request = {"op": "frame", "input": state["display_input"]}
++                if state["display_input"] == "preview":
++                    if state["selected"] is None:
++                        raise ControlError("no_device")
++                    request["device_id"] = state["selected"]
++                sequence, width, height, rgb = exchange(self.server.camera_port, request)
++                output_width, output_height = map(int, state["resolution"].split("x"))
++                transformed = scale(rgb, width, height, output_width, output_height, state["zoom"])
++                self.send(
++                    200,
++                    png(transformed, output_width, output_height),
++                    "image/png",
++                    {
++                        "X-Frame-Sequence": sequence,
++                        "X-Display-Input": state["display_input"],
++                    },
++                )
++            except ControlError as error:
++                self.send(409, {"error": str(error)})
++            except SourceError as error:
++                self.send(502, {"error": str(error)})
++            return
++
++        files = {
++            "/": ("index.html", "text/html; charset=utf-8"),
++            "/viewer.js": ("viewer.js", "text/javascript; charset=utf-8"),
++            "/style.css": ("style.css", "text/css; charset=utf-8"),
++        }
++        if self.path not in files:
++            self.send(404, {"error": "not_found"})
+             return
+-        files={'/':('index.html','text/html; charset=utf-8'),'/viewer.js':('viewer.js','text/javascript'),'/style.css':('style.css','text/css')}
+-        if self.path not in files:return self.send(404,{'error':'not_found'})
+-        name,kind=files[self.path];self.send(200,(ROOT/name).read_bytes(),kind)
++        name, kind = files[self.path]
++        self.send(200, (ROOT / name).read_bytes(), kind)
++
+     def do_POST(self):
+-        if self.path not in ('/api/scan','/api/control'):return self.send(404,{'error':'not_found'})
++        if self.path not in ("/api/scan", "/api/control"):
++            self.send(404, {"error": "not_found"})
++            return
++
++        try:
++            event = self._json_body()
++        except ControlError as error:
++            self.send(400, {"error": str(error)})
++            return
++
++        if self.path == "/api/scan":
++            if event != {}:
++                self.send(400, {"error": "invalid_event"})
++                return
++            try:
++                # Do not hold the application lock during network I/O.  The
++                # current state is read again below so a concurrent control
++                # cannot be lost when the catalog arrives.
++                devices = exchange(self.server.camera_port, {"op": "list"})
++            except SourceError as error:
++                self.send(502, {"error": str(error)})
++                return
++            try:
++                with self.server.lock:
++                    after = discovery(self.server.state, devices)
++                    save(self.server.db, after)
++                    self.server.state = after
++            except (OSError, sqlite3.Error) as error:
++                self.send(500, {"error": "storage_error"})
++                return
++            self.send(200, after)
++            return
++
+         try:
+-            length=int(self.headers.get('Content-Length','0'))
+-            if not 0<length<=4096:raise ControlError('invalid_event')
+-            event=json.loads(self.rfile.read(length))
+             with self.server.lock:
+-                if self.path=='/api/scan':
+-                    if event!={}:raise ControlError('invalid_event')
+-                    after=discovery(self.server.state,exchange(self.server.camera_port,{'op':'list'}))
+-                else:after=command(self.server.state,event)
+-                save(self.server.db,after);self.server.state=after
+-                self.send(200,after)
+-        except SourceError as error:self.send(502,{'error':str(error)})
+-        except (ValueError,TypeError,KeyError) as error:self.send(400,{'error':str(error) if isinstance(error,ControlError) else 'invalid_event'})
+-
+-
+-if __name__=='__main__':
+-    parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=8000);parser.add_argument('--db',default='camera.sqlite');parser.add_argument('--camera-port',type=int)
+-    args=parser.parse_args();source=None
+-    if not args.camera_port:
++                after = command(self.server.state, event)
++                save(self.server.db, after)
++                self.server.state = after
++        except ControlError as error:
++            self.send(400, {"error": str(error)})
++            return
++        except (OSError, sqlite3.Error):
++            self.send(500, {"error": "storage_error"})
++            return
++        self.send(200, after)
++
++
++if __name__ == "__main__":
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--port", type=int, default=8000)
++    parser.add_argument("--db", default="camera.sqlite")
++    parser.add_argument("--camera-port", type=int)
++    args = parser.parse_args()
++
++    source = None
++    if args.camera_port is None:
+         from synthetic_source import Source
+-        source=Source();args.camera_port=source.start()
+-    server=ThreadingHTTPServer(('127.0.0.1',args.port),Handler);server.db=args.db;server.camera_port=args.camera_port;server.lock=threading.RLock()
+-    server.state=initial(load(args.db))
+-    try:server.state=discovery(server.state,exchange(args.camera_port,{'op':'list'}))
+-    except SourceError:pass
+-    print(json.dumps({'port':server.server_port}),flush=True)
+-    try:server.serve_forever()
++
++        source = Source()
++        args.camera_port = source.start()
++
++    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
++    server.db = args.db
++    server.camera_port = args.camera_port
++    server.lock = threading.RLock()
++    server.state = initial(load(args.db))
++    try:
++        server.state = discovery(server.state, exchange(args.camera_port, {"op": "list"}))
++    except SourceError:
++        # A failed initial discovery leaves the fresh/persisted settings
++        # usable; an explicit scan can recover later.
++        pass
++
++    print(json.dumps({"port": server.server_port}), flush=True)
++    try:
++        server.serve_forever()
+     finally:
+         server.server_close()
+-        if source:source.stop()
++        if source:
++            source.stop()
+diff --git a/viewer.js b/viewer.js
+index 2d7686674c9ee58b47980e71f58f57fad2e7648b..2eeffd6acf426b8769096cd7c248564fcaff08b0 100644
+--- a/viewer.js
++++ b/viewer.js
+@@ -1,37 +1,170 @@
+-let state, generation=0, busy=false;
+-const canvas=document.querySelector('#video'), context=canvas.getContext('2d'), status=document.querySelector('#status');
+-async function request(path,body) {
+-  const response=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+-  const result=await response.json();if(!response.ok)throw new Error(result.error);return result;
++let state = null;
++let generation = 0;
++let busy = false;
++let controlTail = Promise.resolve();
++
++const canvas = document.querySelector('#video');
++const context = canvas.getContext('2d');
++const status = document.querySelector('#status');
++const deviceSelect = document.querySelector('#device');
++
++async function request(path, body) {
++  const options = {cache: 'no-store'};
++  if (body !== undefined) {
++    options.method = 'POST';
++    options.headers = {'Content-Type': 'application/json'};
++    options.body = JSON.stringify(body);
++  }
++  const response = await fetch(path, options);
++  let result = null;
++  try {
++    result = await response.json();
++  } catch (_) {
++    result = {error: 'invalid_response'};
++  }
++  if (!response.ok) throw new Error(result && result.error ? result.error : 'request_failed');
++  return result;
++}
++
++function showError(error) {
++  status.textContent = error && error.message ? error.message : String(error);
+ }
+-function error(e){status.textContent=e.message;}
++
+ function render() {
+-  const select=document.querySelector('#device');select.replaceChildren();
+-  for(const source of state.devices){const option=document.createElement('option');option.value=source.id;option.textContent=source.name;select.append(option);}
+-  select.value=state.selected||'';document.querySelector('#resolution').value=state.resolution;document.querySelector('#display-input').value=state.display_input;
+-  document.body.classList.toggle('kiosk',state.kiosk);generation++;
++  deviceSelect.replaceChildren();
++  for (const source of state.devices) {
++    const option = document.createElement('option');
++    option.value = source.id;
++    option.textContent = source.name;
++    deviceSelect.append(option);
++  }
++  deviceSelect.value = state.selected || '';
++  document.querySelector('#resolution').value = state.resolution;
++  document.querySelector('#display-input').value = state.display_input;
++  document.body.classList.toggle('kiosk', state.kiosk);
++  generation += 1;
++}
++
++function clearVideo(error) {
++  // clearRect removes every old pixel without changing the intrinsic geometry
++  // that describes the last requested output size.
++  context.clearRect(0, 0, canvas.width, canvas.height);
++  canvas.dataset.state = 'error';
++  delete canvas.dataset.sequence;
++  delete canvas.dataset.input;
++  showError(error);
++}
++
++function displayName() {
++  if (state.display_input === 'auxiliary') return 'auxiliary';
++  const source = state.devices.find(item => item.id === state.selected);
++  return source ? source.name : 'preview';
+ }
+-async function control(event){state=await request('/api/control',event);render();}
++
++function control(event) {
++  const operation = controlTail.then(async () => {
++    state = await request('/api/control', event);
++    render();
++    return state;
++  });
++  // A rejected operation must not prevent a later input from being handled.
++  controlTail = operation.catch(() => undefined);
++  return operation;
++}
++
++function scan() {
++  const operation = controlTail.then(async () => {
++    state = await request('/api/scan', {});
++    render();
++    return state;
++  });
++  controlTail = operation.catch(() => undefined);
++  return operation;
++}
++
+ async function frame() {
+-  if(busy)return;busy=true;const started=generation;
++  if (busy || !state) return;
++  busy = true;
++  const started = generation;
+   try {
+-    const response=await fetch('/api/frame');if(!response.ok)throw new Error((await response.json()).error);
+-    const bitmap=await createImageBitmap(await response.blob());
++    const response = await fetch('/api/frame', {cache: 'no-store'});
++    if (!response.ok) {
++      let result = null;
++      try {
++        result = await response.json();
++      } catch (_) {
++        result = null;
++      }
++      throw new Error(result && result.error ? result.error : 'frame_failed');
++    }
++    const bitmap = await createImageBitmap(await response.blob());
+     try {
+-      if(started!==generation)return;
+-      canvas.width=bitmap.width;canvas.height=bitmap.height;context.drawImage(bitmap,0,0);
+-      canvas.dataset.sequence=response.headers.get('X-Frame-Sequence');canvas.dataset.input=response.headers.get('X-Display-Input');canvas.dataset.state='playing';
+-      status.textContent=`${state.display_input} · ${bitmap.width} × ${bitmap.height} · zoom ${state.zoom}`;
+-    } finally {bitmap.close();}
+-  } catch(e) {
+-    if(started===generation){/* Failure presentation is incomplete. */canvas.dataset.state='error';delete canvas.dataset.sequence;error(e);}
+-  } finally {busy=false;}
+-}
+-document.querySelector('#scan').onclick=()=>request('/api/scan',{}).then(s=>{state=s;render();}).catch(error);
+-document.querySelector('#device').onchange=e=>control({type:'device',id:e.target.value}).catch(error);
+-document.querySelector('#resolution').onchange=e=>control({type:'resolution',value:e.target.value}).catch(error);
+-document.querySelector('#display-input').onchange=e=>control({type:'display',value:e.target.value}).catch(error);
+-window.addEventListener('keydown',e=>{if(['Enter','Escape','Equal','Minus'].includes(e.code)){e.preventDefault();control({type:'key',key:e.code}).catch(error);}});
+-window.addEventListener('controller-input',e=>control({type:'controller',button:e.detail.button}).catch(error));
+-for(const button of document.querySelectorAll('[data-button]'))button.onclick=()=>window.dispatchEvent(new CustomEvent('controller-input',{detail:{button:Number(button.dataset.button)}}));
+-state=await request('/api/state');render();await frame();setInterval(frame,150);
++      // A control or scan that completed while this frame was in flight made
++      // its pixels stale.  The next polling turn captures the new input.
++      if (started !== generation) return;
++      canvas.width = bitmap.width;
++      canvas.height = bitmap.height;
++      context.drawImage(bitmap, 0, 0);
++      const input = response.headers.get('X-Display-Input') || state.display_input;
++      canvas.dataset.sequence = response.headers.get('X-Frame-Sequence') || '';
++      canvas.dataset.input = input;
++      canvas.dataset.state = 'playing';
++      status.textContent = `${input} · ${input === 'preview' ? displayName() : 'auxiliary'} · ${bitmap.width} × ${bitmap.height} · zoom ${state.zoom}`;
++    } finally {
++      bitmap.close();
++    }
++  } catch (error) {
++    // Even if a control completed while this request was in flight, these
++    // pixels are no longer a trustworthy live result.  Never leave them on
++    // screen as if they were current video.
++    clearVideo(error);
++  } finally {
++    busy = false;
++  }
++}
++
++document.querySelector('#scan').onclick = () => scan().catch(showError);
++
++deviceSelect.onchange = event =>
++  control({type: 'device', id: event.target.value})
++    .catch(error => {
++      render();
++      showError(error);
++    });
++
++document.querySelector('#resolution').onchange = event =>
++  control({type: 'resolution', value: event.target.value})
++    .catch(error => {
++      render();
++      showError(error);
++    });
++
++document.querySelector('#display-input').onchange = event =>
++  control({type: 'display', value: event.target.value})
++    .catch(error => {
++      render();
++      showError(error);
++    });
++
++window.addEventListener('keydown', event => {
++  if (['Enter', 'Escape', 'Equal', 'Minus'].includes(event.code)) {
++    event.preventDefault();
++    control({type: 'key', key: event.code}).catch(showError);
++  }
++});
++
++window.addEventListener('controller-input', event => {
++  const button = event.detail && event.detail.button;
++  control({type: 'controller', button}).catch(showError);
++});
++
++for (const button of document.querySelectorAll('[data-button]')) {
++  button.onclick = () => window.dispatchEvent(new CustomEvent('controller-input', {
++    detail: {button: Number(button.dataset.button)}
++  }));
++}
++
++state = await request('/api/state');
++render();
++await frame();
++setInterval(frame, 150);
+diff --git a/wire.py b/wire.py
+index 234eef530743cf35c047ddd7f08c777e222e9842..94cdf9ef353c178c2903d7e75a2f108fb83ab9d5 100644
+--- a/wire.py
++++ b/wire.py
+@@ -1,44 +1,114 @@
++"""Framed loopback source protocol."""
++
+ import json
+ import re
+ import socket
+ import struct
++import time
++
++
++SOURCE_TIMEOUT = 1.5
++_ID = re.compile(r"[A-Za-z0-9_-]{1,40}\Z")
++
+ 
++class SourceError(ValueError):
++    """The source did not provide a valid response in time."""
+ 
+-class SourceError(ValueError):pass
+ 
+ 
+-def exact(stream, count):
+-    result=bytearray()
+-    while len(result)<count:
+-        part=stream.recv(count-len(result))
+-        if not part:raise SourceError('truncated_source')
++def exact(stream, count, deadline=None):
++    """Read exactly *count* bytes, including deliberately fragmented reads."""
++    if count < 0:
++        raise SourceError("truncated_source")
++    result = bytearray()
++    while len(result) < count:
++        if deadline is not None:
++            remaining = deadline - time.monotonic()
++            if remaining <= 0:
++                raise SourceError("source_unavailable")
++            stream.settimeout(remaining)
++        try:
++            part = stream.recv(count - len(result))
++        except socket.timeout as error:
++            raise SourceError("source_unavailable") from error
++        except OSError as error:
++            raise SourceError("source_unavailable") from error
++        if not part:
++            raise SourceError("truncated_source")
+         result.extend(part)
+     return bytes(result)
+ 
+ 
++
++def _catalog(body):
++    try:
++        devices = json.loads(body.decode("utf-8"))
++    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError, RecursionError):
++        raise SourceError("invalid_catalog")
++
++    if not isinstance(devices, list) or len(devices) > 32:
++        raise SourceError("invalid_catalog")
++
++    seen = set()
++    for device in devices:
++        if not isinstance(device, dict) or set(device) != {"id", "name", "preferred"}:
++            raise SourceError("invalid_catalog")
++        device_id = device["id"]
++        name = device["name"]
++        preferred = device["preferred"]
++        if not isinstance(device_id, str) or _ID.fullmatch(device_id) is None:
++            raise SourceError("invalid_catalog")
++        if device_id in seen:
++            raise SourceError("invalid_catalog")
++        if not isinstance(name, str) or not 1 <= len(name) <= 80:
++            raise SourceError("invalid_catalog")
++        if type(preferred) is not bool:
++            raise SourceError("invalid_catalog")
++        seen.add(device_id)
++    return devices
++
++
++
+ def exchange(port, command):
++    """Send one source request and parse its complete response.
++
++    A fresh loopback connection is used for every operation.  The deadline is
++    for the complete operation rather than for just one fragment, so a source
++    that never finishes cannot hold an HTTP worker indefinitely.
++    """
++    deadline = time.monotonic() + SOURCE_TIMEOUT
+     try:
+-        with socket.create_connection(('127.0.0.1',port),timeout=1.5) as stream:
+-            payload=json.dumps(command,separators=(',',':')).encode()
+-            stream.sendall(struct.pack('!I',len(payload))+payload)
+-            magic=exact(stream,4)
+-            if command['op']=='list':
+-                if magic!=b'LST1':raise SourceError('invalid_catalog')
+-                size=struct.unpack('!I',exact(stream,4))[0]
+-                if not 2<=size<=65536:raise SourceError('invalid_catalog')
+-                devices=json.loads(exact(stream,size))
+-                if not isinstance(devices,list) or len(devices)>32:raise SourceError('invalid_catalog')
+-                seen=set()
+-                for item in devices:
+-                    if not isinstance(item,dict) or set(item)!={'id','name','preferred'}:raise SourceError('invalid_catalog')
+-                    if not isinstance(item['id'],str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,40}',item['id']) or item['id'] in seen:raise SourceError('invalid_catalog')
+-                    if not isinstance(item['name'],str) or not 1<=len(item['name'])<=80 or type(item['preferred']) is not bool:raise SourceError('invalid_catalog')
+-                    seen.add(item['id'])
+-                return devices
+-            if magic!=b'FRM1':raise SourceError('invalid_frame')
+-            sequence,width,height,size=struct.unpack('!IHHI',exact(stream,12))
+-            if not 8<=width<=320 or not 8<=height<=240 or size!=width*height*3:raise SourceError('invalid_frame')
+-            return sequence,width,height,exact(stream,size)
+-    except (OSError,ValueError,UnicodeError) as error:
+-        if isinstance(error,SourceError):raise
+-        raise SourceError('source_unavailable') from error
++        remaining = deadline - time.monotonic()
++        if remaining <= 0:
++            raise SourceError("source_unavailable")
++        with socket.create_connection(("127.0.0.1", port), timeout=remaining) as stream:
++            payload = json.dumps(command, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
++            if not 2 <= len(payload) <= 4096:
++                raise SourceError("source_unavailable")
++            remaining = deadline - time.monotonic()
++            if remaining <= 0:
++                raise SourceError("source_unavailable")
++            stream.settimeout(remaining)
++            stream.sendall(struct.pack("!I", len(payload)) + payload)
++
++            magic = exact(stream, 4, deadline)
++            if command.get("op") == "list":
++                if magic != b"LST1":
++                    raise SourceError("invalid_catalog")
++                size = struct.unpack("!I", exact(stream, 4, deadline))[0]
++                if not 2 <= size <= 65536:
++                    raise SourceError("invalid_catalog")
++                return _catalog(exact(stream, size, deadline))
++
++            if magic != b"FRM1":
++                raise SourceError("invalid_frame")
++            sequence, width, height, size = struct.unpack("!IHHI", exact(stream, 12, deadline))
++            if not 8 <= width <= 320 or not 8 <= height <= 240:
++                raise SourceError("invalid_frame")
++            if size != width * height * 3:
++                raise SourceError("invalid_frame")
++            return sequence, width, height, exact(stream, size, deadline)
++    except SourceError:
++        raise
++    except (OSError, ValueError, TypeError, UnicodeError, OverflowError, struct.error) as error:
++        raise SourceError("source_unavailable") from error

@@ -1,0 +1,62 @@
+diff --git a/css/site.css b/css/site.css
+index b200b607e72beb8216b8a4bc8a1e6f7af995685e..af9201d734484097270763a5c8a1a538b64e8ff4 100644
+--- a/css/site.css
++++ b/css/site.css
+@@ -1,9 +1,10 @@
+ * { box-sizing: border-box; }
+ :root { color-scheme: light; font-family: Arial, sans-serif; color: #172b35; background: #f4f6f7; }
++html, body { overflow-x: hidden; }
+ body { margin: 0; font-size: 16px; line-height: 1.6; }
+ a { color: inherit; }
+ button { font: inherit; cursor: pointer; }
+-.shell { width: calc(100% - 40px); max-width: 1360px; margin-inline: 20px; }
++.shell { width: calc(100% - 40px); max-width: 1300px; margin-inline: auto; }
+ .site-header { background: #fff; border-bottom: 1px solid #dae1e4; }
+ .header-inner { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+ .brand { font-size: 21px; font-weight: bold; text-decoration: none; }
+@@ -16,15 +17,16 @@ h3 { margin: 0; font-size: 21px; }
+ p { margin: 0 0 18px; line-height: 1.6; }
+ .hero-art { display: block; width: 100%; height: auto; border-radius: 18px; }
+ .offers { display: grid; gap: 24px; }
+-.offer { display: flex; align-items: center; justify-content: space-between; gap: 28px; padding: 24px; background: #fff; border: 1px solid #d3dfe3; border-radius: 12px; }
++.offer { display: flex; align-items: center; justify-content: space-between; gap: 28px; min-width: 0; padding: 24px; background: #fff; border: 1px solid #d3dfe3; border-radius: 12px; }
+ .offer-label { flex: 1 1 220px; display: flex; align-items: center; gap: 14px; min-width: 0; }
++.offer-label > div { min-width: 0; }
+ .offer-mark { flex: 0 0 56px; width: 56px; height: 56px; }
+ .offer-label p { margin: 3px 0 0; font-size: 14px; }
+-.offer-metrics { flex: 0 1 600px; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)) 130px; gap: 18px; align-items: center; }
+-.metric { display: flex; flex-direction: column; align-items: center; }
++.offer-metrics { flex: 0 1 600px; min-width: 0; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)) minmax(110px,130px); gap: 18px; align-items: center; }
++.metric { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+ .metric span { font-size: 11px; letter-spacing: .08em; }
+ .metric strong { font-size: 22px; }
+-.play { background: #14596b; color: #fff; padding: 11px 13px; border-radius: 5px; text-align: center; white-space: nowrap; text-decoration: none; font-size: 13px; }
++.play { min-width: 0; background: #14596b; color: #fff; padding: 11px 13px; border-radius: 5px; text-align: center; white-space: nowrap; text-decoration: none; font-size: 13px; }
+ .why { padding-block: 40px; }
+ .policy { padding-block: 44px; min-height: 60vh; }
+ .policy p { max-width: 76ch; }
+@@ -32,17 +34,16 @@ footer { padding-block: 28px; border-top: 1px solid #d3dfe3; background: #e9eff1
+ footer .shell { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+ @media (max-width: 991px) {
+   .hero { grid-template-columns: 1fr; padding-block: 32px; }
+-  .hero-art { display: block; }
+-  .offer { gap: 18px; padding: 18px; }
+-  .offer-label { flex-basis: 160px; }
+-  .offer-metrics { flex-basis: 440px; gap: 10px; grid-template-columns: repeat(3,minmax(0,1fr)) 112px; }
++  .hero-art { display: none; }
++  .offer { flex-direction: column; align-items: stretch; gap: 18px; padding: 18px; }
++  .offer-label, .offer-metrics { flex-basis: auto; width: 100%; }
++  .offer-metrics { gap: 10px; grid-template-columns: repeat(3,minmax(0,1fr)) minmax(110px,112px); }
+ }
+ @media (max-width: 767px) {
+   .shell { width: calc(100% - 32px); }
+-  .offer { flex-direction: row; min-width: 700px; }
+-  .offer-label, .offer-metrics { flex-basis: auto; }
+-  .offer-metrics { grid-template-columns: repeat(3,75px) 112px; }
+-  .play { grid-column: auto; }
++  .offer { gap: 16px; padding: 16px; }
++  .offer-metrics { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
++  .play { grid-column: 1 / -1; width: 100%; }
+   .menu-button { display: block; }
+   .header-inner { flex-wrap: wrap; padding-block: 14px; }
+   .site-nav { display: none; width: 100%; flex-direction: column; gap: 8px; }

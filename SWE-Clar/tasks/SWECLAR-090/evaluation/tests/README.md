@@ -1,0 +1,1 @@
+Independent synthetic HTML fixtures and a real local HTTP source feed the candidate via a UID1000 worker. Protected tests inspect actual PDF text, page sizes, glyph bounds and rendered page pixels using pypdf and PDFium; supplied summaries are never generated. Missing prepared dependencies or the public worker invalidate the harness.

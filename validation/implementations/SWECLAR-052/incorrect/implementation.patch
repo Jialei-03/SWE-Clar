@@ -1,0 +1,574 @@
+diff --git a/smartlink_client.py b/smartlink_client.py
+index 358c2bb43e26d86f83bf4ea3af7243bc8b08da30..f60ad4025b4a6fbe213023940600ec3a4a1b618f 100644
+--- a/smartlink_client.py
++++ b/smartlink_client.py
+@@ -1,12 +1,187 @@
+-import base64,json
++"""HTTP client for the local Spotify-like provider and conversion connectors.
++
++The client deliberately keeps provider credentials and bearer tokens private to
++this object.  The event processor stores only the result of a successful
++profile lookup (the provider user id) in application state.
++"""
++
++from __future__ import annotations
++
++import base64
++import json
++import math
++from numbers import Real
++from urllib.error import HTTPError, URLError
++from urllib.request import Request, urlopen
+ from urllib.parse import urlencode
+-from urllib.request import Request,urlopen
++
++
++_DEFAULT_TIMEOUT = 10.0
++
+ 
+ class SmartlinkClient:
+-    def __init__(self,token_url,profile_url,client_id,client_secret,redirect_uri,conversion_urls=None):
+-        self.token_url=token_url;self.profile_url=profile_url;self.client_id=client_id
+-        self.client_secret=client_secret;self.redirect_uri=redirect_uri;self.conversion_urls=conversion_urls or {}
+-    def authorize(self,code):
+-        raise NotImplementedError("Complete the provider HTTP authorization")
+-    def send_conversion(self,platform,payload,key):
+-        raise NotImplementedError("Complete the outbound connector")
++    """Small standard-library HTTP client used by ``process_smartlink_event``.
++
++    ``token_url`` and ``profile_url`` are the provider endpoints.  Connector
++    URLs are selected by normalized platform name (``meta`` or ``tiktok``).
++    A bounded timeout is used for every request so a failed local/provider
++    endpoint cannot hang event processing indefinitely.
++    """
++
++    def __init__(
++        self,
++        token_url,
++        profile_url,
++        client_id,
++        client_secret,
++        redirect_uri,
++        conversion_urls=None,
++        timeout=_DEFAULT_TIMEOUT,
++    ):
++        self.token_url = token_url
++        self.profile_url = profile_url
++        self.client_id = client_id
++        self.client_secret = client_secret
++        self.redirect_uri = redirect_uri
++        self.conversion_urls = dict(conversion_urls or {})
++
++        # Configuration is supplied by callers, but do not permit an invalid
++        # timeout to turn a request into an unbounded one.
++        if isinstance(timeout, bool) or not isinstance(timeout, Real):
++            self.timeout = _DEFAULT_TIMEOUT
++        else:
++            try:
++                valid_timeout = math.isfinite(timeout) and timeout > 0
++            except (OverflowError, TypeError, ValueError):
++                valid_timeout = False
++            self.timeout = float(timeout) if valid_timeout else _DEFAULT_TIMEOUT
++
++    @staticmethod
++    def _json_response(response):
++        """Decode one HTTP response and require a successful HTTP status."""
++
++        status = getattr(response, "status", None)
++        if status is None:
++            status = response.getcode()
++        if status is not None and not 200 <= int(status) < 300:
++            raise RuntimeError("HTTP request failed")
++
++        raw = response.read()
++        if isinstance(raw, bytes):
++            raw = raw.decode("utf-8")
++        value = json.loads(raw)
++        return value
++
++    @staticmethod
++    def _request_error(error):
++        """Return a safe exception without echoing URLs or credentials.
++
++        In particular, a URL can contain query data supplied by an application
++        and an HTTP exception can contain request details.  The processor only
++        needs a failure signal, not those details.
++        """
++
++        if isinstance(error, (HTTPError, URLError, TimeoutError, OSError, ValueError, TypeError, json.JSONDecodeError)):
++            return RuntimeError("HTTP request failed")
++        return RuntimeError("HTTP request failed")
++
++    def authorize(self, code):
++        """Exchange an authorization code and return the provider profile.
++
++        The code is sent as a form-encoded value.  Client credentials are sent
++        using HTTP Basic authentication, never in the form body.  The bearer
++        token is used only for the subsequent profile request and is not
++        returned to the event processor.
++        """
++
++        if not isinstance(code, str) or not code.strip():
++            raise RuntimeError("authorization failed")
++
++        try:
++            form = urlencode(
++                {
++                    "grant_type": "authorization_code",
++                    "code": code,
++                    "redirect_uri": self.redirect_uri,
++                }
++            ).encode("utf-8")
++            basic_value = f"{self.client_id}:{self.client_secret}".encode("utf-8")
++            basic = base64.b64encode(basic_value).decode("ascii")
++            token_request = Request(
++                self.token_url,
++                data=form,
++                headers={
++                    "Authorization": f"Basic {basic}",
++                    "Content-Type": "application/x-www-form-urlencoded",
++                    "Accept": "application/json",
++                },
++                method="POST",
++            )
++            with urlopen(token_request, timeout=self.timeout) as response:
++                token_data = self._json_response(response)
++
++            if not isinstance(token_data, dict):
++                raise RuntimeError("authorization failed")
++            access_token = token_data.get("access_token")
++            if not isinstance(access_token, str) or not access_token.strip():
++                raise RuntimeError("authorization failed")
++
++            profile_request = Request(
++                self.profile_url,
++                headers={
++                    "Authorization": f"Bearer {access_token}",
++                    "Accept": "application/json",
++                },
++                method="GET",
++            )
++            with urlopen(profile_request, timeout=self.timeout) as response:
++                profile = self._json_response(response)
++
++            if not isinstance(profile, dict):
++                raise RuntimeError("authorization failed")
++            provider_id = profile.get("id")
++            if not isinstance(provider_id, str) or not provider_id.strip():
++                raise RuntimeError("authorization failed")
++            return profile
++        except Exception as error:
++            # Do not expose codes, client secrets, access tokens, or endpoint
++            # details through an exception that a caller might serialize.
++            if isinstance(error, RuntimeError) and str(error) == "authorization failed":
++                raise
++            raise self._request_error(error) from None
++
++    def send_conversion(self, platform, payload, key):
++        """POST a normalized conversion payload to a configured connector."""
++
++        if not isinstance(platform, str) or not platform:
++            raise RuntimeError("conversion request failed")
++        if not isinstance(key, str) or not key:
++            raise RuntimeError("conversion request failed")
++        if not isinstance(payload, dict):
++            raise RuntimeError("conversion request failed")
++
++        url = self.conversion_urls.get(platform)
++        if not isinstance(url, str) or not url:
++            raise RuntimeError("conversion request failed")
++
++        try:
++            body = json.dumps(payload, separators=(",", ":"), allow_nan=False).encode("utf-8")
++            request = Request(
++                url,
++                data=body,
++                headers={
++                    "Content-Type": "application/json",
++                    "Accept": "application/json",
++                    "Idempotency-Key": key,
++                },
++                method="POST",
++            )
++            with urlopen(request, timeout=self.timeout) as response:
++                return self._json_response(response)
++        except Exception as error:
++            if isinstance(error, RuntimeError) and str(error) == "conversion request failed":
++                raise
++            raise self._request_error(error) from None
++
++
++__all__ = ["SmartlinkClient"]
+diff --git a/solution.py b/solution.py
+index 3690d53177966422eb1c98c700bbfff49ccab6ea..d69a557ef10f661829ce1bcaf191df4628a41667 100644
+--- a/solution.py
++++ b/solution.py
+@@ -1,21 +1,351 @@
++"""Stateful smartlink event processing.
++
++The processor is intentionally a pure state transition from the caller's
++perspective: it deep-copies the supplied state and never changes either input
++object.  Network credentials, authorization codes, and bearer tokens remain
++inside ``SmartlinkClient`` and are not copied into application state.
++"""
++
++from __future__ import annotations
++
++import math
+ from copy import deepcopy
++from numbers import Real
++
++from smartlink_client import SmartlinkClient
++
++
++DEFAULT_ATTRIBUTION_WINDOW = 604800
++_DEFAULT_CLIENT_CONFIG = {
++    "token_url": "http://127.0.0.1:8090/token",
++    "profile_url": "http://127.0.0.1:8090/me",
++    "client_id": "local-client",
++    "client_secret": "local-secret",
++    "redirect_uri": "http://127.0.0.1:8090/callback",
++    "conversion_urls": {
++        "meta": "http://127.0.0.1:8090/meta",
++        "tiktok": "http://127.0.0.1:8090/tiktok",
++    },
++}
++
++_STATE_MAPS = (
++    "smartlinks",
++    "oauth_states",
++    "spotify_users",
++    "clicks",
++    "streams",
++    "conversions",
++)
++
++
++def _is_nonempty_string(value):
++    return isinstance(value, str) and bool(value.strip())
++
++
++def _is_finite_number(value):
++    """Whether value is a finite numeric timestamp/window, excluding bool."""
++
++    if isinstance(value, bool) or not isinstance(value, Real):
++        return False
++    # Integers have no infinity/NaN representation in Python.  Checking them
++    # directly also keeps very large, but finite, JSON integers valid.
++    if isinstance(value, int):
++        return True
++    try:
++        return math.isfinite(value)
++    except (OverflowError, TypeError, ValueError):
++        return False
++
++
++def _copy_state(state):
++    out = deepcopy(state) if isinstance(state, dict) else {}
++    for name in _STATE_MAPS:
++        if not isinstance(out.get(name), dict):
++            out[name] = {}
++    if "attribution_window" not in out:
++        out["attribution_window"] = DEFAULT_ATTRIBUTION_WINDOW
++    return out
++
++
++def _failure(out, code):
++    """Return a state copy carrying the public error shape."""
++
++    out["error"] = {"code": code}
++    return out
++
++
++def _success(out, result):
++    out.pop("error", None)
++    out["result"] = result
++    return out
++
++
++def _default_client():
++    # Copy the nested connector mapping so a caller or a client implementation
++    # cannot accidentally modify this module-level configuration.
++    config = dict(_DEFAULT_CLIENT_CONFIG)
++    config["conversion_urls"] = dict(_DEFAULT_CLIENT_CONFIG["conversion_urls"])
++    return SmartlinkClient(**config)
++
++
++def _as_client(service):
++    """Use an injected client, or the documented local development client."""
++
++    if service is None:
++        return _default_client()
++    if isinstance(service, dict):
++        # This is a small convenience for callers that pass configuration
++        # rather than constructing SmartlinkClient themselves.  It does not
++        # change the documented object-based interface.
++        return SmartlinkClient(**service)
++    return service
++
++
++def _valid_window(out):
++    window = out.get("attribution_window")
++    return _is_finite_number(window) and window > 0
++
++
++def _status_result(out):
++    return {
++        "clicks": len(out["clicks"]),
++        "attributed_streams": len(out["streams"]),
++        "conversions": len(out["conversions"]),
++    }
++
++
++def _handle_oauth_start(out, event):
++    token = event.get("state_token")
++    user_id = event.get("user_id")
++    if not _is_nonempty_string(token) or not _is_nonempty_string(user_id):
++        return _failure(out, "invalid_oauth_start")
++
++    # Caller-generated state values are one-use registrations.  Do not
++    # overwrite an existing entry, including an already-consumed one.
++    if token in out["oauth_states"]:
++        return _failure(out, "invalid_oauth_start")
++
++    out["oauth_states"][token] = {
++        "user_id": user_id,
++        "consumed": False,
++    }
++    return _success(out, {"state_token": token})
++
++
++def _user_is_authorized(out, user_id):
++    user = out["spotify_users"].get(user_id)
++    return isinstance(user, dict) and user.get("authorized") is True
++
++
++def _mark_unauthorized(out, user_id):
++    """Ensure a failed valid callback cannot leave its user authorized."""
++
++    current = out["spotify_users"].get(user_id)
++    if not isinstance(current, dict):
++        current = {}
++        out["spotify_users"][user_id] = current
++    current["authorized"] = False
++
++
++def _handle_oauth_complete(out, event, service):
++    token = event.get("state_token")
++    code = event.get("code")
++
++    # These checks intentionally happen before resolving or invoking a client:
++    # an invalid callback must not cause any HTTP operation.
++    if not _is_nonempty_string(token) or not _is_nonempty_string(code):
++        return _failure(out, "invalid_oauth_callback")
++    row = out["oauth_states"].get(token)
++    if not isinstance(row, dict):
++        return _failure(out, "invalid_oauth_callback")
++    user_id = row.get("user_id")
++    if not _is_nonempty_string(user_id):
++        return _failure(out, "invalid_oauth_callback")
++
++    try:
++        client = _as_client(service)
++        profile = client.authorize(code)
++        provider_id = profile.get("id") if isinstance(profile, dict) else None
++        if not _is_nonempty_string(provider_id):
++            raise RuntimeError("authorization failed")
++    except Exception:
++        # Neither the state registration nor its consumed marker is changed
++        # on a failed exchange/profile lookup.  The local user is explicitly
++        # left unauthorized so a prior/incomplete entry cannot be trusted.
++        _mark_unauthorized(out, user_id)
++        return _failure(out, "authorization_failed")
++
++    # Only after both HTTP operations and profile validation succeed do we
++    # consume the state and persist the non-sensitive identity result.
++    row["consumed"] = True
++    user = out["spotify_users"].get(user_id)
++    if not isinstance(user, dict):
++        user = {}
++        out["spotify_users"][user_id] = user
++    user["authorized"] = True
++    user["provider_user_id"] = provider_id
++    return _success(out, {"authorized": True, "user_id": user_id})
++
++
++def _handle_click(out, event):
++    click_id = event.get("click_id")
++    smartlink_id = event.get("smartlink_id")
++    destination = event.get("destination")
++    timestamp = event.get("timestamp")
++
++    if (
++        not _is_nonempty_string(click_id)
++        or not _is_nonempty_string(smartlink_id)
++        or not isinstance(destination, str)
++        or not _is_finite_number(timestamp)
++    ):
++        return _failure(out, "invalid_click")
++    if smartlink_id not in out["smartlinks"]:
++        return _failure(out, "unknown_smartlink")
++
++    # A click id is the idempotency key.  Replays return the original click
++    # unchanged, even if the caller repeats the event after a successful one.
++    if click_id in out["clicks"]:
++        return _success(out, {"replayed": True})
++
++    out["clicks"][click_id] = {
++        "smartlink_id": smartlink_id,
++        "destination": destination,
++        "timestamp": timestamp,
++    }
++    return _success(out, {"replayed": False})
++
++
++def _handle_stream(out, event):
++    stream_id = event.get("stream_id")
++    click_id = event.get("click_id")
++    user_id = event.get("user_id")
++    timestamp = event.get("timestamp")
++
++    if (
++        not _is_nonempty_string(stream_id)
++        or not _is_nonempty_string(click_id)
++        or not _is_nonempty_string(user_id)
++        or not _is_finite_number(timestamp)
++    ):
++        return _failure(out, "unattributed_stream")
++    if not _valid_window(out):
++        return _failure(out, "unattributed_stream")
++    if not _user_is_authorized(out, user_id):
++        return _failure(out, "unattributed_stream")
++
++    click = out["clicks"].get(click_id)
++    if not isinstance(click, dict):
++        return _failure(out, "unattributed_stream")
++    click_timestamp = click.get("timestamp")
++    if not _is_finite_number(click_timestamp):
++        return _failure(out, "unattributed_stream")
++
++    try:
++        elapsed = timestamp - click_timestamp
++        in_window = timestamp >= click_timestamp and elapsed <= out["attribution_window"]
++    except (OverflowError, TypeError, ValueError):
++        in_window = False
++    if not in_window:
++        return _failure(out, "unattributed_stream")
++
++    # Stream observations are trusted synthetic inputs.  Keeping an existing
++    # stream id stable makes retries harmless and prevents accidental rewrites
++    # of an already attributed stream.
++    if stream_id in out["streams"]:
++        return _success(out, {"attributed": True, "replayed": True})
++
++    out["streams"][stream_id] = {
++        "click_id": click_id,
++        "user_id": user_id,
++        "timestamp": timestamp,
++        "attributed": True,
++    }
++    return _success(out, {"attributed": True, "replayed": False})
++
++
++def _normalize_platform(value):
++    if not isinstance(value, str):
++        return None
++    normalized = value.strip().casefold()
++    return normalized or None
++
++
++def _handle_conversion(out, event, service):
++    event_id = event.get("event_id")
++    platform = _normalize_platform(event.get("platform"))
++    stream_id = event.get("stream_id")
++
++    if not _is_nonempty_string(event_id) or platform is None or not _is_nonempty_string(stream_id):
++        return _failure(out, "invalid_conversion")
++    if platform not in {"meta", "tiktok"}:
++        return _failure(out, "unsupported_platform")
++
++    key = f"{platform}:{event_id}"
++    # A successful connector acknowledgement is the durable idempotency
++    # record.  Do this before any network access so a replay cannot be sent.
++    if key in out["conversions"]:
++        return _success(out, {"replayed": True})
++
++    stream = out["streams"].get(stream_id)
++    if not isinstance(stream, dict) or stream.get("attributed") is not True:
++        return _failure(out, "unattributed_stream")
++    click_id = stream.get("click_id")
++    if not _is_nonempty_string(click_id):
++        return _failure(out, "unattributed_stream")
++
++    payload = {
++        "event_id": event_id,
++        "platform": platform,
++        "stream_id": stream_id,
++        "click_id": click_id,
++    }
++    try:
++        client = _as_client(service)
++        acknowledgement = client.send_conversion(platform, payload, key)
++        accepted = (
++            isinstance(acknowledgement, dict)
++            and acknowledgement.get("accepted") is True
++            and acknowledgement.get("event_id") == event_id
++        )
++    except Exception:
++        accepted = False
++
++    # Transport failures and bad acknowledgements intentionally leave the
++    # conversions map untouched, allowing the exact event to be retried.
++    if not accepted:
++        return _failure(out, "conversion_failed")
++
++    out["conversions"][key] = {
++        "event_id": event_id,
++        "platform": platform,
++        "stream_id": stream_id,
++        "click_id": click_id,
++    }
++    return _success(out, {"replayed": False})
+ 
+-def fail(state, code):
+-    out=deepcopy(state); out["error"]={"code":code}; return out
+ 
+ def process_smartlink_event(state: dict, event: dict, service=None) -> dict:
+-    out=deepcopy(state) if isinstance(state,dict) else {}; ev=deepcopy(event) if isinstance(event,dict) else {}; kind=ev.get("type")
+-    out.setdefault("smartlinks",{}); out.setdefault("oauth_states",{}); out.setdefault("spotify_users",{}); out.setdefault("clicks",{}); out.setdefault("streams",{}); out.setdefault("conversions",{}); out.setdefault("attribution_window",604800)
+-    if kind=="oauth_start":
+-        token=str(ev.get("state_token","")).strip(); user=str(ev.get("user_id","")).strip()
+-        if not token or not user or token in out["oauth_states"]: return fail(out,"invalid_oauth_start")
+-        out["oauth_states"][token]={"user_id":user,"consumed":False}; out["result"]={"state_token":token}
+-    elif kind=="oauth_complete":
+-        token=ev.get("state_token"); row=out["oauth_states"].get(token); code=str(ev.get("code","")).strip()
+-        if not row or row["consumed"] or not code: return fail(out,"invalid_oauth_callback")
+-        raise NotImplementedError("Exchange the code before authorizing the user")
+-    elif kind in {"click","stream","conversion"}:
+-        return fail(out,"not_implemented")
+-    elif kind=="status": out["result"]={"clicks":len(out["clicks"]),"attributed_streams":len(out["streams"]),"conversions":len(out["conversions"])}
+-    else: return fail(out,"unknown_event")
+-    out.pop("error",None); return out
++    """Process one smartlink event and return a new state dictionary."""
++
++    out = _copy_state(state)
++    if not isinstance(event, dict):
++        return _failure(out, "unknown_event")
++
++    kind = event.get("type")
++    if kind == "oauth_start":
++        return _handle_oauth_start(out, event)
++    if kind == "oauth_complete":
++        return _handle_oauth_complete(out, event, service)
++    if kind == "click":
++        return _handle_click(out, event)
++    if kind == "stream":
++        return _handle_stream(out, event)
++    if kind == "conversion":
++        return _handle_conversion(out, event, service)
++    if kind == "status":
++        return _success(out, _status_result(out))
++    return _failure(out, "unknown_event")
++
++
++__all__ = ["process_smartlink_event"]

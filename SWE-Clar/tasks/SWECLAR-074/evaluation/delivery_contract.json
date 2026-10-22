@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-074",
+  "public": {
+    "readme": "# Offline map console component\n\nIndependent Python/SQLite application with CesiumJS 1.121.0. Start CONSOLE_CONFIG=config.json CONSOLE_DATABASE=sessions.sqlite CESIUM_ASSET_DIR=/path/to/cesium/Build/Cesium python server.py. Cesium is an external public runtime dependency, including its Workers, Assets and Widgets directories; preserve its Apache-2.0/third-party licenses. The server serves only that designated dependency root and its own public page assets. No external service is contacted, including at first login; loopback HTTP is the local application transport.\n\nPrivate config supplies users:{username:{name,salt,password_hash}}, locations:[{id,name,latitude,longitude}], and tracks:[{id,name,description,samples:[{time,latitude,longitude}]}]. Credential hashes use Python hashlib.scrypt(password bytes,salt=hex-decoded salt,n=16384,r=8,p=1). Test locations, users and telemetry are independent synthetic fixtures. POST /login accepts username,password; POST /logout revokes the session. GET /me returns the current actor; /locations?q=text, /tracks and /rewind?id=track&at=timezone-aware-ISO8601 require that session. Sessions use an HttpOnly cookie and a hashed token in SQLite.\n\nRepair the supplied local login, search and track-history component while preserving its actual Cesium viewer and local HTTP shell. Search and rewind must move rendered geometry, not just return map-center fields. The two side panels share a grid with the map. Existing fixtures contain no customer maps, imagery, camera streams, locations, application names or device endpoints. A plain ellipsoid and point geometry are used instead of copyrighted/source imagery.\n\nThis component tests local authentication, desktop console layout, offline location search and supplied track history. It does not claim a complete device-control platform, camera/video processing, actual sensor tracking, customer server integration or native desktop packaging. The panel grid, UTC fixture format and sample-selection boundary are disclosed reconstruction choices. The test viewport range is 960\u20131440 CSS pixels.\n\nThe prepared python-cesium environment supplies CesiumJS 1.121.0 and its licenses at /opt/sweclar/cesium; CESIUM_ASSET_DIR defaults in that image to /opt/sweclar/cesium/Build/Cesium. No installation or external account is needed. Run python /public_tests/smoke.py for the existing public shell check. For a demo config: python /workspace/dev_runtime/demo_config.py /tmp/console-config.json, then CONSOLE_CONFIG=/tmp/console-config.json CONSOLE_DATABASE=/tmp/console-sessions.sqlite PORT=8080 python server.py; health is GET http://127.0.0.1:8080/.\n\nLocal case-insensitive search is already implemented and is a public regression. Panel width allocation and desktop layout are benchmark adaptations; the source requested geographic focus preservation and also specified unchanged map size. Exact sample selection is a reconstruction convention. Required response fields can include additional metadata; successful HTTP status and equivalent timezone representations are not otherwise fixed.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "store.py",
+          "function": "Store.rewind",
+          "signature": "Store.rewind(track_id,instant) -> dict"
+        },
+        "inputs": {
+          "track_id": "synthetic track identifier",
+          "instant": "timezone-aware timestamp"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "selected historical sample"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "store.py",
+        "function": "Store.rewind",
+        "signature": "Store.rewind(track_id,instant) -> dict"
+      },
+      "inputs": {
+        "track_id": "synthetic track identifier",
+        "instant": "timezone-aware timestamp"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "selected historical sample"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "store.py",
+        "function": "Store.rewind",
+        "signature": "Store.rewind(track_id,instant) -> dict"
+      },
+      "inputs": {
+        "track_id": "synthetic track identifier",
+        "instant": "timezone-aware timestamp"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "selected historical sample"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "store.py",
+        "function": "Store.rewind",
+        "signature": "Store.rewind(track_id,instant) -> dict"
+      },
+      "inputs": {
+        "track_id": "synthetic track identifier",
+        "instant": "timezone-aware timestamp"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "selected historical sample"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "store.py",
+        "function": "Store.rewind",
+        "signature": "Store.rewind(track_id,instant) -> dict"
+      },
+      "inputs": {
+        "track_id": "synthetic track identifier",
+        "instant": "timezone-aware timestamp"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "selected historical sample"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "store.py",
+        "function": "Store.rewind",
+        "signature": "Store.rewind(track_id,instant) -> dict"
+      },
+      "inputs": {
+        "track_id": "synthetic track identifier",
+        "instant": "timezone-aware timestamp"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "selected historical sample"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "bde224dc43730ebb1959644c5519661c15b4c2feb3149bb6111cf666e6053b65",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "97ac9b17c7b4b04d188176f093883744ff7d5b7aa1e8c6af8a1b1655b9a75dac",
+    "evaluation/tests/browser_support.py": "2497c1d678cef2e7471c1ccbc4f6ffd44c1a96716605c95b06704eaab46e8bd5",
+    "evaluation/tests/evaluate.py": "555a95759eb4f6f3ae24b75d50a726b3dcf298533fc953a2e4b777308f287fb7",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "788380d4d0ac951d508fa545d5c672c106ba6d320b10a3b8d93ea2d3d0caaa31"
+  },
+  "public_environment_sha256": "74c103b52f9f555b1321514a739406c12e329467ab1f11f2313efa8b78288034",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

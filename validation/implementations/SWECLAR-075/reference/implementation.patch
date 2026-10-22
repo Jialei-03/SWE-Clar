@@ -1,0 +1,1050 @@
+diff --git a/app.js b/app.js
+index 9b5570c03421580178940cbe52f1456eca98c86e..2a8a56511d4bcff71b4117d58300911d96d49265 100644
+--- a/app.js
++++ b/app.js
+@@ -1,9 +1,189 @@
+-const q=s=>document.querySelector(s);let epoch=0,sites=[];async function request(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});const data=await r.json();if(!r.ok)throw Error(data.error);return data;}
+-async function history(){const mine=epoch;const rows=await request('/history');if(mine!==epoch)return;q('#history').replaceChildren(...rows.map(r=>{const p=document.createElement('p');p.textContent=`${r.site_id} · ${r.ended_at===null?'Checked in':r.duration_seconds+' seconds'}`;return p;}));}
+-async function enter(user){const mine=++epoch;const [locations,nav]=await Promise.all([request('/sites'),request('/navigation')]);if(mine!==epoch)return;sites=locations;q('#auth').hidden=true;q('#workspace').hidden=false;q('#actor').textContent=user.email;q('#sites').replaceChildren(...sites.map(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=s.name;return o;}));q('#nav').replaceChildren(...nav.sections.map(name=>{const b=document.createElement('button');b.textContent=name;b.dataset.section=name;b.onclick=()=>{q('#section').textContent=name;};return b;}));await history();}
+-q('#account').onsubmit=async e=>{e.preventDefault();try{await enter(await request('/login',{email:q('#email').value,password:q('#password').value}));q('#password').value='';q('#error').textContent='';}catch(e){q('#error').textContent=e.message;}};
+-q('#register').onclick=async()=>{try{await request('/register',{email:q('#email').value,password:q('#password').value});q('#error').textContent='Account created. Sign in.';}catch(e){q('#error').textContent=e.message;}};
+-q('#checkin').onclick=()=>{const mine=epoch,id=crypto.randomUUID(),site_id=q('#sites').value;q('#status').textContent='Reading location…';navigator.geolocation.getCurrentPosition(async p=>{if(mine!==epoch)return;try{await request('/checkin',{id,site_id,latitude:p.coords.latitude,longitude:p.coords.longitude});if(mine!==epoch)return;q('#status').textContent='Checked in';await history();}catch(e){if(mine===epoch)q('#status').textContent=e.message;}},()=>{if(mine===epoch)q('#status').textContent='location_unavailable';},{enableHighAccuracy:true,timeout:5000,maximumAge:0});};
+-q('#checkout').onclick=async()=>{const mine=epoch;try{await request('/checkout',{});if(mine!==epoch)return;q('#status').textContent='Checked out';await history();}catch(e){if(mine===epoch)q('#status').textContent=e.message;}};
+-q('#logout').onclick=async()=>{await request('/logout',{});epoch++;q('#workspace').hidden=true;q('#auth').hidden=false;q('#history').replaceChildren();q('#status').textContent='';q('#actor').textContent='';};
+-const initialEpoch=epoch;request('/me').then(user=>{if(epoch===initialEpoch)return enter(user);}).catch(()=>{});
++const q = (selector) => document.querySelector(selector);
++let epoch = 0;
++let sites = [];
++
++async function request(path, body) {
++  const options = { method: body === undefined ? 'GET' : 'POST' };
++  if (body !== undefined) {
++    options.headers = { 'Content-Type': 'application/json' };
++    options.body = JSON.stringify(body);
++  }
++  const response = await fetch(path, options);
++  let data;
++  try {
++    data = await response.json();
++  } catch (_error) {
++    data = { error: 'request_failed' };
++  }
++  if (!response.ok) {
++    throw new Error(data && data.error ? data.error : 'request_failed');
++  }
++  return data;
++}
++
++async function history() {
++  const mine = epoch;
++  const rows = await request('/history');
++  if (mine !== epoch) return;
++  q('#history').replaceChildren(
++    ...rows.map((record) => {
++      const item = document.createElement('p');
++      const state = record.ended_at === null
++        ? 'Checked in'
++        : `${record.duration_seconds} seconds`;
++      item.textContent = `${record.site_id} · ${state}`;
++      return item;
++    }),
++  );
++}
++
++function selectSection(name) {
++  q('#section').textContent = name;
++  q('#nav').querySelectorAll('button').forEach((button) => {
++    button.setAttribute('aria-current', button.dataset.section === name ? 'page' : 'false');
++  });
++}
++
++function renderNavigation(navigation) {
++  const sections = Array.isArray(navigation.sections) ? navigation.sections : [];
++  const center = Math.floor(sections.length / 2);
++  q('#nav').replaceChildren(
++    ...sections.map((name, index) => {
++      const button = document.createElement('button');
++      button.type = 'button';
++      button.textContent = name;
++      button.dataset.section = name;
++      // The fixture places Plans in the middle.  The index fallback keeps the
++      // center emphasis correct if a private fixture uses a translated label.
++      if (name === 'Plans' || index === center) button.classList.add('primary');
++      button.onclick = () => selectSection(name);
++      return button;
++    }),
++  );
++  if (sections.length) selectSection(sections[0]);
++}
++
++async function enter(user) {
++  const mine = ++epoch;
++  const [locations, navigation] = await Promise.all([
++    request('/sites'),
++    request('/navigation'),
++  ]);
++  if (mine !== epoch) return;
++  sites = locations;
++  q('#auth').hidden = true;
++  q('#workspace').hidden = false;
++  q('#actor').textContent = user.email;
++  q('#sites').replaceChildren(
++    ...sites.map((site) => {
++      const option = document.createElement('option');
++      option.value = site.id;
++      option.textContent = site.name;
++      return option;
++    }),
++  );
++  renderNavigation(navigation);
++  await history();
++}
++
++q('#account').onsubmit = async (event) => {
++  event.preventDefault();
++  try {
++    const user = await request('/login', {
++      email: q('#email').value,
++      password: q('#password').value,
++    });
++    await enter(user);
++    q('#password').value = '';
++    q('#error').textContent = '';
++  } catch (error) {
++    q('#error').textContent = error.message;
++  }
++};
++
++q('#register').onclick = async () => {
++  try {
++    await request('/register', {
++      email: q('#email').value,
++      password: q('#password').value,
++    });
++    q('#error').textContent = 'Account created. Sign in.';
++  } catch (error) {
++    q('#error').textContent = error.message;
++  }
++};
++
++q('#checkin').onclick = () => {
++  const mine = epoch;
++  const site_id = q('#sites').value;
++  const id = window.crypto && typeof window.crypto.randomUUID === 'function'
++    ? window.crypto.randomUUID()
++    : `${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
++  q('#status').textContent = 'Reading location…';
++
++  if (!navigator.geolocation) {
++    q('#status').textContent = 'location_unavailable';
++    return;
++  }
++
++  try {
++    navigator.geolocation.getCurrentPosition(
++      async (position) => {
++        if (mine !== epoch) return;
++        try {
++          await request('/checkin', {
++            id,
++            site_id,
++            latitude: position.coords.latitude,
++            longitude: position.coords.longitude,
++          });
++          if (mine !== epoch) return;
++          q('#status').textContent = 'Checked in';
++          await history();
++        } catch (error) {
++          if (mine === epoch) q('#status').textContent = error.message;
++        }
++      },
++      () => {
++        // Permission denial must not create an HTTP attendance request.
++        if (mine === epoch) q('#status').textContent = 'location_unavailable';
++      },
++      { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 },
++    );
++  } catch (_error) {
++    q('#status').textContent = 'location_unavailable';
++  }
++};
++
++q('#checkout').onclick = async () => {
++  const mine = epoch;
++  try {
++    await request('/checkout', {});
++    if (mine !== epoch) return;
++    q('#status').textContent = 'Checked out';
++    await history();
++  } catch (error) {
++    if (mine === epoch) q('#status').textContent = error.message;
++  }
++};
++
++q('#logout').onclick = async () => {
++  try {
++    await request('/logout', {});
++  } finally {
++    epoch += 1;
++    q('#workspace').hidden = true;
++    q('#auth').hidden = false;
++    q('#history').replaceChildren();
++    q('#status').textContent = '';
++    q('#actor').textContent = '';
++  }
++};
++
++const initialEpoch = epoch;
++request('/me')
++  .then((user) => {
++    if (epoch === initialEpoch) return enter(user);
++    return undefined;
++  })
++  .catch(() => undefined);
+diff --git a/index.html b/index.html
+index ab0953ebe1f4c3a4bdc13d34c1e1b35be99e51df..d5f7fe3f8876d785c31db3f52ef5b8ff888aaa2d 100644
+--- a/index.html
++++ b/index.html
+@@ -1 +1,48 @@
+-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Local attendance fixture</title><link rel="stylesheet" href="/style.css"><main><section id="auth"><h1>Local attendance</h1><form id="account"><label>Email<input id="email" type="email" required></label><label>Password<input id="password" type="password" required></label><button>Sign in</button><button type="button" id="register">Create account</button></form><p id="error" role="alert"></p></section><section id="workspace" hidden><header><h1>Attendance</h1><p id="actor"></p><button id="logout">Sign out</button></header><h2 id="section">Home</h2><label>Site<select id="sites"></select></label><div class="actions"><button id="checkin">Check in with location</button><button id="checkout">Check out</button></div><p id="status" role="status"></p><h2>Attendance history</h2><div id="history"></div><nav id="nav" aria-label="Main sections"></nav></section></main><script src="/app.js"></script></html>
+\ No newline at end of file
++<!doctype html>
++<html lang="en">
++  <head>
++    <meta charset="utf-8">
++    <meta name="viewport" content="width=device-width,initial-scale=1">
++    <title>Local attendance fixture</title>
++    <link rel="stylesheet" href="/style.css">
++  </head>
++  <body>
++    <main>
++      <section id="auth">
++        <h1>Local attendance</h1>
++        <form id="account">
++          <label>Email<input id="email" type="email" autocomplete="email" required></label>
++          <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
++          <div class="account-actions">
++            <button type="submit">Sign in</button>
++            <button type="button" id="register">Create account</button>
++          </div>
++        </form>
++        <p id="error" role="alert"></p>
++      </section>
++
++      <section id="workspace" hidden>
++        <header>
++          <h1>Attendance</h1>
++          <p id="actor"></p>
++          <button type="button" id="logout">Sign out</button>
++        </header>
++
++        <section aria-live="polite">
++          <h2 id="section">Home</h2>
++          <label>Site<select id="sites"></select></label>
++          <div class="actions">
++            <button type="button" id="checkin">Check in with location</button>
++            <button type="button" id="checkout">Check out</button>
++          </div>
++          <p id="status" role="status"></p>
++        </section>
++
++        <h2>Attendance history</h2>
++        <div id="history"></div>
++        <nav id="nav" aria-label="Main sections"></nav>
++      </section>
++    </main>
++    <script src="/app.js"></script>
++  </body>
++</html>
+diff --git a/server.py b/server.py
+index 3ecda08d3e2c008a4d8e4bbf7aaa7ca9ec79a60c..143ead38e56d78b1d5b05c77fdf9b3021314ab4d 100644
+--- a/server.py
++++ b/server.py
+@@ -1,43 +1,183 @@
+-from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
++"""Small loopback HTTP service for the local attendance fixture."""
++
+ from http.cookies import SimpleCookie
+-from urllib.parse import urlsplit
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
+-import os,json
+-from store import Store,Error
+-ROOT=Path(__file__).resolve().parent;config=json.loads(Path(os.environ['CHECKIN_CONFIG']).read_text());clock_path=os.environ.get('CHECKIN_CLOCK_FILE');clock=(lambda:float(Path(clock_path).read_text())) if clock_path else None
+-store=Store(os.environ['CHECKIN_DATABASE'],config,clock)
++from urllib.parse import urlsplit
++import json
++import os
++from typing import Any
++
++from store import Error, Store
++
++
++ROOT = Path(__file__).resolve().parent
++config = json.loads(Path(os.environ["CHECKIN_CONFIG"]).read_text())
++clock_path = os.environ.get("CHECKIN_CLOCK_FILE")
++clock = (lambda: float(Path(clock_path).read_text())) if clock_path else None
++store = Store(os.environ["CHECKIN_DATABASE"], config, clock)
++
++
+ class Handler(BaseHTTPRequestHandler):
+- def log_message(self,*args):pass
+- def token(self):
+-  cookie=SimpleCookie();cookie.load(self.headers.get('Cookie',''));return cookie['session'].value if 'session' in cookie else ''
+- def send(self,status,data,headers=None):
+-  raw=data if isinstance(data,bytes) else json.dumps(data,allow_nan=False).encode();self.send_response(status);self.send_header('Content-Type','application/json' if not isinstance(data,bytes) else 'text/plain');self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control','no-store')
+-  for k,v in (headers or {}).items():self.send_header(k,v)
+-  self.end_headers();self.wfile.write(raw)
+- def do_GET(self):
+-  path=urlsplit(self.path).path
+-  try:
+-   if path in ['/','/app.js','/style.css']:
+-    file=ROOT/('index.html' if path=='/' else path[1:]);return self.send(200,file.read_bytes(),{'Content-Type':{'/':'text/html','/app.js':'text/javascript','/style.css':'text/css'}[path]})
+-   user=store.actor(self.token())
+-   if path=='/me':return self.send(200,user)
+-   if path=='/sites':return self.send(200,[s for s in config['sites'] if s['active']])
+-   if path=='/navigation':return self.send(200,{'sections':config['sections'],'primary':'Plans'})
+-   if path=='/history':return self.send(200,store.history(user['id']))
+-   raise Error('not_found',404)
+-  except Error as e:self.send(e.status,{'error':e.code})
+- def do_POST(self):
+-  try:
+-   a=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))));path=urlsplit(self.path).path
+-   if not isinstance(a,dict):raise Error('invalid_request')
+-   if path=='/register':return self.send(200,store.register(a))
+-   if path=='/login':
+-    token=store.login(a);return self.send(200,store.actor(token),{'Set-Cookie':f'session={token}; HttpOnly; SameSite=Strict; Path=/'})
+-   user=store.actor(self.token())
+-   if path=='/checkin':return self.send(200,store.checkin(user['id'],a))
+-   if path=='/checkout':return self.send(200,store.checkout(user['id']))
+-   if path=='/logout':return self.send(200,store.logout(self.token()),{'Set-Cookie':'session=; Max-Age=0; HttpOnly; SameSite=Strict; Path=/'})
+-   raise Error('not_found',404)
+-  except Error as e:self.send(e.status,{'error':e.code})
+-  except (ValueError,TypeError):self.send(400,{'error':'invalid_request'})
+-server=ThreadingHTTPServer(('127.0.0.1',int(os.environ.get('PORT','0'))),Handler);print(json.dumps({'port':server.server_port}),flush=True);server.serve_forever()
++    """Translate HTTP requests into store operations without trusting callers."""
++
++    def log_message(self, *_args: Any) -> None:
++        # The fixture is normally launched with its port on stdout; avoid
++        # mixing request logs into that machine-readable startup line.
++        return
++
++    def token(self) -> str:
++        cookie = SimpleCookie()
++        try:
++            cookie.load(self.headers.get("Cookie", ""))
++        except Exception:
++            return ""
++        morsel = cookie.get("session")
++        return morsel.value if morsel is not None else ""
++
++    def send(self, status: int, data: Any, headers: dict[str, str] | None = None) -> None:
++        is_bytes = isinstance(data, bytes)
++        if is_bytes:
++            raw = data
++            content_type = "text/plain; charset=utf-8"
++        else:
++            raw = json.dumps(data, allow_nan=False, separators=(",", ":")).encode(
++                "utf-8"
++            )
++            content_type = "application/json; charset=utf-8"
++        supplied = dict(headers or {})
++        supplied.setdefault("Content-Type", content_type)
++        self.send_response(status)
++        self.send_header("Content-Length", str(len(raw)))
++        self.send_header("Cache-Control", "no-store")
++        self.send_header("X-Content-Type-Options", "nosniff")
++        for name, value in supplied.items():
++            self.send_header(name, value)
++        self.end_headers()
++        self.wfile.write(raw)
++
++    def read_json(self) -> Any:
++        try:
++            length = int(self.headers.get("Content-Length", "0"))
++        except (TypeError, ValueError):
++            raise Error("invalid_request") from None
++        if length < 0 or length > 1_048_576:
++            raise Error("invalid_request")
++        try:
++            raw = self.rfile.read(length)
++            return json.loads(raw.decode("utf-8"))
++        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
++            raise Error("invalid_request") from None
++
++    @staticmethod
++    def public_sites() -> list[dict[str, Any]]:
++        result: list[dict[str, Any]] = []
++        sites = config.get("sites", [])
++        if not isinstance(sites, list):
++            raise Error("invalid_site", 500)
++        # Keep the configured site contract, but never serialize arbitrary
++        # top-level/private configuration fields.
++        allowed = ("id", "name", "latitude", "longitude", "radius_m", "active")
++        for site in sites:
++            if not isinstance(site, dict) or not site.get("active"):
++                continue
++            result.append({key: site[key] for key in allowed if key in site})
++        return result
++
++    def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
++        path = urlsplit(self.path).path
++        try:
++            if path in ("/", "/app.js", "/style.css"):
++                filename = "index.html" if path == "/" else path[1:]
++                content_types = {
++                    "/": "text/html; charset=utf-8",
++                    "/app.js": "text/javascript; charset=utf-8",
++                    "/style.css": "text/css; charset=utf-8",
++                }
++                try:
++                    content = (ROOT / filename).read_bytes()
++                except OSError:
++                    raise Error("not_found", 404) from None
++                return self.send(
++                    200, content, {"Content-Type": content_types[path]}
++                )
++
++            if path == "/me":
++                return self.send(200, store.actor(self.token()))
++            if path == "/sites":
++                store.actor(self.token())
++                return self.send(200, self.public_sites())
++            if path == "/navigation":
++                store.actor(self.token())
++                sections = config.get("sections", [])
++                if not isinstance(sections, list):
++                    raise Error("invalid_navigation", 500)
++                return self.send(
++                    200, {"sections": list(sections), "primary": "Plans"}
++                )
++            if path == "/history":
++                actor = store.actor(self.token())
++                return self.send(200, store.history(actor["id"]))
++            raise Error("not_found", 404)
++        except Error as error:
++            self.send(error.status, {"error": error.code})
++        except (TypeError, OverflowError, ValueError):
++            self.send(400, {"error": "invalid_request"})
++        except Exception:
++            # Do not put tracebacks, database fields, or configuration into a
++            # public response.
++            self.send(500, {"error": "server_error"})
++
++    def do_POST(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
++        try:
++            action = self.read_json()
++            if not isinstance(action, dict):
++                raise Error("invalid_request")
++            path = urlsplit(self.path).path
++
++            if path == "/register":
++                return self.send(200, store.register(action))
++            if path == "/login":
++                token = store.login(action)
++                actor = store.actor(token)
++                return self.send(
++                    200,
++                    actor,
++                    {
++                        "Set-Cookie": (
++                            f"session={token}; Path=/; HttpOnly; SameSite=Strict"
++                        )
++                    },
++                )
++
++            actor = store.actor(self.token())
++            if path == "/checkin":
++                return self.send(200, store.checkin(actor["id"], action))
++            if path == "/checkout":
++                return self.send(200, store.checkout(actor["id"]))
++            if path == "/logout":
++                result = store.logout(self.token())
++                return self.send(
++                    200,
++                    result,
++                    {
++                        "Set-Cookie": (
++                            "session=; Max-Age=0; Path=/; HttpOnly; "
++                            "SameSite=Strict"
++                        )
++                    },
++                )
++            raise Error("not_found", 404)
++        except Error as error:
++            self.send(error.status, {"error": error.code})
++        except (TypeError, OverflowError, ValueError):
++            self.send(400, {"error": "invalid_request"})
++        except Exception:
++            self.send(500, {"error": "server_error"})
++
++
++server = ThreadingHTTPServer(
++    ("127.0.0.1", int(os.environ.get("PORT", "0"))), Handler
++)
++print(json.dumps({"port": server.server_port}), flush=True)
++server.serve_forever()
+diff --git a/store.py b/store.py
+index 828f8d1a87db44cc0915202c934fecf0f7a3f63a..ad2796b9b6ceb3a7a527faae42a08a6a3e6d1641 100644
+--- a/store.py
++++ b/store.py
+@@ -1,53 +1,476 @@
+-import sqlite3,json,secrets,hashlib,hmac,math,base64
+-from datetime import datetime,timezone
++"""SQLite-backed account and attendance store.
++
++The HTTP layer deliberately keeps authentication and routing concerns out of
++this module.  The store is the authority for password verification, session
++revocation, location checks, and the attendance interval state machine.
++"""
++
++import base64
++import contextlib
++import hashlib
++import hmac
++import json
++import math
++import secrets
++import sqlite3
++from datetime import datetime, timezone
++from typing import Any, Callable, Iterator, Mapping
++
+ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
++
++
+ class Error(Exception):
+- def __init__(self,code,status=400):self.code=code;self.status=status
+-
+-def distance(lat,lon,site):
+- lat=float(lat);lon=float(lon)
+- if not math.isfinite(lat) or not math.isfinite(lon) or not -90<=lat<=90 or not -180<=lon<=180:raise Error('invalid_location')
+- p1,p2=map(math.radians,[lat,site['latitude']]);dp=p2-p1;dl=math.radians(site['longitude']-lon)
+- a=math.sin(dp/2)**2+math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
+- return 6371008.8*2*math.asin(math.sqrt(min(1,max(0,a))))
++    """An expected, safe-to-return application error."""
++
++    def __init__(self, code: str, status: int = 400):
++        super().__init__(code)
++        self.code = code
++        self.status = status
++
++
++def _finite_number(value: Any, error: str) -> float:
++    """Convert a number-like input while rejecting booleans and non-finite data."""
++
++    if isinstance(value, bool):
++        raise Error(error)
++    try:
++        result = float(value)
++    except (TypeError, ValueError, OverflowError):
++        raise Error(error) from None
++    if not math.isfinite(result):
++        raise Error(error)
++    return result
++
++
++def distance(lat: Any, lon: Any, site: Mapping[str, Any]) -> float:
++    """Return the great-circle distance to a configured site in metres.
++
++    The caller's coordinates are validated here rather than relying on the
++    browser or on any asserted distance value.  ``math.remainder`` keeps the
++    longitude delta on the shortest path, including the +/-180 degree edge.
++    """
++
++    latitude = _finite_number(lat, "invalid_location")
++    longitude = _finite_number(lon, "invalid_location")
++    if not -90.0 <= latitude <= 90.0 or not -180.0 <= longitude <= 180.0:
++        raise Error("invalid_location")
++
++    try:
++        site_latitude = _finite_number(site["latitude"], "invalid_site")
++        site_longitude = _finite_number(site["longitude"], "invalid_site")
++    except (KeyError, TypeError):
++        raise Error("invalid_site", 500) from None
++    if (
++        not -90.0 <= site_latitude <= 90.0
++        or not -180.0 <= site_longitude <= 180.0
++    ):
++        raise Error("invalid_site", 500)
++
++    p1 = math.radians(latitude)
++    p2 = math.radians(site_latitude)
++    delta_latitude = p2 - p1
++    delta_longitude = math.radians(
++        math.remainder(site_longitude - longitude, 360.0)
++    )
++    haversine = (
++        math.sin(delta_latitude / 2.0) ** 2
++        + math.cos(p1)
++        * math.cos(p2)
++        * math.sin(delta_longitude / 2.0) ** 2
++    )
++    # Rounding can move a value infinitesimally outside [0, 1].
++    haversine = min(1.0, max(0.0, haversine))
++    return 6371008.8 * 2.0 * math.asin(math.sqrt(haversine))
++
++
+ class Store:
+- def __init__(self,path,config,clock=None):
+-  self.path=path;self.config=config;self.key=bytes.fromhex(config['encryption_key']);self.crypto=AESGCM(self.key);self.clock=clock or (lambda:datetime.now(timezone.utc).timestamp())
+-  with self.db() as db:db.executescript('CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, lookup TEXT UNIQUE,email TEXT,salt TEXT,verifier TEXT,active INTEGER);CREATE TABLE IF NOT EXISTS sessions(hash TEXT PRIMARY KEY,user TEXT);CREATE TABLE IF NOT EXISTS intervals(id TEXT PRIMARY KEY,user TEXT,record TEXT,open INTEGER);CREATE UNIQUE INDEX IF NOT EXISTS one_open ON intervals(user) WHERE open=1;')
+- def db(self):return sqlite3.connect(self.path,timeout=5)
+- def seal(self,data):
+-  nonce=secrets.token_bytes(12);return base64.b64encode(nonce+self.crypto.encrypt(nonce,json.dumps(data).encode(),b'checkin-fixture')).decode()
+- def unseal(self,data):
+-  blob=base64.b64decode(data);return json.loads(self.crypto.decrypt(blob[:12],blob[12:],b'checkin-fixture'))
+- def lookup(self,email):return hmac.new(self.key,email.strip().lower().encode(),hashlib.sha256).hexdigest()
+- def register(self,a):
+-  email=str(a.get('email','')).strip().lower();password=a.get('password','')
+-  if '@' not in email or not isinstance(password,str) or len(password)<8:raise Error('invalid_account')
+-  ident=secrets.token_hex(12);salt=secrets.token_bytes(16);verifier=hashlib.scrypt(password.encode(),salt=salt,n=16384,r=8,p=1).hex()
+-  try:
+-   with self.db() as db:db.execute('INSERT INTO users VALUES(?,?,?,?,?,1)',(ident,self.lookup(email),self.seal(email),salt.hex(),verifier))
+-  except sqlite3.IntegrityError:raise Error('duplicate_account',409)
+-  return {'id':ident,'email':email}
+- def login(self,a):
+-  with self.db() as db:
+-   row=db.execute('SELECT id,salt,verifier,active FROM users WHERE lookup=?',(self.lookup(str(a.get('email',''))),)).fetchone()
+-   if not row or not row[3] or not hmac.compare_digest(hashlib.scrypt(str(a.get('password','')).encode(),salt=bytes.fromhex(row[1]),n=16384,r=8,p=1).hex(),row[2]):raise Error('invalid_credentials',403)
+-   token=secrets.token_urlsafe(32);db.execute('INSERT INTO sessions VALUES(?,?)',(hashlib.sha256(token.encode()).hexdigest(),row[0]));return token
+- def actor(self,token):
+-  with self.db() as db:r=db.execute('SELECT u.id,u.email FROM sessions s JOIN users u ON u.id=s.user WHERE s.hash=? AND u.active=1',(hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+-  if not r:raise Error('auth_required',403)
+-  return {'id':r[0],'email':self.unseal(r[1])}
+- def logout(self,token):
+-  with self.db() as db:db.execute('DELETE FROM sessions WHERE hash=?',(hashlib.sha256(token.encode()).hexdigest(),))
+-  return {'ok':True}
+- def checkin(self,user,a):raise Error('not_implemented',501)
+- def checkout(self,user):
+-  with self.db() as db:
+-   db.execute('BEGIN IMMEDIATE');row=db.execute('SELECT id,record FROM intervals WHERE user=? AND open=1',(user,)).fetchone()
+-   if not row:raise Error('no_open_interval',409)
+-   r=self.unseal(row[1]);now=self.clock()
+-   if now<r['started_at']:raise Error('clock_regression',409)
+-   r.update(ended_at=now,duration_seconds=now-r['started_at']);db.execute('UPDATE intervals SET record=?,open=0 WHERE id=?',(self.seal(r),row[0]));return r
+- def history(self,user):
+-  with self.db() as db:rows=[self.unseal(x[0]) for x in db.execute('SELECT record FROM intervals WHERE user=? ORDER BY rowid',(user,))]
+-  return rows
++    """Persistent account, session, and attendance state."""
++
++    SCRYPT_N = 16_384
++    SCRYPT_R = 8
++    SCRYPT_P = 1
++    SCRYPT_DKLEN = 32
++    AAD = b"checkin-fixture"
++
++    def __init__(
++        self,
++        path: str,
++        config: Mapping[str, Any],
++        clock: Callable[[], Any] | None = None,
++    ):
++        self.path = path
++        self.config = config
++        try:
++            self.key = bytes.fromhex(str(config["encryption_key"]))
++        except (KeyError, TypeError, ValueError):
++            raise ValueError("configuration requires a hexadecimal encryption_key") from None
++        if len(self.key) != 32:
++            raise ValueError("encryption_key must be 32 bytes")
++        self.crypto = AESGCM(self.key)
++        self.clock = clock or (lambda: datetime.now(timezone.utc).timestamp())
++
++        with self.db() as db:
++            db.executescript(
++                """
++                CREATE TABLE IF NOT EXISTS users(
++                    id TEXT PRIMARY KEY,
++                    lookup TEXT UNIQUE NOT NULL,
++                    email TEXT NOT NULL,
++                    salt TEXT NOT NULL,
++                    verifier TEXT NOT NULL,
++                    active INTEGER NOT NULL DEFAULT 1
++                );
++                CREATE TABLE IF NOT EXISTS sessions(
++                    hash TEXT PRIMARY KEY,
++                    user TEXT NOT NULL
++                );
++                CREATE TABLE IF NOT EXISTS intervals(
++                    id TEXT PRIMARY KEY,
++                    user TEXT NOT NULL,
++                    record TEXT NOT NULL,
++                    open INTEGER NOT NULL
++                );
++                CREATE UNIQUE INDEX IF NOT EXISTS one_open
++                    ON intervals(user) WHERE open=1;
++                """
++            )
++
++    @contextlib.contextmanager
++    def db(self) -> Iterator[sqlite3.Connection]:
++        """Open a short-lived connection with a bounded lock wait."""
++
++        connection = sqlite3.connect(self.path, timeout=10.0)
++        connection.execute("PRAGMA busy_timeout=10000")
++        try:
++            yield connection
++            connection.commit()
++        except BaseException:
++            connection.rollback()
++            raise
++        finally:
++            connection.close()
++
++    @staticmethod
++    def _normalize_email(value: Any) -> str:
++        if not isinstance(value, str):
++            raise Error("invalid_account")
++        email = value.strip().lower()
++        if not email or "@" not in email or len(email) > 320:
++            raise Error("invalid_account")
++        return email
++
++    @staticmethod
++    def _password(value: Any, *, registration: bool) -> str:
++        if not isinstance(value, str):
++            if registration:
++                raise Error("invalid_account")
++            raise Error("invalid_credentials", 403)
++        if registration and not 8 <= len(value) <= 1024:
++            raise Error("invalid_account")
++        if not registration and not value:
++            raise Error("invalid_credentials", 403)
++        return value
++
++    def _lookup_normalized(self, email: str) -> str:
++        return hmac.new(self.key, email.encode("utf-8"), hashlib.sha256).hexdigest()
++
++    def lookup(self, email: str) -> str:
++        """Return the keyed lookup value for a normalized account email."""
++
++        return self._lookup_normalized(self._normalize_email(email))
++
++    @classmethod
++    def _derive(cls, password: str, salt: bytes) -> bytes:
++        # hashlib.scrypt is intentionally used rather than a fast bare hash.
++        return hashlib.scrypt(
++            password.encode("utf-8"),
++            salt=salt,
++            n=cls.SCRYPT_N,
++            r=cls.SCRYPT_R,
++            p=cls.SCRYPT_P,
++            dklen=cls.SCRYPT_DKLEN,
++        )
++
++    def seal(self, data: Any) -> str:
++        """Encrypt JSON data with a fresh nonce and the fixture AAD."""
++
++        nonce = secrets.token_bytes(12)
++        payload = json.dumps(
++            data, ensure_ascii=False, allow_nan=False, separators=(",", ":")
++        ).encode("utf-8")
++        ciphertext = self.crypto.encrypt(nonce, payload, self.AAD)
++        return base64.b64encode(nonce + ciphertext).decode("ascii")
++
++    def unseal(self, data: str) -> Any:
++        blob = base64.b64decode(data, validate=True)
++        if len(blob) < 12 + 16:
++            raise ValueError("invalid encrypted payload")
++        return json.loads(self.crypto.decrypt(blob[:12], blob[12:], self.AAD))
++
++    def register(self, action: Mapping[str, Any]) -> dict[str, str]:
++        if not isinstance(action, Mapping):
++            raise Error("invalid_request")
++        email = self._normalize_email(action.get("email"))
++        password = self._password(action.get("password"), registration=True)
++        salt = secrets.token_bytes(16)
++        verifier = self._derive(password, salt).hex()
++        user_id = secrets.token_hex(16)
++
++        try:
++            with self.db() as db:
++                db.execute(
++                    """
++                    INSERT INTO users(id,lookup,email,salt,verifier,active)
++                    VALUES(?,?,?,?,?,1)
++                    """,
++                    (
++                        user_id,
++                        self._lookup_normalized(email),
++                        self.seal(email),
++                        salt.hex(),
++                        verifier,
++                    ),
++                )
++        except sqlite3.IntegrityError:
++            # The unique lookup is over the normalized form, so this also
++            # handles concurrent registration of differently-cased spellings.
++            raise Error("duplicate_account", 409) from None
++        return {"id": user_id, "email": email}
++
++    @staticmethod
++    def _session_hash(token: str) -> str:
++        return hashlib.sha256(token.encode("utf-8")).hexdigest()
++
++    def login(self, action: Mapping[str, Any]) -> str:
++        if not isinstance(action, Mapping):
++            raise Error("invalid_credentials", 403)
++        try:
++            email = self._normalize_email(action.get("email"))
++        except Error:
++            raise Error("invalid_credentials", 403) from None
++        try:
++            password = self._password(action.get("password"), registration=False)
++        except Error:
++            raise
++
++        with self.db() as db:
++            row = db.execute(
++                "SELECT id,salt,verifier,active FROM users WHERE lookup=?",
++                (self._lookup_normalized(email),),
++            ).fetchone()
++            if not row or not row[3]:
++                raise Error("invalid_credentials", 403)
++            try:
++                salt = bytes.fromhex(row[1])
++                candidate = self._derive(password, salt).hex()
++            except (TypeError, ValueError):
++                raise Error("invalid_credentials", 403) from None
++            if not hmac.compare_digest(candidate, row[2]):
++                raise Error("invalid_credentials", 403)
++
++            # The random bearer value is returned only to the HTTP layer so it
++            # can be placed in an HttpOnly cookie.  SQLite stores only its hash.
++            for _ in range(3):
++                token = secrets.token_urlsafe(32)
++                try:
++                    db.execute(
++                        "INSERT INTO sessions(hash,user) VALUES(?,?)",
++                        (self._session_hash(token), row[0]),
++                    )
++                    return token
++                except sqlite3.IntegrityError:
++                    continue
++            raise Error("session_unavailable", 503)
++
++    def actor(self, token: str) -> dict[str, str]:
++        if not isinstance(token, str) or not token:
++            raise Error("auth_required", 403)
++        with self.db() as db:
++            row = db.execute(
++                """
++                SELECT u.id,u.email
++                FROM sessions AS s
++                JOIN users AS u ON u.id=s.user
++                WHERE s.hash=? AND u.active=1
++                """,
++                (self._session_hash(token),),
++            ).fetchone()
++        if not row:
++            raise Error("auth_required", 403)
++        try:
++            email = self.unseal(row[1])
++        except Exception:
++            # Do not expose corruption details or an encrypted field.
++            raise Error("auth_required", 403) from None
++        if not isinstance(email, str):
++            raise Error("auth_required", 403)
++        return {"id": row[0], "email": email}
++
++    def logout(self, token: str) -> dict[str, bool]:
++        if isinstance(token, str) and token:
++            with self.db() as db:
++                db.execute(
++                    "DELETE FROM sessions WHERE hash=?",
++                    (self._session_hash(token),),
++                )
++        return {"ok": True}
++
++    def _active_site(self, site_id: str) -> Mapping[str, Any]:
++        sites = self.config.get("sites", [])
++        if not isinstance(sites, list):
++            raise Error("invalid_site", 500)
++        for site in sites:
++            if isinstance(site, Mapping) and site.get("id") == site_id:
++                if not site.get("active"):
++                    raise Error("site_inactive", 409)
++                try:
++                    radius = _finite_number(site["radius_m"], "invalid_site")
++                except (KeyError, TypeError):
++                    raise Error("invalid_site", 500) from None
++                if radius < 0:
++                    raise Error("invalid_site", 500)
++                # Validate configuration before accepting a check-in.  The
++                # public site endpoint only exposes the configured values.
++                distance(site["latitude"], site["longitude"], site)
++                return site
++        raise Error("site_not_found", 404)
++
++    @staticmethod
++    def _checkin_values(action: Mapping[str, Any]) -> tuple[str, str, float, float]:
++        if not isinstance(action, Mapping):
++            raise Error("invalid_request")
++        event_id = action.get("id")
++        site_id = action.get("site_id")
++        if (
++            not isinstance(event_id, str)
++            or not event_id.strip()
++            or len(event_id) > 256
++            or not isinstance(site_id, str)
++            or not site_id.strip()
++            or len(site_id) > 256
++        ):
++            raise Error("invalid_checkin")
++        latitude = _finite_number(action.get("latitude"), "invalid_location")
++        longitude = _finite_number(action.get("longitude"), "invalid_location")
++        if not -90.0 <= latitude <= 90.0 or not -180.0 <= longitude <= 180.0:
++            raise Error("invalid_location")
++        return event_id, site_id, latitude, longitude
++
++    def _now(self) -> float:
++        try:
++            now = _finite_number(self.clock(), "clock_unavailable")
++        except Error:
++            raise Error("clock_unavailable", 503) from None
++        return now
++
++    def checkin(self, user_id: str, action: Mapping[str, Any]) -> dict[str, Any]:
++        """Persist an in-radius open attendance interval.
++
++        A write transaction covers the idempotency lookup, open-interval
++        check, and insert.  The partial unique index is a second line of
++        defence for the one-open-interval rule.
++        """
++
++        if not isinstance(user_id, str) or not user_id:
++            raise Error("auth_required", 403)
++        event_id, site_id, latitude, longitude = self._checkin_values(action)
++
++        with self.db() as db:
++            db.execute("BEGIN IMMEDIATE")
++
++            existing = db.execute(
++                "SELECT user,record FROM intervals WHERE id=?", (event_id,)
++            ).fetchone()
++            if existing:
++                if existing[0] != user_id:
++                    raise Error("event_id_conflict", 409)
++                record = self.unseal(existing[1])
++                if not isinstance(record, dict) or record.get("site_id") != site_id:
++                    raise Error("event_id_conflict", 409)
++                # A retry of the same actor/site event is idempotent.  In
++                # particular, it never creates a second interval.
++                return record
++
++            site = self._active_site(site_id)
++            if distance(latitude, longitude, site) > _finite_number(
++                site["radius_m"], "invalid_site"
++            ):
++                raise Error("outside_radius", 403)
++
++            open_row = db.execute(
++                "SELECT 1 FROM intervals WHERE user=? AND open=1 LIMIT 1",
++                (user_id,),
++            ).fetchone()
++            if open_row:
++                raise Error("already_checked_in", 409)
++
++            started_at = self._now()
++            record = {
++                "id": event_id,
++                "user_id": user_id,
++                "site_id": site_id,
++                "latitude": latitude,
++                "longitude": longitude,
++                "started_at": started_at,
++                "ended_at": None,
++                "duration_seconds": None,
++            }
++            try:
++                db.execute(
++                    "INSERT INTO intervals(id,user,record,open) VALUES(?,?,?,1)",
++                    (event_id, user_id, self.seal(record)),
++                )
++            except sqlite3.IntegrityError:
++                # BEGIN IMMEDIATE normally makes this unreachable, but retain
++                # a safe application error if an existing database has a
++                # conflicting constraint.
++                raise Error("checkin_conflict", 409) from None
++            return record
++
++    def checkout(self, user_id: str) -> dict[str, Any]:
++        if not isinstance(user_id, str) or not user_id:
++            raise Error("auth_required", 403)
++        with self.db() as db:
++            db.execute("BEGIN IMMEDIATE")
++            row = db.execute(
++                "SELECT id,record FROM intervals WHERE user=? AND open=1",
++                (user_id,),
++            ).fetchone()
++            if not row:
++                raise Error("no_open_interval", 409)
++
++            record = self.unseal(row[1])
++            try:
++                started_at = _finite_number(record["started_at"], "invalid_record")
++            except (KeyError, TypeError):
++                raise Error("invalid_record", 500) from None
++            now = self._now()
++            if now < started_at:
++                # Raising inside the transaction rolls it back, leaving the
++                # original open encrypted record untouched.
++                raise Error("clock_regression", 409)
++            duration = now - started_at
++            if duration < 0:  # defensive guard against floating point changes
++                raise Error("clock_regression", 409)
++            record["ended_at"] = now
++            record["duration_seconds"] = max(0.0, duration)
++            db.execute(
++                "UPDATE intervals SET record=?,open=0 WHERE id=? AND open=1",
++                (self.seal(record), row[0]),
++            )
++            return record
++
++    def history(self, user_id: str) -> list[dict[str, Any]]:
++        if not isinstance(user_id, str) or not user_id:
++            raise Error("auth_required", 403)
++        with self.db() as db:
++            rows = db.execute(
++                "SELECT record FROM intervals WHERE user=? ORDER BY rowid",
++                (user_id,),
++            ).fetchall()
++        records: list[dict[str, Any]] = []
++        for (payload,) in rows:
++            record = self.unseal(payload)
++            if isinstance(record, dict):
++                records.append(record)
++        return records
+diff --git a/style.css b/style.css
+index 00d729923de044f358565026f0188204212030ce..84b12a4ff2e7212b17c0b2de7db158fb24e5e46f 100644
+--- a/style.css
++++ b/style.css
+@@ -1 +1,27 @@
+-*{box-sizing:border-box}body{margin:0;background:#eff4f6;color:#233f4a;font:16px system-ui}main{max-width:820px;margin:6vh auto;padding:24px;background:white;border-radius:12px}h1{font-size:30px}label{display:grid;gap:8px;margin:16px 0}input,button,select{font:inherit;padding:12px;border:1px solid #b5c8d0;border-radius:7px;min-width:0}button{cursor:pointer;background:#e3eef1}.actions{display:flex;flex-wrap:wrap;gap:12px}#auth{max-width:400px;margin:auto}header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}header h1{margin-right:auto}#nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;align-items:center;margin-top:48px}#nav button{padding:12px 2px;overflow-wrap:anywhere}#nav .primary{background:#2f7466;color:#fff;padding-block:22px;font-weight:bold}#history p{padding:16px;border-bottom:1px solid #e0e8eb}#status{min-height:28px}@media(max-width:550px){main{margin:0;padding:16px;border-radius:0}#nav{gap:4px;font-size:14px}header p{overflow-wrap:anywhere}}
++*{box-sizing:border-box}
++body{margin:0;background:#eff4f6;color:#233f4a;font:16px system-ui,sans-serif}
++main{max-width:820px;margin:6vh auto;padding:24px;background:#fff;border-radius:12px;box-shadow:0 8px 30px rgba(35,63,74,.08)}
++h1{font-size:30px;margin-top:0}
++h2{margin-top:28px}
++label{display:grid;gap:8px;margin:16px 0}
++input,button,select{font:inherit;padding:12px;border:1px solid #b5c8d0;border-radius:7px;min-width:0}
++button{cursor:pointer;background:#e3eef1;color:inherit}
++button:hover{background:#d4e6e9}
++.account-actions,.actions{display:flex;flex-wrap:wrap;gap:12px}
++#auth{max-width:400px;margin:auto}
++#error{min-height:24px;color:#9b2c2c}
++header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
++header h1{margin-right:auto;margin-bottom:0}
++header p{overflow-wrap:anywhere}
++#status{min-height:28px}
++#nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;align-items:center;margin-top:48px}
++#nav button{padding:12px 2px;overflow-wrap:anywhere}
++#nav button[aria-current="page"]{outline:3px solid rgba(47,116,102,.2);outline-offset:1px}
++#nav .primary{background:#2f7466;color:#fff;padding-block:22px;font-weight:700;transform:scale(1.03)}
++#history p{padding:16px;margin:0;border-bottom:1px solid #e0e8eb}
++@media(max-width:550px){
++  main{margin:0;padding:16px;border-radius:0}
++  #nav{gap:4px;font-size:14px}
++  #nav .primary{padding-block:20px}
++  header p{max-width:100%;}
++}

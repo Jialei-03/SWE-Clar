@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+node_modules/
+.DS_Store
+# Build outputs and run results must stay outside the dataset
+sweclar-build/
+sweclar-results/
+*.local.json

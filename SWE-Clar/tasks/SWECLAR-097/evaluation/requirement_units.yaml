@@ -1,0 +1,192 @@
+schema_version: 1
+task_id: SWECLAR-097
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual date-planning web component with local provider HTTP, SQLite wallet transactions
+  and Leaflet geometry; native payment/platform validation excluded
+requirement_units:
+- ru_id: RU-001
+  name: Workflow entry point
+  content: Repair the supplied actual web application, provider HTTP client and SQLite ledger. Keep user
+    sessions and private provider secrets server-side. Only dates and wallet belonging to the authenticated
+    user may be returned or changed; reconstruct synthetic user/match/place inputs rather than using original
+    profiles or venues.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for workflow entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.create
+      signature: Store.create(user_id,action,mode) -> date
+    inputs:
+      user_id: server-authenticated actor
+      action: id,match_id,place_id,product_id
+      mode: credit or purchase
+    output:
+      type: dict
+      meaning: persisted date record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/date_contract.py
+  notes: Provider protocol, synthetic prices and transaction safety are disclosed reconstruction choices.
+    Client threshold wording (>1 and <1) conflicts with freelancer proposal (>0); at-least-one boundary
+    is an explicit reconstruction resolution, not a direct source quotation.
+- ru_id: RU-002
+  name: Venue search and selection
+  content: Search the actual provider endpoint by case-insensitive venue name, retaining restaurant, bar,
+    pub and coffee types only. Selecting one result displays it and positions actual Leaflet marker geometry
+    at its coordinates. Unknown/ineligible place IDs fail with missing_place before any purchase or ledger
+    mutation. Eligibility filtering is a reconstructed rule supporting the source inclusion of more than
+    restaurants.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for venue search and selection.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.create
+      signature: Store.create(user_id,action,mode) -> date
+    inputs:
+      user_id: server-authenticated actor
+      action: id,match_id,place_id,product_id
+      mode: credit or purchase
+    output:
+      type: dict
+      meaning: persisted date record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/date_contract.py
+  notes: Provider protocol, synthetic prices and transaction safety are disclosed reconstruction choices.
+    Client threshold wording (>1 and <1) conflicts with freelancer proposal (>0); at-least-one boundary
+    is an explicit reconstruction resolution, not a direct source quotation.
+- ru_id: RU-003
+  name: Date-credit eligibility
+  content: Use Credit is enabled after choosing a venue when the actor has at least one credit. A successful
+    request creates one date and decrements the ledger exactly once, including concurrent requests and
+    repeated IDs. Insufficient credit preserves the ledger. At least one credit is the explicit reconstruction
+    rule resolving conflicting source phrasing, not an exact client quotation.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for date-credit eligibility.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.create
+      signature: Store.create(user_id,action,mode) -> date
+    inputs:
+      user_id: server-authenticated actor
+      action: id,match_id,place_id,product_id
+      mode: credit or purchase
+    output:
+      type: dict
+      meaning: persisted date record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/date_contract.py
+  notes: Provider protocol, synthetic prices and transaction safety are disclosed reconstruction choices.
+    Client threshold wording (>1 and <1) conflicts with freelancer proposal (>0); at-least-one boundary
+    is an explicit reconstruction resolution, not a direct source quotation.
+- ru_id: RU-004
+  name: Date package purchase
+  content: Packages contain 1, 3 or 5 dates at synthetic benchmark prices EUR 10, 27 or 40. A server-verified
+    paid receipt creates the current date immediately and adds quantity minus one to the existing balance.
+    Validate signature, transaction/user/product/amount/currency and paid status against server-owned
+    values; do not trust caller payment flags, price or identity. Confirm through the real local provider
+    HTTP interface, not a supplied paid=true record. These amounts/protocols are independent privacy-preserving
+    benchmark conventions.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for date package purchase.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.create
+      signature: Store.create(user_id,action,mode) -> date
+    inputs:
+      user_id: server-authenticated actor
+      action: id,match_id,place_id,product_id
+      mode: credit or purchase
+    output:
+      type: dict
+      meaning: persisted date record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/date_contract.py
+  notes: Provider protocol, synthetic prices and transaction safety are disclosed reconstruction choices.
+    Client threshold wording (>1 and <1) conflicts with freelancer proposal (>0); at-least-one boundary
+    is an explicit reconstruction resolution, not a direct source quotation.
+- ru_id: RU-005
+  name: Map and safe failure behavior
+  content: Initial map center and Return to my location use the authenticated synthetic user coordinates.
+    Unknown match/place/product, invalid signatures, failed provider calls, cross-user replay or conflicting
+    ID reuse must not add dates or credits. Successful identical replay returns the original date without
+    a second provider confirmation. Persist transactions across service restart. The browser and provider
+    fixture do not establish real device/Apple Pay integration.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for map and safe failure behavior.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.create
+      signature: Store.create(user_id,action,mode) -> date
+    inputs:
+      user_id: server-authenticated actor
+      action: id,match_id,place_id,product_id
+      mode: credit or purchase
+    output:
+      type: dict
+      meaning: persisted date record
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/date_contract.py
+  notes: Provider protocol, synthetic prices and transaction safety are disclosed reconstruction choices.
+    Client threshold wording (>1 and <1) conflicts with freelancer proposal (>0); at-least-one boundary
+    is an explicit reconstruction resolution, not a direct source quotation.

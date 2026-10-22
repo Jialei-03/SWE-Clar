@@ -1,0 +1,197 @@
+schema_version: 1
+task_id: SWECLAR-026
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent interactive curve editor with actual local driver communication and synthetic
+  entitlement validation.
+requirement_units:
+- ru_id: RU-001
+  name: Working curve application
+  content: 'Preserve the documented HTTP/browser application: render actual curve segments and draggable
+    points; load curve JSON; edit with pointer actions; show the computed terminal angle; send to the
+    local driver and display its actual samples and receipt; expose the license-check controls. Preserve
+    all public data formats, input validation, error status codes and initial state from README. Persist
+    curve points, revision and sequence/acknowledgement state in the selected SQLite database across restart,
+    with independent databases isolated.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for working curve application?
+  matching_keywords:
+  - application
+  - interface
+  - plot
+  - persistence
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --driver-port <prepared worker port>
+        --licenses <synthetic fixture>
+      protocol: HTTP, browser and TCP interfaces in starter README
+    inputs: Synthetic points, pointer interactions, sample requests and demo entitlement strings
+    output: Rendered geometry, persisted state, actual driver exchange and boolean validation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Software platform, coordinate system, protocol and entitlement rules are independently constructed
+    benchmark conventions, not original client quotations or original platform compatibility claims.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/curves_contract.py
+- ru_id: RU-002
+  name: Ordinary point editing
+  content: 'Ordinary point moves and curve replacement obey the public coordinate and ordering contract:
+    finite numbers in 0..100, 2..32 curve points with strictly increasing X. Reject negative, out-of-range,
+    duplicate-X, crossing or malformed edits with HTTP 400 and no curve/revision change. Do not silently
+    sort, clamp or reorder an invalid edit. Successful changed curves increment revision once; unchanged
+    requests do not increment it. Keep nonselected points unchanged and compute the actual terminal angle
+    in degrees. Browser dragging and direct API edits must agree.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for ordinary point editing?
+  matching_keywords:
+  - move
+  - points
+  - order
+  - revision
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --driver-port <prepared worker port>
+        --licenses <synthetic fixture>
+      protocol: HTTP, browser and TCP interfaces in starter README
+    inputs: Synthetic points, pointer interactions, sample requests and demo entitlement strings
+    output: Rendered geometry, persisted state, actual driver exchange and boolean validation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Software platform, coordinate system, protocol and entitlement rules are independently constructed
+    benchmark conventions, not original client quotations or original platform compatibility claims.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/curves_contract.py
+- ru_id: RU-003
+  name: Terminal rotation using Shift
+  content: Shift applies only to the final point. Rotate the terminal segment around the previous point,
+    preserving its original Euclidean length; the vector from that pivot to the requested pointer coordinates
+    defines the new direction. Leave all earlier points fixed. A pointer exactly at the pivot has undefined
+    direction and is rejected. Reject Shift on other points, or a projected endpoint outside 0..100 or
+    not strictly after the preceding X, with HTTP 400 and no state change. Do not clamp the projection
+    or use the raw pointer as the endpoint. Recompute terminal_angle_degrees from the resulting segment.
+    Use the same rule for browser Shift drags and the API.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for terminal rotation using shift?
+  matching_keywords:
+  - shift
+  - angle
+  - rotation
+  - length
+  - terminal
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --driver-port <prepared worker port>
+        --licenses <synthetic fixture>
+      protocol: HTTP, browser and TCP interfaces in starter README
+    inputs: Synthetic points, pointer interactions, sample requests and demo entitlement strings
+    output: Rendered geometry, persisted state, actual driver exchange and boolean validation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Software platform, coordinate system, protocol and entitlement rules are independently constructed
+    benchmark conventions, not original client quotations or original platform compatibility claims.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/curves_contract.py
+- ru_id: RU-004
+  name: Ordered driver exchange and recovery
+  content: Actually send each sampling request to the prepared local TCP driver, with a snapshot of the
+    current curve and the requested sample positions in original order. Serialize sends so the driver
+    observes increasing sequence numbers starting at 1. Consume one persistent sequence number for every
+    valid send attempt, including protocol failure; malformed HTTP inputs consume none. Update last_acknowledged
+    only after a valid response for that exact sequence. A valid response is a JSON object with an integer
+    sequence equal to the request, a string receipt, and exactly one {x,y} sample per requested position
+    in the same order; each x must equal the requested value, and y must be a finite number in 0..100
+    (booleans are invalid). Return only the specified response fields and preserve driver-produced samples/receipt
+    rather than computing replacements locally. Incomplete/oversized lines, invalid JSON or schema, mismatched
+    acknowledgement, disconnect or socket timeout return HTTP 503 {error:driver_failure,sequence:<allocated
+    number>}; preserve curve/revision and previous acknowledgement. A later send must recover with the
+    next number and a fresh usable connection. Unknown extra response fields may be ignored. Sequence/acknowledgement
+    state survives application restart.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for ordered driver exchange and recovery?
+  matching_keywords:
+  - driver
+  - pipe
+  - ack
+  - sequence
+  - failure
+  - recovery
+  - samples
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --driver-port <prepared worker port>
+        --licenses <synthetic fixture>
+      protocol: HTTP, browser and TCP interfaces in starter README
+    inputs: Synthetic points, pointer interactions, sample requests and demo entitlement strings
+    output: Rendered geometry, persisted state, actual driver exchange and boolean validation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Software platform, coordinate system, protocol and entitlement rules are independently constructed
+    benchmark conventions, not original client quotations or original platform compatibility claims.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/curves_contract.py
+- ru_id: RU-005
+  name: Synthetic entitlement rules
+  content: Trim surrounding whitespace from the submitted UUID and product key. UUID matching is case-insensitive
+    but requires the hyphenated 8-4-4-4-12 hexadecimal shape; other forms are invalid. Product-key comparison
+    is exact and case-sensitive after trimming. Return valid true only when the same record has the matching
+    UUID/key pair and active is the boolean true. Unknown IDs, wrong keys, inactive records and malformed
+    UUID strings return HTTP 200 with valid false. Missing/nonstring input fields are HTTP 400. The only
+    returned field is valid; do not expose the stored key, entitlement file, other records or diagnostic
+    matching details through API or browser.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for synthetic entitlement rules?
+  matching_keywords:
+  - license
+  - uuid
+  - key
+  - entitlement
+  - active
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --driver-port <prepared worker port>
+        --licenses <synthetic fixture>
+      protocol: HTTP, browser and TCP interfaces in starter README
+    inputs: Synthetic points, pointer interactions, sample requests and demo entitlement strings
+    output: Rendered geometry, persisted state, actual driver exchange and boolean validation
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Software platform, coordinate system, protocol and entitlement rules are independently constructed
+    benchmark conventions, not original client quotations or original platform compatibility claims.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/curves_contract.py

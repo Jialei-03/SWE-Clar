@@ -1,0 +1,215 @@
+schema_version: 1
+task_id: SWECLAR-007
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent Flutter appointment application modernization and real Firestore relationship
+  repair
+requirement_units:
+- ru_id: RU-001
+  name: Preserve the application and real datastore interface
+  content: Maintain the independently authored Flutter appointment-maintenance application and the public
+    README interfaces. Clinics, Providers and Bookings remain working pages backed by real Firestore REST
+    documents in the supplied local demo emulator. Compile and render with the prepared Flutter/Dart toolchain;
+    dependencies and the emulator are benchmark infrastructure. Retain FixtureRepository.getDocument,
+    list, view and normalize; use actual HTTP and persisted database records. getDocument returns null
+    on 404 and throws on other failed responses. list follows every nextPageToken, returns typed document
+    objects including name, fields and updateTime, and returns an empty list for an empty collection.
+    It must not alter records while reading. Collection, field and target configuration identifiers must
+    match [A-Za-z_][A-Za-z0-9_]*; invalid normalization configuration throws before issuing any write.
+    The local origin is an http loopback URL and the project is a demo project; production access is not
+    part of the task. Preserve unrelated document fields and collections. The benchmark supplies valid
+    Firestore typed values and at most 200 source documents per migration; source and target IDs use letters,
+    digits, underscores and hyphens. Externally imposed read/write failures must not be converted into
+    success. All essential formats, commands and services are public.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern preserve the application and real datastore interface?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python /public_tests/run_maintenance.py --script session.json --output /tmp/maintenance-preview
+      runtime: Prepared Linux AMD64 Flutter engine and local Firestore REST emulator
+    inputs:
+      repository: Public repository methods and typed Firestore documents
+      widget: Public keys and scripted tap/navigation/refresh operations
+    output:
+      repository: Actual database reads/commits and relation reports
+      widget: Rendered Flutter component and visible progress, records and result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Application modernization and inconsistent document relations are grounded privately in the source
+    scenario. All code, schema, names and exact policies are independently authored.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/maintenance_contract.py
+- ru_id: RU-002
+  name: Modernized usable Flutter browsing and repair controls
+  content: Retain actual Clinics, Providers and Bookings navigation, record cards, a refresh button and
+    a provider-relation repair button. Render view rows with their literal record ID and name, and any
+    returned relation label. Use the public widget keys to support actual taps, scrolling and inspection.
+    Each page refresh queries the selected collection through the repository. At 360x950 and 768x950 logical
+    pixels, controls and long record lists are reachable without render exceptions or layout overflow;
+    scrolling is permitted. Show an empty-state message for a successful empty result. Do not display
+    records from an earlier section after navigation or let an earlier slow response replace a newer selected-page
+    result. A read failure displays a visible failure state; refresh permits a retry. Rendering must not
+    interpret document labels as markup or executable content. Styling and extra wording are free. The
+    fixed SDK compatibility is verified by actual compilation and widget rendering, not a caller-provided
+    readiness flag. This is a local Flutter component and database maintenance target; native store distribution,
+    production Firebase projects, push and crash ingestion are outside its independently selected scope.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern modernized usable flutter browsing and repair controls?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python /public_tests/run_maintenance.py --script session.json --output /tmp/maintenance-preview
+      runtime: Prepared Linux AMD64 Flutter engine and local Firestore REST emulator
+    inputs:
+      repository: Public repository methods and typed Firestore documents
+      widget: Public keys and scripted tap/navigation/refresh operations
+    output:
+      repository: Actual database reads/commits and relation reports
+      widget: Rendered Flutter component and visible progress, records and result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Application modernization and inconsistent document relations are grounded privately in the source
+    scenario. All code, schema, names and exact policies are independently authored.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/maintenance_contract.py
+- ru_id: RU-003
+  name: Read compatible legacy document relationships
+  content: Resolve provider.clinic against clinics and booking.provider against providers, before and
+    after migration. A relation is either a stringValue ID, an exact local project/database document reference
+    to that target collection, or mapValue.fields.id.stringValue. Accept it only when the ID matches the
+    public ID alphabet and the target exists. Do not trim, case-fold, coerce or extract the last segment
+    of a reference to another project/database/collection. A missing field, null/wrong typed value, absent
+    target or malformed identifier is unlinked. Reading must not repair or mutate the database. Each view
+    row contains id, name, relation_id and relation_name; unlinked rows return null relation_id and the
+    literal label Unlinked. Clinics have null relation_id and relation_name. A record name uses its stringValue
+    name when present, otherwise its ID; an empty string name is a valid literal name. Linked labels use
+    the same target-name rule. Sort all view rows by document ID ascending, case-sensitive Unicode codepoint
+    order. Never omit an unlinked provider or booking. Harmless additional row metadata is permitted.
+    These exact compatibility, fallback and ordering rules are synthetic benchmark decisions available
+    by clarification.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern read compatible legacy document relationships?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python /public_tests/run_maintenance.py --script session.json --output /tmp/maintenance-preview
+      runtime: Prepared Linux AMD64 Flutter engine and local Firestore REST emulator
+    inputs:
+      repository: Public repository methods and typed Firestore documents
+      widget: Public keys and scripted tap/navigation/refresh operations
+    output:
+      repository: Actual database reads/commits and relation reports
+      widget: Rendered Flutter component and visible progress, records and result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Application modernization and inconsistent document relations are grounded privately in the source
+    scenario. All code, schema, names and exact policies are independently authored.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/maintenance_contract.py
+- ru_id: RU-004
+  name: Field-preserving atomic relation normalization
+  content: 'normalize(collection,field,targetCollection) resolves each present relation by the same accepted
+    formats and target-existence rule as compatible reading. A valid legacy reference or map becomes a
+    stringValue ID. A valid existing string relation is unchanged. An invalid or dangling present relation
+    is removed, with one report row {document: source ID, field: configured field, reason: dangling_relation}.
+    Missing relation fields are unchanged and produce no report. Reports are sorted by document ID and
+    tolerate harmless additional metadata. Preserve all other typed fields, entire source documents and
+    unrelated collections, including nested maps, arrays, timestamps and booking records. Follow source
+    pagination. Submit all required changes in one atomic Firestore commit with updateTime preconditions
+    for every changed source; no writes when already normalized. If any changed source was concurrently
+    edited, reject the entire migration and preserve the concurrent edit and every other source. Do not
+    silently overwrite, partially commit, retry against new source versions or claim success. No automatic
+    retry is required; the user may explicitly retry. Target documents remain stable during a migration
+    in this benchmark; target deletion races and datasets exceeding 200 source documents are out of scope.
+    A repeat after success performs no writes and returns an empty report. These are independently specified
+    data-integrity policies, not recovered customer schema.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern field-preserving atomic relation normalization?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python /public_tests/run_maintenance.py --script session.json --output /tmp/maintenance-preview
+      runtime: Prepared Linux AMD64 Flutter engine and local Firestore REST emulator
+    inputs:
+      repository: Public repository methods and typed Firestore documents
+      widget: Public keys and scripted tap/navigation/refresh operations
+    output:
+      repository: Actual database reads/commits and relation reports
+      widget: Rendered Flutter component and visible progress, records and result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Application modernization and inconsistent document relations are grounded privately in the source
+    scenario. All code, schema, names and exact policies are independently authored.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/maintenance_contract.py
+- ru_id: RU-005
+  name: Honest repair progress, refresh and failure recovery
+  content: 'The repair button normalizes providers.clinic against clinics. While it is pending show visible
+    progress, disable further repair triggers and keep navigation usable; repeated clicks must not start
+    a second migration. On success show the numeric count of dangling fields removed, retain the selected
+    section and reload that section from the database so relation labels reflect committed data. Zero-count
+    success is still shown. On any failed read/commit during repair show failure, never a success count;
+    restore the enabled repair control and allow an explicit retry. Failed repairs must not fabricate
+    normalized displayed records: reloading the actual database is permitted, but the app must not synthesize
+    the proposed result. If navigation happens during a pending operation, completion must not switch
+    the page back or overwrite the current page with the old page rows. Late responses are applied only
+    to their still-current request. Old success/error feedback must not mask the active attempt; show
+    progress during a retry and the new result afterwards. Use the public status/count/progress widget
+    keys; exact additional text is free. Operation failure is distinct from a legitimate successful migration
+    that removes dangling fields. These workflow choices are synthetic clarification requirements.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern honest repair progress, refresh and failure recovery?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python /public_tests/run_maintenance.py --script session.json --output /tmp/maintenance-preview
+      runtime: Prepared Linux AMD64 Flutter engine and local Firestore REST emulator
+    inputs:
+      repository: Public repository methods and typed Firestore documents
+      widget: Public keys and scripted tap/navigation/refresh operations
+    output:
+      repository: Actual database reads/commits and relation reports
+      widget: Rendered Flutter component and visible progress, records and result
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Application modernization and inconsistent document relations are grounded privately in the source
+    scenario. All code, schema, names and exact policies are independently authored.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/maintenance_contract.py

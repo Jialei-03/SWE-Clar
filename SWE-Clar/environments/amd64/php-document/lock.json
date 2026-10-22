@@ -1,0 +1,48 @@
+{
+  "platform": "linux/amd64",
+  "base_profile": "python-web",
+  "source_profile": "php-document",
+  "wheels": [
+    {
+      "name": "pypdf",
+      "version": "6.10.0",
+      "filename": "pypdf-6.10.0-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/55/f2/7ebe366f633f30a6ad105f650f44f24f98cb1335c4157d21ae47138b3482/pypdf-6.10.0-py3-none-any.whl",
+      "sha256": "90005e959e1596c6e6c84c8b0ad383285b3e17011751cedd17f2ce8fcdfc86de",
+      "bytes": 334459
+    },
+    {
+      "name": "pypdfium2",
+      "version": "5.13.0",
+      "filename": "pypdfium2-5.13.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/d3/7c/74a2fb48e5b0d2402d9ca64b39074c722d67e9a8a2c58449a843a8c2329a/pypdfium2-5.13.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "81df25c1ab4c13ff773102d3cbea1967511d079123b067fc077bd0c4d57d91d8",
+      "bytes": 3730077
+    },
+    {
+      "name": "pillow",
+      "version": "12.3.0",
+      "filename": "pillow-12.3.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/84/21/a35af28dcc61f37ed850a2d64c65c701321dfbf25085e469d5559360cbbf/pillow-12.3.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "78cb2c6865a35ab8ff8b75fd122f6033b92a62c82801110e48ddd6c936a45d91",
+      "bytes": 6940830
+    },
+    {
+      "name": "zxing-cpp",
+      "version": "3.0.0",
+      "filename": "zxing_cpp-3.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/39/0f/03f09d048b7dde279a5bed8839ffbb21f7e8995747afa17970791c0356ff/zxing_cpp-3.0.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "cfdf7a393541f4cd7c7c9329ec5d56b49a5cfc91bf24cdc53ec301d41c2afd68",
+      "bytes": 1074289
+    }
+  ],
+  "archives": [
+    {
+      "url": "https://codeload.github.com/tecnickcom/TCPDF/tar.gz/refs/tags/6.8.2",
+      "filename": "tcpdf.tar.gz",
+      "sha256": "8055b09c4aaebe437becfb60d7dc43268211ff971963a4fe7d5f1e1ad85a3b16",
+      "bytes": 15458784
+    }
+  ],
+  "wordpress_image": "wordpress@sha256:362e268b6a8d69c1f2384cd0a4be4de9bf0f02d8349a1a37e1cd30352a26abf7"
+}

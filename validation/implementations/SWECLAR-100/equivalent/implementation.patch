@@ -1,0 +1,1451 @@
+diff --git a/app.js b/app.js
+index 0e73cc186957c2f734908c251e7f9a3d1193045f..bc2ccc9da5b1acaaa2c455f171c90b5f4b0a5e55 100644
+--- a/app.js
++++ b/app.js
+@@ -1,18 +1,400 @@
+-const q=s=>document.querySelector(s);let token='',bundle=null,view={page:'home'},history=[],epoch=0;
+-async function api(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});if(!r.ok)throw Error('Request could not be completed.');return r.json();}
+-async function digest(bytes){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),x=>x.toString(16).padStart(2,'0')).join('');}
+-async function synchronize(){throw Error('Complete content synchronization.');}
+-function go(next){history.push({...view});view=next;render();track();}
+-function track(){if(!token)return;const t=view.page==='product'?['product',view.product_id]:view.page==='category'?['category',view.category_id]:['page','home'];api('/track',{event_id:crypto.randomUUID(),target_type:t[0],target_id:t[1]}).catch(()=>{});}
+-function render(){const lang=q('#language').value;document.documentElement.lang=lang;q('#content').replaceChildren();q('#version').textContent=bundle?'Content version '+bundle.version:'No synchronized content';q('#back').disabled=!history.length;if(!bundle)return;const cats=[...bundle.categories].sort((a,b)=>a.order-b.order||a.id.localeCompare(b.id));if(view.page!=='home'&&!cats.some(c=>c.id===view.category_id)){view={page:'home'};history=[];}q('#heading').textContent=lang==='es'?'Catálogo':'Catalogue';
+- if(view.page==='home'){for(const c of cats){const b=document.createElement('button');b.className='card';b.textContent=c.text[lang];b.dataset.category=c.id;b.onclick=()=>go({page:'category',category_id:c.id});q('#content').append(b);}}
+- else if(view.page==='category'){const c=cats.find(x=>x.id===view.category_id);q('#heading').textContent=c.text[lang];for(const p of bundle.products.filter(p=>p.category_id===c.id).sort((a,b)=>a.order-b.order||a.id.localeCompare(b.id))){const b=document.createElement('button'),img=document.createElement('img'),span=document.createElement('span');b.className='card';b.dataset.product=p.id;img.src=bundle.images[p.asset_id];img.alt='';span.textContent=p.text[lang];b.append(img,span);b.onclick=()=>go({page:'product',category_id:c.id,product_id:p.id});q('#content').append(b);}}
+- else {const p=bundle.products.find(p=>p.id===view.product_id&&p.category_id===view.category_id);if(!p){view={page:'category',category_id:view.category_id};return render();}q('#heading').textContent=p.text[lang];const img=document.createElement('img');img.className='detail';img.alt=p.text[lang];img.src=bundle.images[p.asset_id];q('#content').append(img);}}
+-q('#back').onclick=()=>{if(history.length){view=history.pop();render();track();}};
+-q('#logo').onclick=()=>{if(view.page!=='home')go({page:'home'});};
+-q('#language').onchange=render;q('#sync').onclick=()=>{const mark=epoch;synchronize().catch(e=>{if(mark===epoch)q('#status').textContent=e.message;});};
+-q('#connect').onsubmit=e=>{e.preventDefault();epoch++;token=q('#token').value;q('#token').value='';q('#status').textContent='Session connected.';};
+-q('#settings').onsubmit=async e=>{e.preventDefault();try{await api('/settings',{device_id:q('#device').value});q('#status').textContent='Network settings request acknowledged.';}catch(e){q('#status').textContent=e.message;}};
+-try{bundle=JSON.parse(localStorage.getItem('kiosk-content')||'null');}catch{bundle=null;}render();
+-
+-if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js');
++const q = selector => document.querySelector(selector);
++
++let token = '';
++let bundle = null;
++let view = { page: 'home' };
++let history = [];
++let sessionEpoch = 0;
++let statusState = null;
++
++const labels = {
++  en: {
++    catalogue: 'Catalogue',
++    back: 'Back',
++    language: 'Language',
++    english: 'English',
++    spanish: 'Spanish',
++    noContent: 'No synchronized content',
++    contentVersion: version => `Content version ${version}`,
++    tools: 'Connection and device tools',
++    accessToken: 'Access token',
++    connect: 'Connect',
++    synchronize: 'Synchronize content',
++    managedDevice: 'Managed device',
++    settings: 'Request network settings',
++    homeHeading: 'Catalogue',
++    connected: 'Session connected.',
++    synchronizing: 'Synchronizing content…',
++    synchronized: version => `Content synchronized (version ${version}).`,
++    noSession: 'Connect an access token before synchronizing.',
++    failed: 'Content synchronization failed.',
++    settingsAcknowledged: 'Network settings request acknowledged.',
++    requestFailed: 'Request could not be completed.'
++  },
++  es: {
++    catalogue: 'Catálogo',
++    back: 'Atrás',
++    language: 'Idioma',
++    english: 'Inglés',
++    spanish: 'Español',
++    noContent: 'No hay contenido sincronizado',
++    contentVersion: version => `Versión de contenido ${version}`,
++    tools: 'Herramientas de conexión y dispositivo',
++    accessToken: 'Token de acceso',
++    connect: 'Conectar',
++    synchronize: 'Sincronizar contenido',
++    managedDevice: 'Dispositivo administrado',
++    settings: 'Solicitar configuración de red',
++    homeHeading: 'Catálogo',
++    connected: 'Sesión conectada.',
++    synchronizing: 'Sincronizando contenido…',
++    synchronized: version => `Contenido sincronizado (versión ${version}).`,
++    noSession: 'Conecte un token de acceso antes de sincronizar.',
++    failed: 'No se pudo sincronizar el contenido.',
++    settingsAcknowledged: 'Solicitud de configuración de red confirmada.',
++    requestFailed: 'No se pudo completar la solicitud.'
++  }
++};
++
++function currentLanguage() {
++  return q('#language').value === 'es' ? 'es' : 'en';
++}
++
++function currentLabels() {
++  return labels[currentLanguage()];
++}
++
++function setLabels(lang) {
++  const text = labels[lang];
++  document.documentElement.lang = lang;
++  document.title = lang === 'es' ? 'Kiosco de catálogo' : 'Catalogue kiosk';
++  q('#logo').textContent = text.catalogue;
++  q('#back').textContent = text.back;
++  q('#language-label').textContent = text.language;
++  q('#language').setAttribute('aria-label', text.language);
++  q('#language option[value="en"]').textContent = text.english;
++  q('#language option[value="es"]').textContent = text.spanish;
++  q('#tools-label').textContent = text.tools;
++  q('#token-label').textContent = text.accessToken;
++  q('#connect-button').textContent = text.connect;
++  q('#sync').textContent = text.synchronize;
++  q('#device-label').textContent = text.managedDevice;
++  q('#settings-button').textContent = text.settings;
++}
++
++function statusMessage(key, argument, lang = currentLanguage()) {
++  const text = labels[lang];
++  if (key === 'version') return text.contentVersion(argument);
++  if (key === 'synchronized') return text.synchronized(argument);
++  return text[key] || '';
++}
++
++function setStatus(message, key = null, argument = null) {
++  statusState = key ? { key, argument } : { message: message || '' };
++  q('#status').textContent = key ? statusMessage(key, argument) : (message || '');
++}
++
++function showStatus(key, argument = null) {
++  setStatus(statusMessage(key, argument), key, argument);
++}
++
++async function api(path, body, accessToken = token) {
++  const options = {
++    method: body === undefined ? 'GET' : 'POST',
++    headers: {}
++  };
++  if (accessToken) options.headers.Authorization = `Bearer ${accessToken}`;
++  if (body !== undefined) {
++    options.headers['Content-Type'] = 'application/json';
++    options.body = JSON.stringify(body);
++  }
++  let response;
++  try {
++    response = await fetch(path, options);
++  } catch {
++    throw new Error(currentLabels().requestFailed);
++  }
++  if (!response.ok) throw new Error(currentLabels().requestFailed);
++  try {
++    return await response.json();
++  } catch {
++    throw new Error(currentLabels().requestFailed);
++  }
++}
++
++async function digest(bytes) {
++  const hash = await crypto.subtle.digest('SHA-256', bytes);
++  return Array.from(new Uint8Array(hash), value => value.toString(16).padStart(2, '0')).join('');
++}
++
++function snapshotIsUsable(snapshot) {
++  if (!snapshot || !Number.isInteger(snapshot.version) || snapshot.version < 0) return false;
++  if (!Array.isArray(snapshot.categories) || !Array.isArray(snapshot.products)) return false;
++  if (!snapshot.assets || typeof snapshot.assets !== 'object' || Array.isArray(snapshot.assets)) return false;
++  for (const [assetId, metadata] of Object.entries(snapshot.assets)) {
++    if (!assetId || !metadata || typeof metadata !== 'object') return false;
++    if (typeof metadata.url !== 'string' || !metadata.url) return false;
++    if (!/^[0-9a-f]{64}$/i.test(metadata.sha256 || '')) return false;
++  }
++  for (const product of snapshot.products) {
++    if (!product || typeof product !== 'object' || typeof product.asset_id !== 'string') return false;
++    if (!Object.prototype.hasOwnProperty.call(snapshot.assets, product.asset_id)) return false;
++  }
++  return true;
++}
++
++function bytesToBase64(bytes) {
++  let binary = '';
++  // Avoid spreading a large image into one giant function call.
++  for (let start = 0; start < bytes.length; start += 0x8000) {
++    binary += String.fromCharCode(...bytes.subarray(start, start + 0x8000));
++  }
++  return btoa(binary);
++}
++
++function imageDataUrl(bytes, response) {
++  const declared = (response.headers.get('Content-Type') || '').split(';', 1)[0].trim();
++  const mime = declared && declared.startsWith('image/') ? declared : 'image/svg+xml';
++  return `data:${mime};base64,${bytesToBase64(bytes)}`;
++}
++
++function sessionIsCurrent(mark, accessToken) {
++  return mark === sessionEpoch && accessToken === token;
++}
++
++async function synchronize() {
++  const mark = sessionEpoch;
++  const accessToken = token;
++  if (!accessToken) throw new Error(currentLabels().noSession);
++  showStatus('synchronizing');
++
++  const snapshot = await api('/snapshot', undefined, accessToken);
++  if (!sessionIsCurrent(mark, accessToken)) return false;
++  if (!snapshotIsUsable(snapshot)) throw new Error(currentLabels().failed);
++
++  const images = Object.create(null);
++  for (const [assetId, metadata] of Object.entries(snapshot.assets)) {
++    if (!sessionIsCurrent(mark, accessToken)) return false;
++    let assetUrl;
++    try {
++      assetUrl = new URL(metadata.url, window.location.href);
++    } catch {
++      throw new Error(currentLabels().failed);
++    }
++    // A catalogue image is fetched from this service, not from an arbitrary
++    // URL embedded in content.  This also prevents bearer-token forwarding.
++    if (assetUrl.origin !== window.location.origin) throw new Error(currentLabels().failed);
++    let response;
++    try {
++      response = await fetch(assetUrl.href, {
++        headers: { Authorization: `Bearer ${accessToken}` }
++      });
++    } catch {
++      throw new Error(currentLabels().failed);
++    }
++    if (!response.ok) throw new Error(currentLabels().failed);
++    const bytes = new Uint8Array(await response.arrayBuffer());
++    const actualHash = await digest(bytes);
++    if (actualHash.toLowerCase() !== metadata.sha256.toLowerCase()) {
++      throw new Error(currentLabels().failed);
++    }
++    const checkedImage = new Image(); checkedImage.src = imageDataUrl(bytes, response); await checkedImage.decode(); images[assetId] = checkedImage.src;
++  }
++
++  if (!sessionIsCurrent(mark, accessToken)) return false;
++  const candidate = {
++    version: snapshot.version,
++    categories: snapshot.categories,
++    products: snapshot.products,
++    assets: snapshot.assets,
++    images
++  };
++  // This is the first persistent write.  All image responses and checksums
++  // have succeeded, so an error before/at this write leaves the old bundle.
++  try {
++    localStorage.setItem('kiosk-content', JSON.stringify(candidate));
++  } catch {
++    throw new Error(currentLabels().failed);
++  }
++  if (!sessionIsCurrent(mark, accessToken)) return false;
++  bundle = candidate;
++  render();
++  showStatus('synchronized', candidate.version);
++  return true;
++}
++
++function eventId() {
++  if (crypto.randomUUID) return crypto.randomUUID();
++  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
++}
++
++function track() {
++  if (!token) return;
++  const target = view.page === 'product'
++    ? ['product', view.product_id]
++    : view.page === 'category'
++      ? ['category', view.category_id]
++      : ['page', 'home'];
++  const accessToken = token;
++  api('/track', {
++    event_id: eventId(),
++    target_type: target[0],
++    target_id: target[1]
++  }, accessToken).catch(() => {});
++}
++
++function sortedCategories() {
++  return [...bundle.categories].sort((a, b) => a.order - b.order || String(a.id).localeCompare(String(b.id)));
++}
++
++function sortedProducts(categoryId) {
++  return bundle.products
++    .filter(product => product.category_id === categoryId)
++    .sort((a, b) => a.order - b.order || String(a.id).localeCompare(String(b.id)));
++}
++
++function go(next) {
++  history.push({ ...view });
++  view = { ...next };
++  render();
++  track();
++}
++
++function render() {
++  const lang = currentLanguage();
++  const text = labels[lang];
++  setLabels(lang);
++  if (statusState) {
++    q('#status').textContent = statusState.key
++      ? statusMessage(statusState.key, statusState.argument, lang)
++      : statusState.message;
++  }
++  q('#version').textContent = bundle && Number.isInteger(bundle.version)
++    ? text.contentVersion(bundle.version)
++    : text.noContent;
++  q('#back').disabled = history.length === 0;
++  q('#content').replaceChildren();
++
++  if (!bundle || !Array.isArray(bundle.categories) || !Array.isArray(bundle.products)) {
++    q('#heading').textContent = text.homeHeading;
++    return;
++  }
++
++  const categories = sortedCategories();
++  if (view.page !== 'home' && !categories.some(category => category.id === view.category_id)) {
++    view = { page: 'home' };
++    history = [];
++    q('#back').disabled = true;
++  }
++  q('#heading').textContent = text.homeHeading;
++
++  if (view.page === 'home') {
++    for (const category of categories) {
++      const button = document.createElement('button');
++      button.type = 'button';
++      button.className = 'card category-card';
++      button.textContent = category.text[lang];
++      button.dataset.category = category.id;
++      button.onclick = () => go({ page: 'category', category_id: category.id });
++      q('#content').append(button);
++    }
++    return;
++  }
++
++  if (view.page === 'category') {
++    const category = categories.find(item => item.id === view.category_id);
++    if (!category) return;
++    q('#heading').textContent = category.text[lang];
++    for (const product of sortedProducts(category.id)) {
++      const button = document.createElement('button');
++      const image = document.createElement('img');
++      const span = document.createElement('span');
++      button.type = 'button';
++      button.className = 'card product-card';
++      button.dataset.product = product.id;
++      image.alt = product.text[lang];
++      image.src = bundle.images && bundle.images[product.asset_id] || '';
++      span.textContent = product.text[lang];
++      button.append(image, span);
++      button.onclick = () => go({
++        page: 'product',
++        category_id: category.id,
++        product_id: product.id
++      });
++      q('#content').append(button);
++    }
++    return;
++  }
++
++  const product = bundle.products.find(item =>
++    item.id === view.product_id && item.category_id === view.category_id
++  );
++  if (!product || product.category_id !== view.category_id) {
++    view = { page: 'category', category_id: view.category_id };
++    return render();
++  }
++  q('#heading').textContent = product.text[lang];
++  const image = document.createElement('img');
++  image.className = 'detail';
++  image.alt = product.text[lang];
++  image.src = bundle.images && bundle.images[product.asset_id] || '';
++  const description = document.createElement('p');
++  description.className = 'product-text';
++  description.textContent = product.text[lang];
++  q('#content').append(image, description);
++}
++
++q('#back').onclick = () => {
++  if (history.length) {
++    view = history.pop();
++    render();
++    track();
++  }
++};
++
++q('#logo').onclick = () => {
++  if (view.page === 'product') {
++    go({ page: 'category', category_id: view.category_id });
++  } else if (view.page === 'category') {
++    go({ page: 'home' });
++  }
++};
++
++q('#language').onchange = () => render();
++q('#sync').onclick = () => {
++  const mark = sessionEpoch;
++  synchronize().catch(() => {
++    // A session change deliberately makes the old operation a no-op.
++    if (mark === sessionEpoch) showStatus(token ? 'failed' : 'noSession');
++  });
++};
++
++q('#connect').onsubmit = event => {
++  event.preventDefault();
++  // Incrementing before assigning the new token invalidates all old syncs,
++  // including a sync that is currently waiting on an image response.
++  sessionEpoch += 1;
++  token = q('#token').value;
++  q('#token').value = '';
++  showStatus('connected');
++};
++
++q('#settings').onsubmit = async event => {
++  event.preventDefault();
++  try {
++    await api('/settings', { device_id: q('#device').value });
++    showStatus('settingsAcknowledged');
++  } catch {
++    showStatus('requestFailed');
++  }
++};
++
++try {
++  const stored = JSON.parse(localStorage.getItem('kiosk-content') || 'null');
++  if (stored && typeof stored === 'object') bundle = stored;
++} catch {
++  bundle = null;
++}
++render();
++
++if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+diff --git a/control_algorithms.py b/control_algorithms.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..bf399bc567946d5b0bd010fc73393cd8896555d6
+--- /dev/null
++++ b/control_algorithms.py
+@@ -0,0 +1,12 @@
++def stable_order(values, key=None):
++    rows=[((key(value) if key else value), value) for value in values]
++    def merge_sort(items):
++        if len(items)<2: return items
++        middle=len(items)//2
++        left,right=merge_sort(items[:middle]),merge_sort(items[middle:])
++        result=[];i=j=0
++        while i<len(left) and j<len(right):
++            if right[j][0]<left[i][0]: result.append(right[j]);j+=1
++            else: result.append(left[i]);i+=1
++        return result+left[i:]+right[j:]
++    return [row[1] for row in merge_sort(rows)]
+diff --git a/index.html b/index.html
+index 9d443d0cae2aef6d4456f4de5d55e10a20ec54fd..854193ef351017dd3b16d8a255af8b6ae1ec216b 100644
+--- a/index.html
++++ b/index.html
+@@ -1 +1,47 @@
+-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Catalogue kiosk</title><link rel="stylesheet" href="/style.css"><header><button id="logo">Catalogue</button><button id="back">Back</button><label>Language <select id="language"><option value="en">English</option><option value="es">Español</option></select></label></header><main><p id="version"></p><h1 id="heading">Catalogue</h1><section id="content"></section><p id="status" role="status"></p><details><summary>Connection and device tools</summary><form id="connect"><label>Access token <input id="token" type="password" required autocomplete="off"></label><button>Connect</button></form><button id="sync">Synchronize content</button><form id="settings"><label>Managed device <input id="device" required></label><button>Request network settings</button></form></details></main><script src="/app.js"></script></html>
+\ No newline at end of file
++<!doctype html>
++<html lang="en">
++<head>
++  <meta charset="utf-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1">
++  <title>Catalogue kiosk</title>
++  <link rel="stylesheet" href="/style.css">
++</head>
++<body>
++  <header>
++    <button id="logo" type="button">Catalogue</button>
++    <button id="back" type="button" disabled>Back</button>
++    <label id="language-control">
++      <span id="language-label">Language</span>
++      <select id="language" aria-label="Language">
++        <option value="en">English</option>
++        <option value="es">Spanish</option>
++      </select>
++    </label>
++  </header>
++  <main>
++    <p id="version" aria-live="polite">No synchronized content</p>
++    <h1 id="heading">Catalogue</h1>
++    <section id="content" aria-live="polite"></section>
++    <p id="status" role="status" aria-live="polite"></p>
++    <details>
++      <summary id="tools-label">Connection and device tools</summary>
++      <form id="connect">
++        <label>
++          <span id="token-label">Access token</span>
++          <input id="token" type="password" required autocomplete="off">
++        </label>
++        <button id="connect-button" type="submit">Connect</button>
++      </form>
++      <button id="sync" type="button">Synchronize content</button>
++      <form id="settings">
++        <label>
++          <span id="device-label">Managed device</span>
++          <input id="device" required>
++        </label>
++        <button id="settings-button" type="submit">Request network settings</button>
++      </form>
++    </details>
++  </main>
++  <script src="/app.js"></script>
++</body>
++</html>
+diff --git a/server.py b/server.py
+index d8ad69e1ce4fb9962bc60c9992f263f7d152793a..53bd0c6de15db27e6d815b312766934503a1235f 100644
+--- a/server.py
++++ b/server.py
+@@ -1,41 +1,149 @@
++"""Local HTTP transport for the catalogue component.
++
++Only the small browser shell is public.  API and image requests require a
++bearer token resolved by Store from the private runtime configuration; source
++files and that configuration are never exposed as a filesystem server.
++"""
++
++from __future__ import annotations
++
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
+-from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
+-import os,json
++import json
++import os
++from urllib.parse import unquote, urlsplit
++
+ from store import Store
+-ROOT=Path(__file__).parent;config=json.loads(Path(os.environ['KIOSK_CONFIG']).read_text());store=Store(os.environ['KIOSK_DATABASE'],config)
++
++
++ROOT = Path(__file__).parent
++_config_path = os.environ.get("KIOSK_CONFIG")
++_database_path = os.environ.get("KIOSK_DATABASE")
++if not _config_path or not _database_path:
++    raise RuntimeError("KIOSK_CONFIG and KIOSK_DATABASE are required")
++config = json.loads(Path(_config_path).read_text(encoding="utf-8"))
++store = Store(_database_path, config)
++
++
+ class Handler(BaseHTTPRequestHandler):
+-    def log_message(self,*a):pass
+-    def send(self,status,data,mime='application/json'):
+-        if not isinstance(data,bytes):data=json.dumps(data).encode()
+-        self.send_response(status);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
+-    def actor(self):return store.actor(self.headers.get('Authorization','').removeprefix('Bearer '))
++    protocol_version = "HTTP/1.1"
++
++    def log_message(self, *_args):
++        # Do not put bearer tokens or request paths into the demo's output.
++        pass
++
++    def send(self, status: int, data, mime: str = "application/json"):
++        if not isinstance(data, bytes):
++            data = json.dumps(data, ensure_ascii=False).encode("utf-8")
++        self.send_response(status)
++        self.send_header("Content-Type", mime)
++        self.send_header("Content-Length", str(len(data)))
++        self.send_header("Cache-Control", "no-store" if mime == "application/json" else "no-cache")
++        self.end_headers()
++        self.wfile.write(data)
++
++    def actor(self):
++        header = self.headers.get("Authorization", "")
++        if not isinstance(header, str) or not header.startswith("Bearer "):
++            raise PermissionError("denied")
++        token = header[len("Bearer ") :]
++        if not token or token != token.strip() or "\r" in token or "\n" in token:
++            raise PermissionError("denied")
++        return store.actor(token)
++
+     def do_GET(self):
+-        files={'/sw.js':('sw.js','text/javascript'),'/':('index.html','text/html'),'/app.js':('app.js','text/javascript'),'/style.css':('style.css','text/css')}
+-        if self.path in files:
+-            name,mime=files[self.path];return self.send(200,(ROOT/name).read_bytes(),mime)
++        request_path = urlsplit(self.path).path
++        # The browser shell is the only unauthenticated material.  There is no
++        # generic directory or source-file serving route here.
++        static = {
++            "/sw.js": ("sw.js", "text/javascript; charset=utf-8"),
++            "/": ("index.html", "text/html; charset=utf-8"),
++            "/app.js": ("app.js", "text/javascript; charset=utf-8"),
++            "/style.css": ("style.css", "text/css; charset=utf-8"),
++        }
++        if request_path in static:
++            name, mime = static[request_path]
++            try:
++                return self.send(200, (ROOT / name).read_bytes(), mime)
++            except OSError:
++                return self.send(404, {})
++
+         try:
+-            actor=self.actor()
+-            if self.path=='/snapshot':return self.send(200,store.snapshot(actor))
+-            if self.path.startswith('/asset/'):
+-                key=self.path.removeprefix('/asset/')
+-                if key not in store.snapshot(actor)['assets']:return self.send(404,{})
+-                return self.send(200,Path(config['assets'][key]).read_bytes(),'image/svg+xml')
+-            if self.path=='/analytics':
+-                if actor['role'] not in ['admin','editor']:raise PermissionError('denied')
+-                with store.db() as db:rows=[json.loads(x[0]) for x in db.execute('SELECT payload FROM events ORDER BY rowid')]
+-                return self.send(200,rows)
+-            self.send(404,{})
+-        except PermissionError:self.send(403,{'error':'denied'})
+-        except Exception:self.send(400,{'error':'request_failed'})
++            actor = self.actor()
++            if request_path == "/snapshot":
++                return self.send(200, store.snapshot(actor))
++
++            if request_path.startswith("/asset/"):
++                # Decode the configured ID.  It is looked up in the latest
++                # publication before the private path is read.
++                encoded_id = request_path[len("/asset/") :]
++                if not encoded_id:
++                    return self.send(404, {})
++                asset_id = unquote(encoded_id)
++                if not asset_id:
++                    return self.send(404, {})
++                try:
++                    data = store.asset_bytes(actor, asset_id)
++                except KeyError:
++                    return self.send(404, {})
++                return self.send(200, data, "image/svg+xml")
++
++            if request_path == "/analytics":
++                return self.send(200, store.analytics(actor))
++
++            return self.send(404, {})
++        except PermissionError:
++            return self.send(403, {"error": "denied"})
++        except Exception:
++            # Never disclose configuration paths, SQL, or bridge details over
++            # the HTTP boundary.
++            return self.send(400, {"error": "request_failed"})
++
+     def do_POST(self):
+         try:
+-            actor=self.actor();n=int(self.headers.get('Content-Length',0))
+-            if not 0<n<=100000:raise ValueError('size')
+-            a=json.loads(self.rfile.read(n))
+-            if not isinstance(a,dict):raise ValueError('body')
+-            methods={'/edit':store.edit,'/publish':store.publish,'/track':store.track,'/settings':store.settings}
+-            if self.path not in methods:return self.send(404,{})
+-            self.send(200,methods[self.path](actor,a))
+-        except PermissionError:self.send(403,{'error':'denied'})
+-        except Exception:self.send(400,{'error':'request_failed'})
+-server=ThreadingHTTPServer(('127.0.0.1',int(os.environ.get('PORT','0'))),Handler);print(json.dumps({'port':server.server_port}),flush=True);server.serve_forever()
++            actor = self.actor()
++            raw_length = self.headers.get("Content-Length", "")
++            try:
++                length = int(raw_length)
++            except (TypeError, ValueError):
++                raise ValueError("size")
++            if not 0 < length <= 100000:
++                raise ValueError("size")
++            raw = self.rfile.read(length)
++            if len(raw) != length:
++                raise ValueError("body")
++            try:
++                action = json.loads(raw)
++            except (TypeError, ValueError) as exc:
++                raise ValueError("body") from exc
++            if not isinstance(action, dict):
++                raise ValueError("body")
++
++            request_path = urlsplit(self.path).path
++            methods = {
++                "/edit": store.edit,
++                "/publish": store.publish,
++                "/track": store.track,
++                "/settings": store.settings,
++            }
++            method = methods.get(request_path)
++            if method is None:
++                return self.send(404, {})
++            return self.send(200, method(actor, action))
++        except PermissionError:
++            return self.send(403, {"error": "denied"})
++        except Exception:
++            return self.send(400, {"error": "request_failed"})
++
++
++if __name__ == "__main__":
++    server = ThreadingHTTPServer(
++        ("127.0.0.1", int(os.environ.get("PORT", "0"))), Handler
++    )
++    print(json.dumps({"port": server.server_port}), flush=True)
++    try:
++        server.serve_forever()
++    except KeyboardInterrupt:
++        pass
++    finally:
++        server.server_close()
+diff --git a/store.py b/store.py
+index ec6ac98c5e7315306244b5fa0d57f687c8355e95..52909622e3df860df37fc85e9386a50b876184c5 100644
+--- a/store.py
++++ b/store.py
+@@ -1,41 +1,509 @@
+-import json, sqlite3, hashlib, urllib.request, urllib.parse
++"""Persistent catalogue and managed-device boundary.
++
++The values accepted by this module are deliberately split into two groups:
++``actor`` values are produced by the authentication adapter (and therefore
++come from the private runtime configuration), while values in ``action`` are
++untrusted request data.  No permission or identity decision is made from an
++action field.
++"""
++
++from __future__ import annotations
++
++import copy
++import hashlib
++import json
++import sqlite3
++from os import PathLike
++import urllib.parse
++import urllib.request
++from pathlib import Path
++from typing import Any
++
++
++_EDIT_ROLES = {"editor", "admin"}
++_VIEW_ROLES = {"device", "editor", "admin"}
++
+ 
+ class Store:
+-    def __init__(self,path,config):
+-        self.path=path;self.config=config
++    """SQLite-backed draft, publication, analytics, and bridge store."""
++
++    def __init__(self, path: str | Path, config: dict[str, Any]):
++        self.path = str(path)
++        # sqlite normally creates a separate database for every connection to
++        # ':memory:'.  Use a private shared-memory URI plus a keeper so the
++        # short-lived connections used by this class see the same schema.
++        self._memory_uri = None
++        self._memory_keeper = None
++        if self.path == ":memory:":
++            self._memory_uri = f"file:kiosk-store-{id(self)}?mode=memory&cache=shared"
++            self._memory_keeper = sqlite3.connect(self._memory_uri, uri=True, timeout=10)
++        # Keep the configuration private to this process.  In particular, it
++        # is never copied into a catalogue response or a browser bundle.
++        self.config = config if isinstance(config, dict) else {}
++        with self.db() as db:
++            db.executescript(
++                """
++                CREATE TABLE IF NOT EXISTS draft(
++                    id INTEGER PRIMARY KEY CHECK(id=1),
++                    payload TEXT NOT NULL
++                );
++                CREATE TABLE IF NOT EXISTS publications(
++                    version INTEGER PRIMARY KEY,
++                    change_id TEXT UNIQUE NOT NULL,
++                    payload TEXT NOT NULL
++                );
++                CREATE TABLE IF NOT EXISTS events(
++                    id TEXT PRIMARY KEY,
++                    device TEXT NOT NULL,
++                    payload TEXT NOT NULL
++                );
++                """
++            )
++            db.execute(
++                "INSERT OR IGNORE INTO draft(id,payload) VALUES (1,?)",
++                (json.dumps({"categories": [], "products": []}),),
++            )
++
++    def db(self) -> sqlite3.Connection:
++        """Open a short-lived connection with busy handling for concurrent HTTP requests."""
++
++        if self._memory_uri is not None:
++            return sqlite3.connect(self._memory_uri, uri=True, timeout=10)
++        return sqlite3.connect(self.path, timeout=10)
++
++    # ------------------------------------------------------------------
++    # Authentication/configuration helpers
++    # ------------------------------------------------------------------
++    def actor(self, token: str | None) -> dict[str, str]:
++        """Resolve a bearer token using only the private runtime config.
++
++        Returning just the two identity fields also prevents accidental
++        exposure of any additional private token metadata in callers.
++        """
++
++        tokens = self.config.get("tokens", {})
++        if not isinstance(tokens, dict) or not isinstance(token, str):
++            raise PermissionError("denied")
++        configured = tokens.get(token)
++        if not isinstance(configured, dict):
++            raise PermissionError("denied")
++        identity = configured.get("id")
++        role = configured.get("role")
++        if not isinstance(identity, str) or not identity or not isinstance(role, str):
++            raise PermissionError("denied")
++        return {"id": identity, "role": role}
++
++    @staticmethod
++    def _require_role(actor: Any, roles: set[str]) -> dict[str, str]:
++        if not isinstance(actor, dict):
++            raise PermissionError("denied")
++        role = actor.get("role")
++        identity = actor.get("id")
++        if role not in roles or not isinstance(identity, str) or not identity:
++            raise PermissionError("denied")
++        # Never retain a caller-owned actor dictionary in a record.
++        return {"id": identity, "role": role}
++
++    def _configured_assets(self) -> dict[str, str]:
++        assets = self.config.get("assets", {})
++        if not isinstance(assets, dict):
++            return {}
++        # Asset paths are accepted only from configuration, never from an
++        # edit action.  Ignore malformed private config entries here; a
++        # reference to one will be rejected by _asset_bytes.
++        return {
++            key: str(value)
++            for key, value in assets.items()
++            if isinstance(key, str) and isinstance(value, (str, PathLike))
++        }
++
++    def _device_ids(self) -> set[str]:
++        tokens = self.config.get("tokens", {})
++        if not isinstance(tokens, dict):
++            return set()
++        result: set[str] = set()
++        for configured in tokens.values():
++            if (
++                isinstance(configured, dict)
++                and configured.get("role") == "device"
++                and isinstance(configured.get("id"), str)
++                and configured["id"]
++            ):
++                result.add(configured["id"])
++        return result
++
++    # ------------------------------------------------------------------
++    # JSON/draft helpers
++    # ------------------------------------------------------------------
++    @staticmethod
++    def _copy_json(value: Any) -> Any:
++        """Make a detached JSON-compatible copy and reject non-JSON values."""
++
++        try:
++            return json.loads(json.dumps(value))
++        except (TypeError, ValueError, OverflowError) as exc:
++            raise ValueError("invalid_json") from exc
++
++    @staticmethod
++    def _load_payload(raw: str | None) -> dict[str, Any]:
++        try:
++            value = json.loads(raw or "")
++        except (TypeError, ValueError) as exc:
++            raise ValueError("invalid_catalogue") from exc
++        if not isinstance(value, dict):
++            raise ValueError("invalid_catalogue")
++        categories = value.get("categories")
++        products = value.get("products")
++        if not isinstance(categories, list) or not isinstance(products, list):
++            raise ValueError("invalid_catalogue")
++        return {"categories": categories, "products": products}
++
++    def _draft(self, db: sqlite3.Connection) -> dict[str, Any]:
++        row = db.execute("SELECT payload FROM draft WHERE id=1").fetchone()
++        if row is None:
++            raise ValueError("invalid_catalogue")
++        return self._load_payload(row[0])
++
++    @staticmethod
++    def _nonempty_string(value: Any) -> bool:
++        return isinstance(value, str) and bool(value.strip())
++
++    def _validate_record_shape(self, kind: Any, record: Any) -> dict[str, Any]:
++        if kind not in ("categories", "products") or not isinstance(record, dict):
++            raise ValueError("invalid_record")
++
++        # Validate without normalising the values: a successful edit returns
++        # the caller's catalogue fields, while still enforcing the schema.
++        if not self._nonempty_string(record.get("id")):
++            raise ValueError("invalid_record")
++        order = record.get("order")
++        # bool is an int subclass, but is not an integer catalogue order.
++        if isinstance(order, bool) or not isinstance(order, int):
++            raise ValueError("invalid_record")
++        text = record.get("text")
++        if not isinstance(text, dict):
++            raise ValueError("invalid_record")
++        if not self._nonempty_string(text.get("en")) or not self._nonempty_string(
++            text.get("es")
++        ):
++            raise ValueError("invalid_record")
++
++        if kind == "products":
++            if not self._nonempty_string(record.get("category_id")):
++                raise ValueError("invalid_record")
++            if not self._nonempty_string(record.get("asset_id")):
++                raise ValueError("invalid_record")
++
++        return self._copy_json(record)
++
++    @staticmethod
++    def _replace_record(records: list[Any], record: dict[str, Any]) -> list[Any]:
++        """Upsert by ID while preserving every unrelated record and order."""
++
++        result = list(records)
++        record_id = record["id"]
++        for index, existing in enumerate(result):
++            if isinstance(existing, dict) and existing.get("id") == record_id:
++                result[index] = record
++                return result
++        result.append(record)
++        return result
++
++    # ------------------------------------------------------------------
++    # Catalogue editing/publication
++    # ------------------------------------------------------------------
++    def edit(self, actor: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
++        """Validate and atomically upsert one draft catalogue record."""
++
++        self._require_role(actor, _EDIT_ROLES)
++        if not isinstance(action, dict):
++            raise ValueError("invalid_request")
++
++        kind = action.get("kind")
++        # Only the documented action fields are consulted.  In particular,
++        # action['actor'] and action['role'] cannot grant edit permission.
++        record = self._validate_record_shape(kind, action.get("record"))
++
++        with self.db() as db:
++            db.execute("BEGIN IMMEDIATE")
++            draft = self._draft(db)
++            if kind == "products":
++                category_ids = {
++                    item.get("id")
++                    for item in draft["categories"]
++                    if isinstance(item, dict)
++                }
++                if record["category_id"] not in category_ids:
++                    raise ValueError("unknown_category")
++                if record["asset_id"] not in self._configured_assets():
++                    raise ValueError("unknown_asset")
++
++            draft[kind] = self._replace_record(draft[kind], record)
++            payload = json.dumps(draft, ensure_ascii=False, separators=(",", ":"))
++            db.execute("UPDATE draft SET payload=? WHERE id=1", (payload,))
++
++        return copy.deepcopy(record)
++
++    def _asset_bytes(self, asset_id: str) -> bytes:
++        """Read an image only through an ID mapped by private configuration."""
++
++        assets = self._configured_assets()
++        path = assets.get(asset_id)
++        if path is None:
++            raise KeyError("unknown_asset")
++        try:
++            return Path(path).read_bytes()
++        except (OSError, ValueError) as exc:
++            # Do not return a filesystem path in an error or HTTP response.
++            raise ValueError("asset_unavailable") from exc
++
++    @staticmethod
++    def _asset_url(asset_id: str) -> str:
++        return "/asset/" + urllib.parse.quote(asset_id, safe="")
++
++    def _asset_metadata(self, asset_id: str) -> dict[str, str]:
++        data = self._asset_bytes(asset_id)
++        return {
++            "url": self._asset_url(asset_id),
++            "sha256": hashlib.sha256(data).hexdigest(),
++        }
++
++    def _make_snapshot(self, draft: dict[str, Any], version: int) -> dict[str, Any]:
++        """Build a detached publication and its checksums from the draft."""
++
++        categories = self._copy_json(draft["categories"])
++        products = self._copy_json(draft["products"])
++
++        # Revalidate the complete draft at publication time.  This protects a
++        # database created by an older version as well as ordinary edits.
++        category_ids: set[str] = set()
++        for category in categories:
++            if not isinstance(category, dict):
++                raise ValueError("invalid_catalogue")
++            if not self._nonempty_string(category.get("id")):
++                raise ValueError("invalid_catalogue")
++            if category["id"] in category_ids:
++                raise ValueError("invalid_catalogue")
++            category_ids.add(category["id"])
++            self._validate_record_shape("categories", category)
++
++        referenced: set[str] = set()
++        product_ids: set[str] = set()
++        for product in products:
++            if not isinstance(product, dict):
++                raise ValueError("invalid_catalogue")
++            self._validate_record_shape("products", product)
++            if product["id"] in product_ids:
++                raise ValueError("invalid_catalogue")
++            product_ids.add(product["id"])
++            if product["category_id"] not in category_ids:
++                raise ValueError("unknown_category")
++            if product["asset_id"] not in self._configured_assets():
++                raise ValueError("unknown_asset")
++            referenced.add(product["asset_id"])
++
++        assets = {
++            asset_id: self._asset_metadata(asset_id)
++            for asset_id in __import__('control_algorithms').stable_order(referenced)
++        }
++        return {
++            "version": version,
++            "categories": categories,
++            "products": products,
++            "assets": assets,
++        }
++
++    def publish(self, actor: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
++        """Publish one immutable snapshot for a unique change ID."""
++
++        self._require_role(actor, _EDIT_ROLES)
++        if not isinstance(action, dict):
++            raise ValueError("invalid_request")
++        change_id = action.get("change_id")
++        if not self._nonempty_string(change_id):
++            raise ValueError("invalid_change_id")
++
++        with self.db() as db:
++            db.execute("BEGIN IMMEDIATE")
++            existing = db.execute(
++                "SELECT payload FROM publications WHERE change_id=?", (change_id,)
++            ).fetchone()
++            if existing is not None:
++                # A retry is idempotent, even if the draft has subsequently
++                # moved on.  Return a fresh object so callers cannot mutate DB
++                # state through the result.
++                return self._copy_json(json.loads(existing[0]))
++
++            draft = self._draft(db)
++            current = db.execute(
++                "SELECT COALESCE(MAX(version),0) FROM publications"
++            ).fetchone()
++            version = int(current[0]) + 1
++            snapshot = self._make_snapshot(draft, version)
++            db.execute(
++                "INSERT INTO publications(version,change_id,payload) VALUES (?,?,?)",
++                (
++                    version,
++                    change_id,
++                    json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")),
++                ),
++            )
++
++        return copy.deepcopy(snapshot)
++
++    def snapshot(self, actor: dict[str, Any] | None = None) -> dict[str, Any]:
++        """Return the newest immutable publication, or an empty version zero."""
++
+         with self.db() as db:
+-            db.executescript('CREATE TABLE IF NOT EXISTS draft(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT);CREATE TABLE IF NOT EXISTS publications(version INTEGER PRIMARY KEY,change_id TEXT UNIQUE,payload TEXT);CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY,device TEXT,payload TEXT);')
+-            db.execute('INSERT OR IGNORE INTO draft VALUES (1,?)',(json.dumps({'categories':[],'products':[]}),))
+-    def db(self):return sqlite3.connect(self.path,timeout=10)
+-    def actor(self,token):
+-        actor=self.config['tokens'].get(token)
+-        if actor is None:raise PermissionError('denied')
+-        return actor
+-    def edit(self,actor,a):raise NotImplementedError('Complete catalogue editing')
+-    def publish(self,actor,a):raise NotImplementedError('Publish a real content snapshot')
+-    def snapshot(self,actor):
+-        with self.db() as db:row=db.execute('SELECT payload FROM publications ORDER BY version DESC LIMIT 1').fetchone()
+-        return json.loads(row[0]) if row else {'version':0,'categories':[],'products':[],'assets':{}}
+-    def track(self,actor,a):
+-        if actor['role']!='device':raise PermissionError('device_required')
+-        snap=self.snapshot(actor);kind=a.get('target_type');target=a.get('target_id');event=a.get('event_id')
+-        known={'page':['home'],'category':[r['id'] for r in snap['categories']],'product':[r['id'] for r in snap['products']]}
+-        if kind not in known or target not in known[kind] or not isinstance(event,str) or not event.strip():raise ValueError('invalid_target')
+-        record={'event_id':event,'target_type':kind,'target_id':target,'device_id':actor['id']}
++            row = db.execute(
++                "SELECT payload FROM publications ORDER BY version DESC LIMIT 1"
++            ).fetchone()
++        if row is None:
++            return {"version": 0, "categories": [], "products": [], "assets": {}}
++        value = self._copy_json(json.loads(row[0]))
++        # A publication created by this class always has this shape.  Keep the
++        # method defensive for a database supplied by an older process.
++        if not isinstance(value, dict):
++            raise ValueError("invalid_catalogue")
++        return value
++
++    def asset_bytes(self, actor: dict[str, Any] | None, asset_id: str) -> bytes:
++        """Return an image only when its ID belongs to the latest publication."""
++
++        snapshot = self.snapshot(actor)
++        assets = snapshot.get("assets", {})
++        if not isinstance(assets, dict) or asset_id not in assets:
++            raise KeyError("unknown_asset")
++        return self._asset_bytes(asset_id)
++
++    # ------------------------------------------------------------------
++    # Analytics and managed-device bridge
++    # ------------------------------------------------------------------
++    def track(self, actor: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
++        identity = self._require_role(actor, {"device"})
++        if not isinstance(action, dict):
++            raise ValueError("invalid_request")
++
++        snapshot = self.snapshot(identity)
++        target_type = action.get("target_type")
++        target_id = action.get("target_id")
++        event_id = action.get("event_id")
++        if not self._nonempty_string(event_id):
++            raise ValueError("invalid_event")
++        if not isinstance(target_type, str) or not isinstance(target_id, str):
++            raise ValueError("invalid_target")
++
++        categories = snapshot.get("categories", [])
++        products = snapshot.get("products", [])
++        known: dict[str, set[str]] = {
++            "page": {"home"},
++            "category": {
++                item["id"]
++                for item in categories
++                if isinstance(item, dict) and isinstance(item.get("id"), str)
++            },
++            "product": {
++                item["id"]
++                for item in products
++                if isinstance(item, dict) and isinstance(item.get("id"), str)
++            },
++        }
++        if target_type not in known or target_id not in known[target_type]:
++            raise ValueError("invalid_target")
++
++        # The authenticated configuration identity is authoritative; an
++        # action['device_id'] field, if present, is intentionally ignored.
++        record = {
++            "event_id": event_id,
++            "target_type": target_type,
++            "target_id": target_id,
++            "device_id": identity["id"],
++        }
++        encoded = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+         with self.db() as db:
+-            db.execute('BEGIN IMMEDIATE');old=db.execute('SELECT device,payload FROM events WHERE id=?',(event,)).fetchone()
+-            if old:
+-                if old[0]!=actor['id'] or json.loads(old[1])!=record:raise ValueError('event_conflict')
+-            else:db.execute('INSERT INTO events VALUES (?,?,?)',(event,actor['id'],json.dumps(record)))
++            db.execute("BEGIN IMMEDIATE")
++            old = db.execute(
++                "SELECT device,payload FROM events WHERE id=?", (event_id,)
++            ).fetchone()
++            if old is not None:
++                try:
++                    old_record = json.loads(old[1])
++                except (TypeError, ValueError) as exc:
++                    raise ValueError("event_conflict") from exc
++                if old[0] != identity["id"] or old_record != record:
++                    raise ValueError("event_conflict")
++                return copy.deepcopy(record)
++            db.execute(
++                "INSERT INTO events(id,device,payload) VALUES (?,?,?)",
++                (event_id, identity["id"], encoded),
++            )
+         return record
+-    def settings(self,actor,a):
+-        if actor['role']!='admin':raise PermissionError('admin_required')
+-        device=a.get('device_id')
+-        if device not in [x['id'] for x in self.config['tokens'].values() if x['role']=='device']:raise ValueError('unknown_device')
+-        url=self.config['settings_url'];p=urllib.parse.urlsplit(url)
+-        if p.scheme!='http' or p.hostname not in ['127.0.0.1','localhost','::1']:raise ValueError('fixture_endpoint_required')
+-        body=json.dumps({'device_id':device,'operation':'open_network_settings'}).encode()
+-        req=urllib.request.Request(url,data=body,headers={'Content-Type':'application/json'})
+-        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req,timeout=3) as r:value=json.load(r)
+-        if value!={'device_id':device,'opened':True}:raise ValueError('settings_not_opened')
++
++    def analytics(self, actor: dict[str, Any]) -> list[dict[str, Any]]:
++        self._require_role(actor, _EDIT_ROLES)
++        with self.db() as db:
++            rows = db.execute("SELECT payload FROM events ORDER BY rowid").fetchall()
++        result: list[dict[str, Any]] = []
++        for row in rows:
++            try:
++                value = json.loads(row[0])
++            except (TypeError, ValueError) as exc:
++                raise ValueError("invalid_event") from exc
++            if isinstance(value, dict):
++                result.append(value)
++        return result
++
++    def settings(self, actor: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
++        self._require_role(actor, {"admin"})
++        if not isinstance(action, dict):
++            raise ValueError("invalid_request")
++        device_id = action.get("device_id")
++        if not isinstance(device_id, str) or device_id not in self._device_ids():
++            raise ValueError("unknown_device")
++
++        settings_url = self.config.get("settings_url")
++        if not isinstance(settings_url, str):
++            raise ValueError("fixture_endpoint_required")
++        parsed = urllib.parse.urlsplit(settings_url)
++        # The supplied connector is intentionally a local HTTP boundary.  Do
++        # not turn a private configuration value into an arbitrary server-side
++        # request primitive.
++        if parsed.scheme.lower() != "http" or parsed.hostname not in {
++            "127.0.0.1",
++            "localhost",
++            "::1",
++        }:
++            raise ValueError("fixture_endpoint_required")
++
++        body = json.dumps(
++            {"device_id": device_id, "operation": "open_network_settings"},
++            separators=(",", ":"),
++        ).encode("utf-8")
++        request = urllib.request.Request(
++            settings_url,
++            data=body,
++            headers={"Content-Type": "application/json", "Accept": "application/json"},
++            method="POST",
++        )
++        try:
++            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
++            with opener.open(request, timeout=3) as response:
++                if not 200 <= getattr(response, "status", 200) < 300:
++                    raise ValueError("settings_not_opened")
++                value = json.load(response)
++        except ValueError:
++            raise
++        except Exception as exc:
++            raise ValueError("settings_not_opened") from exc
++
++        # Exact matching of both fields makes a response for another device,
++        # or an acknowledgement of another operation, unsuccessful.
++        if (
++            not isinstance(value, dict)
++            or set(value) != {"device_id", "opened"}
++            or value.get("device_id") != device_id
++            or type(value.get("opened")) is not bool
++            or value.get("opened") is not True
++        ):
++            raise ValueError("settings_not_opened")
+         return value
+diff --git a/style.css b/style.css
+index 930508aebf4174115aa598b0eb030498d5430a3d..4baa863186dfb5a1d3d30619c2d14b0457bba322 100644
+--- a/style.css
++++ b/style.css
+@@ -1 +1,173 @@
+-*{box-sizing:border-box}body{margin:0;background:#f5f2ea;color:#263830;font:17px system-ui}header{display:flex;align-items:center;gap:16px;padding:18px 28px;background:#dfe7d5;flex-wrap:wrap}header label{margin-left:auto}button,input,select{font:inherit;padding:10px;border:1px solid #a7b5a0;border-radius:5px;background:#fff}button{cursor:pointer}main{max-width:1060px;margin:auto;padding:26px}h1{font-size:32px}#version{font-size:14px;color:#536551}#content{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;min-height:260px}.card{padding:22px;text-align:left;display:flex;flex-direction:column;gap:16px;overflow-wrap:anywhere;white-space:normal;align-self:start}.card img{width:100%;height:170px;object-fit:contain}.detail{width:min(100%,500px);height:300px;object-fit:contain}details{margin-top:40px;border-top:1px solid #c3cbbf;padding-top:18px}form{display:flex;align-items:end;gap:14px;flex-wrap:wrap;margin:16px 0}label{display:grid;gap:6px}#status{min-height:24px}input{max-width:100%}@media(max-width:480px){main{padding:16px}header{padding:16px;gap:10px}header label{margin-left:0}#content{grid-template-columns:1fr}}
++* {
++  box-sizing: border-box;
++}
++
++:root {
++  color-scheme: light;
++}
++
++body {
++  margin: 0;
++  background: #f5f2ea;
++  color: #263830;
++  font: 17px/1.45 system-ui, sans-serif;
++  overflow-x: hidden;
++}
++
++header {
++  display: flex;
++  align-items: center;
++  gap: 16px;
++  padding: 18px 28px;
++  background: #dfe7d5;
++  flex-wrap: wrap;
++}
++
++header label {
++  margin-left: auto;
++}
++
++button,
++input,
++select {
++  max-width: 100%;
++  font: inherit;
++  padding: 10px;
++  border: 1px solid #a7b5a0;
++  border-radius: 5px;
++  background: #fff;
++}
++
++button {
++  cursor: pointer;
++}
++
++button:disabled {
++  cursor: default;
++  opacity: 0.6;
++}
++
++main {
++  width: min(100%, 1060px);
++  margin: auto;
++  padding: 26px;
++}
++
++h1 {
++  max-width: 100%;
++  font-size: 32px;
++  line-height: 1.2;
++  overflow-wrap: anywhere;
++}
++
++#version {
++  min-height: 1.4em;
++  font-size: 14px;
++  color: #536551;
++  overflow-wrap: anywhere;
++}
++
++#content {
++  display: grid;
++  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
++  gap: 20px;
++  min-height: 260px;
++  min-width: 0;
++}
++
++.card {
++  min-width: 0;
++  width: 100%;
++  padding: 22px;
++  text-align: left;
++  display: flex;
++  flex-direction: column;
++  gap: 16px;
++  overflow-wrap: anywhere;
++  white-space: normal;
++  align-self: start;
++}
++
++.card img {
++  display: block;
++  width: 100%;
++  max-width: 100%;
++  height: 170px;
++  object-fit: contain;
++}
++
++.detail {
++  display: block;
++  width: min(100%, 500px);
++  max-width: 100%;
++  height: auto;
++  max-height: 420px;
++  object-fit: contain;
++  grid-column: 1 / -1;
++}
++
++.product-text {
++  max-width: 72ch;
++  margin: 0;
++  overflow-wrap: anywhere;
++  white-space: normal;
++  grid-column: 1 / -1;
++}
++
++details {
++  margin-top: 40px;
++  border-top: 1px solid #c3cbbf;
++  padding-top: 18px;
++}
++
++form {
++  display: flex;
++  align-items: end;
++  gap: 14px;
++  flex-wrap: wrap;
++  margin: 16px 0;
++}
++
++label {
++  display: grid;
++  gap: 6px;
++  min-width: 0;
++}
++
++#status {
++  min-height: 24px;
++  overflow-wrap: anywhere;
++}
++
++input {
++  width: min(100%, 420px);
++}
++
++@media (max-width: 640px) {
++  main {
++    padding: 18px 16px;
++  }
++
++  header {
++    padding: 16px;
++    gap: 10px;
++  }
++
++  header label {
++    margin-left: 0;
++    width: 100%;
++  }
++
++  header select {
++    width: 100%;
++  }
++
++  #content {
++    grid-template-columns: 1fr;
++    gap: 14px;
++  }
++
++  .card {
++    padding: 18px;
++  }
++}
+diff --git a/sw.js b/sw.js
+index f390a06900680a997f73eafd6aee8dcb0dd079a7..7e1c91cfa0fae0000da3396b2115b1d0cc23cab3 100644
+--- a/sw.js
++++ b/sw.js
+@@ -1 +1,33 @@
+-const CACHE='kiosk-shell-v1';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['/','/app.js','/style.css'])).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>{if(e.request.method==='GET'&&['/','/app.js','/style.css'].includes(new URL(e.request.url).pathname))e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));});
+\ No newline at end of file
++const CACHE = 'kiosk-shell-v2';
++const SHELL = ['/', '/app.js', '/style.css', '/sw.js'];
++
++self.addEventListener('install', event => {
++  event.waitUntil(
++    caches.open(CACHE)
++      .then(cache => cache.addAll(SHELL))
++      .then(() => self.skipWaiting())
++  );
++});
++
++self.addEventListener('activate', event => {
++  event.waitUntil(
++    caches.keys()
++      .then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))
++      .then(() => self.clients.claim())
++  );
++});
++
++self.addEventListener('fetch', event => {
++  const url = new URL(event.request.url);
++  if (event.request.method === 'GET' && SHELL.includes(url.pathname)) {
++    event.respondWith(
++      fetch(event.request)
++        .then(response => {
++          const copy = response.clone();
++          caches.open(CACHE).then(cache => cache.put(event.request, copy)).catch(() => {});
++          return response;
++        })
++        .catch(() => caches.match(event.request))
++    );
++  }
++});

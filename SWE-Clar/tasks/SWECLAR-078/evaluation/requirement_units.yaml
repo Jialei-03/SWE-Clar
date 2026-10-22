@@ -1,0 +1,211 @@
+schema_version: 1
+task_id: SWECLAR-078
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Persistent local accounts, lifetime entitlement, educational reports and beta screening
+requirement_units:
+- ru_id: RU-001
+  name: Investor action entry point
+  content: 'process_investor_action(state,action) returns entire next internal state with result or nonempty
+    error.code, without mutating inputs. On rejection preserve business state. Random password salts/session
+    tokens are permitted; business semantics must be stable. Preserve supplied SQLite CLI init/show/act:
+    successful changes survive separate processes; init cannot overwrite existing database. show is local
+    operator-only inspection, not a public endpoint. act prints only result/error, never internal users,
+    password hashes, sessions or screening scores. No external payment/data provider or full investment
+    application is required. Extra metadata and alternate error wording allowed.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for investor action entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_investor_action
+      signature: process_investor_action(state, action) -> dict
+    inputs:
+      state: Internal synthetic application state
+      action: Operation schema in README
+    output:
+      type: dict
+      meaning: Entire internal next state with result/error; CLI act only emits public result/error
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.
+- ru_id: RU-002
+  name: Persistent protected accounts
+  content: register needs unique nonempty user_id, normalized lowercase/trimmed unique email with one
+    @ and nonempty whitespace-free parts, and nonblank string password; name optional. Store users[id].email/name/password_hash
+    using the explicit stdlib verifier boundary in the public README — PBKDF2-HMAC-SHA256/SHA512 with
+    100000..1000000 iterations, or scrypt n in {16384,32768,65536}, r=8, integer p in 1..4; fresh random
+    salt >=16 bytes and verifier 32..64 bytes. Floors provide 128-bit salt space and >=256-bit verifier;
+    upper work bounds keep independent derivation within the prepared CPU/memory budget. Accept the documented
+    delimited hex forms or JSON string with hex/base64/base64url salt/digest and optional none/NFC/NFKC
+    normalization then UTF-8 and none/sha256/sha512 raw-digest prehash. JSON permits only documented fields,
+    no duplicate keys; integer costs exclude bool. Verify stored derivation against the supplied password,
+    not merely a reported KDF call. This is an explicit bounded acceptance-profile clarification, not
+    universal secure-KDF equivalence. Never store plaintext, reversible copies elsewhere in user records,
+    or unsalted fast digests. login checks credentials with the declared preprocessing and creates unpredictable
+    nonempty session token, persisted in sessions[token]=user_id; login result token and user_id. account(token)
+    requires live session and returns user_id,email,name,lifetime based on entitlements; no password_hash
+    or other users' data. logout revokes only that token and preserves account. Login failure must not
+    create a session.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for persistent protected accounts.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_investor_action
+      signature: process_investor_action(state, action) -> dict
+    inputs:
+      state: Internal synthetic application state
+      action: Operation schema in README
+    output:
+      type: dict
+      meaning: Entire internal next state with result/error; CLI act only emits public result/error
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.
+- ru_id: RU-003
+  name: One-time lifetime entitlement
+  content: stripe_event is trusted local ingestion of an already verified synthetic webhook, not a public
+    payment endpoint. It requires known user, nonempty event_id and stripe_session_id, confirmed exactly
+    true and purchase_type lifetime. Store payment event by ID for audit and entitlements[user_id]=lifetime;
+    result event_id,duplicate=false,granted=true. Exact replay of the same user/session/purchase/confirmation
+    returns duplicate=true,granted=false without changing payment or entitlement business state. Reusing
+    event ID with changed fields rejects. Other purchase types, unconfirmed events and unknown users reject.
+    Account lifetime status reads persisted entitlements, ignoring client action lifetime/payment flags;
+    no real charge is made.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for one-time lifetime entitlement.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_investor_action
+      signature: process_investor_action(state, action) -> dict
+    inputs:
+      state: Internal synthetic application state
+      action: Operation schema in README
+    output:
+      type: dict
+      meaning: Entire internal next state with result/error; CLI act only emits public result/error
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.
+- ru_id: RU-004
+  name: Structured beginner report
+  content: 'generate_report requires curated_stocks symbol, strict valid calendar YYYY-MM-DD date, finite
+    numeric nonboolean movement_pct, and nonblank string sections reason,movement,risk_boundary,watch_next.
+    Language validation is deliberately finite: reject case-insensitive substring guaranteed return or
+    institutional-grade in any required section; otherwise accept wording without subjective readability/hype
+    judging. Store reports[date+'':''+symbol] exposing supplied four sections, symbol,date and illustration
+    {allocation:1000,change:1000*movement_pct/100}; return report fields in result. Negative and zero
+    changes are valid. This component stores supplied educational text, not live investment advice or
+    generated forecasts.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for structured beginner report.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_investor_action
+      signature: process_investor_action(state, action) -> dict
+    inputs:
+      state: Internal synthetic application state
+      action: Operation schema in README
+    output:
+      type: dict
+      meaning: Entire internal next state with result/error; CLI act only emits public result/error
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.
+- ru_id: RU-005
+  name: Closed beta and behavioral tracking
+  content: screen requires registered user, exactly four distinct known question IDs mapped to boolean
+    answers, finite nonnegative nonboolean timestamp. Sum configured question_pool[id].weight for true
+    answers; weights are finite nonnegative numbers. Score >=8 yields Pro Beta, >=4 Basic Beta, otherwise
+    Waitlist. Store screening[user_id] including tier,timestamp (internal scoring format otherwise free),
+    and return tier plus score_hidden=true without score, answers or per-question weights. An existing
+    Waitlist user may retake at timestamp >= prior timestamp+604800; an admitted user may not retake.
+    track requires known user, nonempty event and metro strings, finite nonnegative nonboolean timestamp,
+    appends events row user_id,event,metro,timestamp; zero accepted. Supplied user_id here is trusted
+    local service context; only account/login/logout are session-facing. No random question sampling or
+    external tracking service required.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for closed beta and behavioral tracking.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_investor_action
+      signature: process_investor_action(state, action) -> dict
+    inputs:
+      state: Internal synthetic application state
+      action: Operation schema in README
+    output:
+      type: dict
+      meaning: Entire internal next state with result/error; CLI act only emits public result/error
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: This is a newly implemented domain-logic component derived from a broader commission. Supplied
+    service events and output intents do not prove external operations. No original application repository
+    is distributed.

@@ -1,0 +1,9 @@
+{
+  "combatants": {"player": {"hp": 20, "level": 2, "defense": 1}, "enemy": {"hp": 12, "level": 1, "defense": 2}},
+  "skills": {"strike": {"power": 6}},
+  "inventories": {"player": {"capacity": 4, "slots": []}},
+  "creatures": {"player": ["ember", "moss"]},
+  "recipes": {"stone": {"level": 1, "inputs": ["ember", "moss"], "result": "stone"}},
+  "drops": {},
+  "events": []
+}

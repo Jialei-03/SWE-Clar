@@ -1,0 +1,387 @@
+diff --git a/pipeline.py b/pipeline.py
+index ff68222fc772cd46c6371e6974eda03b057271b8..e9b3177a59b9f693f082168502ec3134bc669c95 100644
+--- a/pipeline.py
++++ b/pipeline.py
+@@ -1,45 +1,286 @@
++"""Recorded-video goal detection, clip delivery, and atomic output handling."""
++
++import hashlib
++import json
++import math
++import os
+ from pathlib import Path
+-import json,subprocess,hashlib,tempfile,shutil,math
+-from urllib.request import Request,urlopen
++import subprocess
++import tempfile
++from urllib.request import Request, urlopen
++
+ from src.goal_policy import detect_goal_events
+ 
+-def probe(path,ffprobe='ffprobe'):
+-    p=subprocess.run([ffprobe,'-v','error','-select_streams','v:0','-show_entries','stream=width,height,avg_frame_rate:format=duration','-of','json',str(path)],capture_output=True,text=True,timeout=10,check=True)
+-    d=json.loads(p.stdout);s=d['streams'][0];n,den=s['avg_frame_rate'].split('/');fps=float(n)/float(den)
+-    duration=float(d['format']['duration']);w=s['width'];h=s['height']
+-    if not 0<fps<=60 or not 0<duration<=30 or not 0<w<=640 or not 0<h<=480:raise ValueError('video outside benchmark limits')
+-    return w,h,fps,duration
+-
+-def observations(video,line_x,ffmpeg='ffmpeg',ffprobe='ffprobe'):
+-    w,h,fps,duration=probe(video,ffprobe)
+-    if not isinstance(line_x,(int,float)) or isinstance(line_x,bool) or not math.isfinite(line_x) or not 0<=line_x<w:raise ValueError('invalid line')
+-    p=subprocess.run([ffmpeg,'-v','error','-i',str(video),'-f','rawvideo','-pix_fmt','rgb24','-'],capture_output=True,timeout=30,check=True)
+-    size=w*h*3
+-    if not p.stdout or len(p.stdout)%size:raise ValueError('invalid frames')
+-    rows=[]
+-    for i,start in enumerate(range(0,len(p.stdout),size)):
+-        rgb=p.stdout[start:start+size];xs=[]
+-        for offset in range(0,size,3):
+-            r,g,b=rgb[offset:offset+3]
+-            if r>160 and g<90 and b<90:xs.append((offset//3)%w)
+-        rows.append({'timestamp':i/fps,'goal_candidate':bool(xs) and sum(xs)/len(xs)>=line_x})
++
++def probe(path, ffprobe="ffprobe"):
++    """Return ``(width, height, fps, duration)`` for the first video stream."""
++    command = [
++        str(ffprobe),
++        "-v",
++        "error",
++        "-select_streams",
++        "v:0",
++        "-show_entries",
++        "stream=width,height,avg_frame_rate:format=duration",
++        "-of",
++        "json",
++        str(path),
++    ]
++    result = subprocess.run(
++        command,
++        capture_output=True,
++        text=True,
++        timeout=10,
++        check=True,
++    )
++    data = json.loads(result.stdout)
++    streams = data.get("streams") or []
++    if not streams:
++        raise ValueError("video has no video stream")
++
++    stream = streams[0]
++    try:
++        width = int(stream["width"])
++        height = int(stream["height"])
++        numerator, denominator = stream["avg_frame_rate"].split("/", 1)
++        fps = float(numerator) / float(denominator)
++        duration = float(data["format"]["duration"])
++    except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
++        raise ValueError("invalid video metadata") from exc
++
++    if (
++        not 0 < fps <= 60
++        or not math.isfinite(fps)
++        or not 0 < duration <= 30
++        or not math.isfinite(duration)
++        or not 0 < width <= 640
++        or not 0 < height <= 480
++    ):
++        raise ValueError("video outside benchmark limits")
++    return width, height, fps, duration
++
++
++def observations(video, line_x, ffmpeg="ffmpeg", ffprobe="ffprobe"):
++    """Decode actual frames and classify red-pixel centroids crossing ``line_x``."""
++    width, height, fps, _duration = probe(video, ffprobe)
++    if (
++        isinstance(line_x, bool)
++        or not isinstance(line_x, (int, float))
++        or not math.isfinite(line_x)
++        or not 0 <= line_x < width
++    ):
++        raise ValueError("invalid line")
++
++    result = subprocess.run(
++        [
++            str(ffmpeg),
++            "-v",
++            "error",
++            "-i",
++            str(video),
++            "-f",
++            "rawvideo",
++            "-pix_fmt",
++            "rgb24",
++            "-",
++        ],
++        capture_output=True,
++        timeout=30,
++        check=True,
++    )
++    raw = result.stdout
++    frame_size = width * height * 3
++    if not raw or len(raw) % frame_size:
++        raise ValueError("invalid frames")
++
++    rows = []
++    for index, start in enumerate(range(0, len(raw), frame_size)):
++        frame = raw[start : start + frame_size]
++        red_xs = []
++        for offset in range(0, frame_size, 3):
++            red, green, blue = frame[offset : offset + 3]
++            if red > 160 and green < 90 and blue < 90:
++                red_xs.append((offset // 3) % width)
++        centroid_crossed = bool(red_xs) and sum(red_xs) / len(red_xs) >= line_x
++        rows.append(
++            {
++                "timestamp": index / fps,
++                "goal_candidate": centroid_crossed,
++            }
++        )
+     return rows
+ 
+-def run_pipeline(detection_video,recording_video,output_dir,line_x,delivery_url,*,cooldown_seconds=5.0,ffmpeg='ffmpeg',ffprobe='ffprobe'):
+-    output=Path(output_dir)
+-    if output.exists():raise ValueError('output exists')
+-    if not isinstance(cooldown_seconds,(int,float)) or isinstance(cooldown_seconds,bool) or not math.isfinite(cooldown_seconds) or cooldown_seconds<0:raise ValueError('invalid cooldown')
+-    width,height,fps,duration=probe(recording_video,ffprobe)
+-    observations_list=observations(detection_video,line_x,ffmpeg,ffprobe)
+-    triggers=detect_goal_events(observations_list,cooldown_seconds=cooldown_seconds)
+-    if any(t>=duration for t in triggers):raise ValueError('recording does not cover trigger')
+-    output.parent.mkdir(parents=True,exist_ok=True)
+-    with tempfile.TemporaryDirectory(prefix='.clips-',dir=output.parent) as tmp:
+-        stage=Path(tmp);clips=[]
+-        for index,t in enumerate(triggers):
+-            start=max(0,t-5);end=min(duration,t+2);name=f'clip-{index:03}.mp4';dest=stage/name
+-            raise NotImplementedError('Create and deliver the clip')
+-            clips.append({'file':name,'trigger':t,'start':start,'end':end,'sha256':digest})
+-        (stage/'manifest.json').write_text(json.dumps({'clips':clips},sort_keys=True))
++
++def _validate_trigger(value, duration, previous):
++    """Validate a policy result and return it as a finite float."""
++    if isinstance(value, bool):
++        raise ValueError("invalid trigger timestamp")
++    try:
++        trigger = float(value)
++    except (TypeError, ValueError, OverflowError) as exc:
++        raise ValueError("invalid trigger timestamp") from exc
++    if not math.isfinite(trigger) or trigger < 0 or trigger >= duration:
++        raise ValueError("recording does not cover trigger")
++    if previous is not None and trigger < previous:
++        raise ValueError("triggers are not chronological")
++    return trigger
++
++
++def _encode_clip(recording, destination, start, end, ffmpeg):
++    """Encode one real recording interval as a playable MP4."""
++    length = end - start
++    if not math.isfinite(length) or length <= 0:
++        raise ValueError("invalid clip interval")
++
++    # Seeking after the input makes the cut accurate even when the source has
++    # sparse keyframes.  The benchmark clips are short, so decoding up to the
++    # requested start is preferable to introducing keyframe-dependent offsets.
++    command = [
++        str(ffmpeg),
++        "-v",
++        "error",
++        "-y",
++        "-i",
++        str(recording),
++        "-ss",
++        f"{start:.9f}",
++        "-t",
++        f"{length:.9f}",
++        "-map",
++        "0:v:0",
++        "-an",
++        "-c:v",
++        "mpeg4",
++        "-q:v",
++        "2",
++        "-threads",
++        "1",
++        "-pix_fmt",
++        "yuv420p",
++        "-map_metadata",
++        "-1",
++        "-movflags",
++        "+faststart",
++        str(destination),
++    ]
++    subprocess.run(command, capture_output=True, timeout=30, check=True)
++
++    payload = destination.read_bytes()
++    # FFmpeg succeeding is normally sufficient, but explicitly reject an
++    # empty/non-MP4 result before it can be delivered or committed.
++    if len(payload) < 8 or payload[4:8] != b"ftyp":
++        raise ValueError("encoder did not produce an MP4")
++    return payload
++
++
++def _deliver(delivery_url, payload, clip_id):
++    """POST payload and require the adapter's accepted, matching response."""
++    digest = hashlib.sha256(payload).hexdigest()
++    request = Request(
++        str(delivery_url),
++        data=payload,
++        headers={
++            "Content-Type": "video/mp4",
++            "X-Content-SHA256": digest,
++            "X-Clip-ID": str(clip_id),
++        },
++        method="POST",
++    )
++    with urlopen(request, timeout=30) as response:
++        response_data = response.read()
++    try:
++        acknowledgement = json.loads(response_data.decode("utf-8"))
++    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
++        raise ValueError("invalid delivery response") from exc
++    if (
++        not isinstance(acknowledgement, dict)
++        or acknowledgement.get("accepted") is not True
++        or acknowledgement.get("sha256") != digest
++    ):
++        raise ValueError("delivery was not accepted with the matching digest")
++    return digest
++
++
++def run_pipeline(
++    detection_video,
++    recording_video,
++    output_dir,
++    line_x,
++    delivery_url,
++    *,
++    cooldown_seconds=5.0,
++    ffmpeg="ffmpeg",
++    ffprobe="ffprobe",
++):
++    """Run detection, deliver all clips, then atomically publish the result."""
++    output = Path(output_dir)
++    # ``exists`` does not catch a broken symlink.  Treat every existing path as
++    # occupied so a prior result is never overwritten accidentally.
++    if os.path.lexists(str(output)):
++        raise ValueError("output exists")
++
++    if isinstance(cooldown_seconds, bool) or isinstance(
++        cooldown_seconds, (str, bytes, bytearray)
++    ):
++        raise ValueError("invalid cooldown")
++    try:
++        cooldown = float(cooldown_seconds)
++    except (TypeError, ValueError, OverflowError) as exc:
++        raise ValueError("invalid cooldown") from exc
++    if not math.isfinite(cooldown) or cooldown < 0:
++        raise ValueError("invalid cooldown")
++
++    _width, _height, _fps, recording_duration = probe(recording_video, ffprobe)
++    frame_rows = observations(detection_video, line_x, ffmpeg, ffprobe)
++    triggers = detect_goal_events(frame_rows, cooldown_seconds=cooldown)
++
++    clips = []
++    previous = None
++    for value in triggers:
++        trigger = _validate_trigger(value, recording_duration, previous)
++        start = max(0.0, trigger - 5.0)
++        end = min(recording_duration, trigger + 2.0)
++        if end <= start:
++            raise ValueError("invalid clip interval")
++        clips.append(
++            {
++                "file": f"clip-{len(clips):03d}.mp4",
++                "trigger": trigger,
++                "start": start,
++                "end": end,
++            }
++        )
++        previous = trigger
++
++    # Stage clips and the manifest next to (rather than inside) the requested
++    # output.  The final rename is the only operation that makes a completed
++    # output directory visible.
++    output.parent.mkdir(parents=True, exist_ok=True)
++    with tempfile.TemporaryDirectory(
++        prefix=f".{output.name}.", dir=str(output.parent)
++    ) as temporary:
++        stage = Path(temporary)
++        for index, clip in enumerate(clips):
++            destination = stage / clip["file"]
++            payload = _encode_clip(
++                recording_video,
++                destination,
++                clip["start"],
++                clip["end"],
++                ffmpeg,
++            )
++            clip["sha256"] = _deliver(
++                delivery_url,
++                payload,
++                f"clip-{index:03d}",
++            )
++
++        manifest = {"clips": clips}
++        (stage / "manifest.json").write_text(
++            json.dumps(manifest, sort_keys=True), encoding="utf-8"
++        )
++        # rename() is atomic for a destination in the same parent and fails if
++        # another process occupied the requested path while we were working.
+         stage.rename(output)
+-    return {'clips':clips}
++
++    return {"clips": clips}
+diff --git a/src/goal_policy.py b/src/goal_policy.py
+index f47a68ffa5b77b1abdde392c4be43e08f9804c73..b3b04902167e14d2f528f1250b8b8a9a0d187d53 100644
+--- a/src/goal_policy.py
++++ b/src/goal_policy.py
+@@ -1,9 +1,45 @@
+-"""Goal-trigger policy delivery seam."""
++"""Deterministic policy for turning classified goal observations into events."""
+ 
++import math
+ 
+-def detect_goal_events(
+-    frames,
+-    **policy_options,
+-):
+-    """Return goal-trigger timestamps for the supplied candidate frames."""
+-    return []
++
++def _finite_number(value, name):
++    """Return *value* as a finite float, rejecting non-numeric values."""
++    # ``bool`` is an ``int`` subclass, but it is not a meaningful duration or
++    # timestamp for this interface.
++    if isinstance(value, bool) or isinstance(value, (str, bytes, bytearray)):
++        raise ValueError(f"{name} must be a finite number")
++    try:
++        number = float(value)
++    except (TypeError, ValueError, OverflowError) as exc:
++        raise ValueError(f"{name} must be a finite number") from exc
++    if not math.isfinite(number):
++        raise ValueError(f"{name} must be a finite number")
++    return number
++
++
++def detect_goal_events(frames, **policy_options):
++    """Return timestamps of eligible goal candidates in chronological order.
++
++    ``frames`` is already classified by the trajectory detector.  A true
++    ``goal_candidate`` is emitted immediately unless it falls strictly before
++    the end of the cooldown measured from the most recently emitted event.
++    False observations do not affect that last-emitted timestamp.
++    """
++    raw_cooldown = policy_options.get("cooldown_seconds", 5.0)
++    cooldown = _finite_number(raw_cooldown, "cooldown_seconds")
++    if cooldown < 0:
++        raise ValueError("cooldown_seconds must be non-negative")
++
++    events = []
++    last_emitted = None
++    for observation in frames:
++        if not observation["goal_candidate"]:
++            continue
++
++        timestamp = _finite_number(observation["timestamp"], "timestamp")
++        if last_emitted is None or timestamp >= last_emitted + cooldown:
++            events.append(timestamp)
++            last_emitted = timestamp
++
++    return events

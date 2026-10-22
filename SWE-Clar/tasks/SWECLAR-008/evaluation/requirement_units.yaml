@@ -1,0 +1,293 @@
+schema_version: 1
+task_id: SWECLAR-008
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent household monitoring web application with real ingestion, household access,
+  room view, rule alerts and rolling reports
+requirement_units:
+- ru_id: RU-001
+  name: Actual local application, ingestion and persistence
+  content: 'Maintain the independently reconstructed household-monitoring web application. Use the public
+    server command, SQLite file and HTTP/JSON interfaces in the README. Real browser pages, persisted
+    sensor observations and actual HTTP ingestion are required. The benchmark provides Python, SQLite
+    and Chromium before work; no devices, cloud credentials, model downloads or account provisioning are
+    required. Initialize synthetic fixtures only for a new database; reopening an existing database preserves
+    observations and configuration. Login checks the seeded account password and returns an opaque session
+    token; invalid credentials and invalid/revoked sessions return 401. Logout revokes that session. Never
+    include passwords, password hashes, feed tokens or other users'' session tokens in API responses.
+    Only the separately configured feed bearer token can POST an observation to /api/ingest; user sessions
+    confer no feed authority. Each event has household_id, event_id, sensor_id, timestamp_ms and a boolean
+    value. IDs use the public identifier alphabet; timestamps and as_of are integer Unix milliseconds
+    in [0,253402300799999], excluding booleans; this is the shared SQLite/browser calendar range. Require
+    a real configured sensor in the specified household. Reject malformed events atomically with 400,
+    unknown feed targets with 404 and wrong feed authority with 401. An event ID is unique within its
+    household: an identical replay is accepted without another stored event; reuse with different sensor/time/value
+    returns 409 and preserves the earlier event. Out-of-order and future observations may be ingested;
+    query time controls their visibility. Use real database transactions so concurrent identical replays
+    cannot create duplicates. All these foundation and regression obligations are initially disclosed.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What behavior is required for actual local application, ingestion and persistence?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --port 8000 --db monitoring.sqlite --fixtures fixtures/demo.json
+      runtime: Prepared Python/SQLite/Chromium local web application
+    inputs:
+      http: Public authenticated JSON endpoints, synthetic fixtures, boolean sensor observations and explicit
+        evaluation time
+      browser: Published login/household/room/rule/alert/report controls
+    output:
+      application: Actual HTTP responses, persistent SQLite data, browser DOM and downloadable CSV
+      evaluation: Independent hidden assertions mapped to six RUs
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Household monitoring, caregiver/individual access, room-level rules and reports are privately
+    source-grounded. All code, identities, sensor data, designs and exact semantics are independent benchmark
+    material.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/monitoring_contract.py
+- ru_id: RU-002
+  name: Trusted household access and isolated responses
+  content: Derive the actor from a validated server-side session, never from caller-supplied user/role/household
+    claims. An individual sees only their own configured household; a caregiver sees exactly their explicit
+    household assignments. An unknown account or invalid session receives no household, room, sensor,
+    event, rule, alert or report data. GET /api/homes returns only accessible households and their public
+    display/configuration fields. Every household-scoped snapshot, rule, alert and report request checks
+    access before looking up its data; unauthorized or unassigned household IDs return 403 without revealing
+    its names or records. Room and sensor IDs may repeat in different households, so every lookup and
+    update remains household-scoped. Public user data contain only the current actor's ID, display label
+    and role. Write permissions for rule editing are separately clarifiable; ingestion uses the distinct
+    feed authority. Login/logout and switching the authenticated account clear old page data and pending
+    responses. No previous account's data may remain in rendered content or be restored by a late earlier
+    request. The task uses only synthetic identities and records.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What behavior is required for trusted household access and isolated responses?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --port 8000 --db monitoring.sqlite --fixtures fixtures/demo.json
+      runtime: Prepared Python/SQLite/Chromium local web application
+    inputs:
+      http: Public authenticated JSON endpoints, synthetic fixtures, boolean sensor observations and explicit
+        evaluation time
+      browser: Published login/household/room/rule/alert/report controls
+    output:
+      application: Actual HTTP responses, persistent SQLite data, browser DOM and downloadable CSV
+      evaluation: Independent hidden assertions mapped to six RUs
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Household monitoring, caregiver/individual access, room-level rules and reports are privately
+    source-grounded. All code, identities, sensor data, designs and exact semantics are independent benchmark
+    material.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/monitoring_contract.py
+- ru_id: RU-003
+  name: Usable live room view and current observations
+  content: Preserve actual login, logout, household selection, evaluation-time input, refresh, room view,
+    rule editor, alert panel and CSV-report controls identified by the public README. After login load
+    only the authorized household choices. A room view displays every configured room as a labelled SVG
+    zone or visually distinct room card; show its sensors with literal ID/name, latest boolean state,
+    observation timestamp and stale indicator. Return and display the latest event at or before as_of
+    for each configured sensor. For equal timestamps the lexicographically greatest event ID wins. A sensor
+    without a qualifying observation has null value/timestamp and stale=true. Otherwise stale means as_of
+    minus latest timestamp is strictly greater than the household freshness_minutes multiplied by 60000;
+    equality is fresh. Ignore future events; sort rooms and sensors by ID. Never mutate stored data while
+    reading. Update the selected household at the entered evaluation time on refresh and by polling at
+    an interval of at most two seconds; changes sent through the real ingestion API must appear without
+    a page reload. Discard late responses for an old household, evaluation time or authenticated account.
+    Show an empty state for empty data and a visible failure state for failed requests; permit retry without
+    presenting failure as an empty successful result. Controls and records must be usable at 390x844 and
+    1280x900, without horizontal overflow or script errors; scrolling is allowed. Render all fixture names
+    and explanations as literal text. Exact styling and non-contract wording are free. Rule semantics,
+    alert decisions and report contents are available through clarification.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What behavior is required for usable live room view and current observations?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --port 8000 --db monitoring.sqlite --fixtures fixtures/demo.json
+      runtime: Prepared Python/SQLite/Chromium local web application
+    inputs:
+      http: Public authenticated JSON endpoints, synthetic fixtures, boolean sensor observations and explicit
+        evaluation time
+      browser: Published login/household/room/rule/alert/report controls
+    output:
+      application: Actual HTTP responses, persistent SQLite data, browser DOM and downloadable CSV
+      evaluation: Independent hidden assertions mapped to six RUs
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Household monitoring, caregiver/individual access, room-level rules and reports are privately
+    source-grounded. All code, identities, sensor data, designs and exact semantics are independent benchmark
+    material.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/monitoring_contract.py
+- ru_id: RU-004
+  name: Scoped rule editing and validation
+  content: A caregiver may create or replace a rule only within an assigned household and a room in that
+    household. An individual may read rules for their household but may not edit them; disallowed editing
+    returns 403 without changing data. A rule is identified by household_id, room_id and kind. The supported
+    kinds are fridge_open, bathroom_occupied_day, bathroom_occupied_night, no_occupancy and exterior_open_night.
+    Store enabled as an actual boolean, threshold_minutes as a finite number in [0,1440], severity as
+    info, warning or critical, and sensor_id naming a sensor in the same household and room. Fridge/exterior
+    rules require a contact sensor; bathroom/no-occupancy rules require a presence sensor. Unknown kinds,
+    incompatible/foreign sensors, invalid ranges/types or invalid severity return 400 and preserve the
+    previous rule. Zero and fractional minute thresholds are valid; booleans are not numbers. A successful
+    replacement persists across server restart, changes only that exact rule, and takes effect on subsequent
+    evaluation. Rules from another room or household never apply implicitly. Disabled rules produce no
+    current alert or historical episode count. GET rules returns stored rows sorted by kind; harmless
+    extra metadata is permitted. The UI exposes saved values, saves real changes, reports server rejection,
+    preserves prior saved values after rejection, and allows retry. Hide or disable save for users without
+    edit authority, while enforcing the same rule on the server. These exact permission, validation and
+    rule-family decisions are independent benchmark conventions.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What behavior is required for scoped rule editing and validation?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --port 8000 --db monitoring.sqlite --fixtures fixtures/demo.json
+      runtime: Prepared Python/SQLite/Chromium local web application
+    inputs:
+      http: Public authenticated JSON endpoints, synthetic fixtures, boolean sensor observations and explicit
+        evaluation time
+      browser: Published login/household/room/rule/alert/report controls
+    output:
+      application: Actual HTTP responses, persistent SQLite data, browser DOM and downloadable CSV
+      evaluation: Independent hidden assertions mapped to six RUs
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Household monitoring, caregiver/individual access, room-level rules and reports are privately
+    source-grounded. All code, identities, sensor data, designs and exact semantics are independent benchmark
+    material.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/monitoring_contract.py
+- ru_id: RU-005
+  name: Duration, time-window and current-alert behavior
+  content: Interpret each sensor history chronologically using only observations at or before as_of, collapsing
+    timestamp ties to the lexicographically greatest event ID. Consecutive observations with the same
+    boolean value belong to one state interval and do not restart its onset. The first known observation
+    starts the first interval; a later opposite state ends it at that timestamp, with no inferred earlier
+    history. Fridge, bathroom and exterior rules require true; no_occupancy requires false. A current
+    alert requires that the sensor is presently in the required state, is fresh under the public snapshot
+    rule, and its continuous interval duration is at least threshold_minutes*60000. Equality qualifies.
+    Fridge/no_occupancy have no clock window; bathroom_occupied_day is eligible outside the household
+    night window, and bathroom_occupied_night/exterior_open_night are eligible inside it. Window minutes
+    are UTC minute-of-day with start inclusive and end exclusive; a start greater than end wraps midnight,
+    and equal endpoints define an empty night window (the daytime complement is all day). Evaluate current
+    window eligibility at as_of. Duration includes state time before a window opens; entering a window
+    does not restart the state interval. For each rule and state interval emit at most one current alert,
+    even after repeated polling or same-value events. Return household_id, room_id, kind, sensor_id, start_ms,
+    trigger_ms, severity, a stable nonblank alert_id and a nonblank human-readable explanation. trigger_ms
+    is the earliest instant at or after the duration threshold within that state interval when its clock
+    window is eligible; a closed interval excludes its ending instant. Stable identity depends on household/room/rule/sensor/interval
+    onset, not query time or repeated observations; the concrete ID encoding is free. Sort by room_id,
+    kind, sensor_id and start_ms. The UI displays real alerts and literal explanations. These are synthetic
+    activity rules, not a learned predictor or reconstructed customer algorithm.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What behavior is required for duration, time-window and current-alert behavior?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --port 8000 --db monitoring.sqlite --fixtures fixtures/demo.json
+      runtime: Prepared Python/SQLite/Chromium local web application
+    inputs:
+      http: Public authenticated JSON endpoints, synthetic fixtures, boolean sensor observations and explicit
+        evaluation time
+      browser: Published login/household/room/rule/alert/report controls
+    output:
+      application: Actual HTTP responses, persistent SQLite data, browser DOM and downloadable CSV
+      evaluation: Independent hidden assertions mapped to six RUs
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Household monitoring, caregiver/individual access, room-level rules and reports are privately
+    source-grounded. All code, identities, sensor data, designs and exact semantics are independent benchmark
+    material.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/monitoring_contract.py
+- ru_id: RU-006
+  name: Rolling activity report and historical alert episodes
+  content: GET /api/report and the downloadable CSV summarize the selected authorized household over the
+    closed interval [as_of-86400000, as_of]. Include one row per configured room, sorted by room ID, with
+    household_id, room_id, event_count, sleep_event_count and alert_count, plus report-level as_of and
+    window_start in JSON. event_count counts stored distinct event IDs for sensors in that room whose
+    timestamps fall in the closed interval; tied observations and repeated states remain separate events
+    for this count. Exclude older/future events. sleep_event_count further requires timestamp minute-of-day
+    within the configured household sleep window, using the same UTC inclusive-start/exclusive-end/wrapping/empty-window
+    convention. alert_count counts distinct qualifying state intervals for currently enabled room rules
+    whose first eligible trigger_ms is inside the closed report interval. Reconstruct intervals using
+    older observations as needed; include intervals that have since ended and current intervals, but count
+    an interval only once even if it spans several eligible night windows. A transition ending an interval
+    at the exact threshold/eligible instant prevents that interval from triggering. Evaluate historical
+    duration/window behavior from the recorded held state; later snapshot staleness does not erase an
+    already qualifying historical episode, and this report does not infer physical device health. Current
+    rule settings apply to the historical calculation; versioned past configuration is outside scope.
+    A rule whose threshold or enabled value changes is reevaluated accordingly. Freshness suppresses current
+    alerts as described separately; report episodes use their historical threshold/window crossing. CSV
+    has exactly the public header and one corresponding numeric row per room, uses proper CSV escaping
+    and is generated from the same authorized report data. Counts persist through restart because they
+    derive from real stored observations/configuration. Show a working download action and visible error
+    on failure. All windows, count definitions and report choices are independently authored; retrieved
+    report explanations are not treated as client-confirmed specifications.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What behavior is required for rolling activity report and historical alert episodes?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python server.py --port 8000 --db monitoring.sqlite --fixtures fixtures/demo.json
+      runtime: Prepared Python/SQLite/Chromium local web application
+    inputs:
+      http: Public authenticated JSON endpoints, synthetic fixtures, boolean sensor observations and explicit
+        evaluation time
+      browser: Published login/household/room/rule/alert/report controls
+    output:
+      application: Actual HTTP responses, persistent SQLite data, browser DOM and downloadable CSV
+      evaluation: Independent hidden assertions mapped to six RUs
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Household monitoring, caregiver/individual access, room-level rules and reports are privately
+    source-grounded. All code, identities, sensor data, designs and exact semantics are independent benchmark
+    material.
+  tests:
+  - test_id: RU-006-T01
+    file: evaluation/tests/monitoring_contract.py

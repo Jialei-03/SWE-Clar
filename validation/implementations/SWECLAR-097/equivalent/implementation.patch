@@ -1,0 +1,719 @@
+diff --git a/app.js b/app.js
+index f9fe9fd6481b5d4308297ee3356b36513d54f20f..11f232e43f413176cf34e54bcd2a24f1a73c8661 100644
+--- a/app.js
++++ b/app.js
+@@ -3,7 +3,7 @@ function ready(){q('#credit').disabled=busy||!selected||Number(q('#balance').dat
+ async function refresh(){const data=await request('/me');q('#balance').textContent=`Available credits: ${data.credits}`;q('#balance').dataset.credits=data.credits;q('#dates').replaceChildren(...data.dates.map(d=>{const p=document.createElement('p');p.textContent=`${d.place.name} · ${d.mode}`;return p;}));ready();return data;}
+ async function enter(){const d=await request('/me');actor=d.actor;try{pending=JSON.parse(sessionStorage.getItem('date-intent-'+actor.id)||'null');}catch{pending=null;}q('#login-panel').hidden=true;q('#workspace').hidden=false;q('#actor').textContent=actor.name;q('#matches').replaceChildren(...d.matches.map(m=>{const o=document.createElement('option');o.value=m.id;o.textContent=m.name;return o;}));q('#products').replaceChildren(...d.products.map(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=`${p.quantity} dates · ${(p.amount_minor/100).toFixed(2)} ${p.currency}`;return o;}));map=L.map('map',{zoomAnimation:false,fadeAnimation:false}).setView([actor.latitude,actor.longitude],14);L.rectangle([[actor.latitude-.01,actor.longitude-.01],[actor.latitude+.01,actor.longitude+.01]],{color:'#809b99',fillColor:'#dcebe6',fillOpacity:.7}).addTo(map);L.circleMarker([actor.latitude,actor.longitude],{radius:7,color:'#345e8b'}).addTo(map);new ResizeObserver(()=>map.invalidateSize()).observe(q('#map'));await refresh();}
+ q('#login').onsubmit=async e=>{e.preventDefault();try{await request('/login',{username:q('#username').value,password:q('#password').value});q('#password').value='';await enter();}catch(e){q('#login-error').textContent=e.message;}};
+-q('#search').onsubmit=async e=>{e.preventDefault();const mine=++searchEpoch;try{const rows=await request('/places?q='+encodeURIComponent(q('#query').value));if(mine!==searchEpoch)return;q('#places').replaceChildren(...rows.map(p=>{const b=document.createElement('button');b.type='button';b.textContent=p.name;b.onclick=()=>{selected=p;q('#selection').textContent=p.name;if(marker)marker.remove();marker=L.circleMarker([p.latitude,p.longitude],{radius:10,color:'#b05820'}).addTo(map);ready();};return b;}));}catch(e){if(mine===searchEpoch)q('#status').textContent=e.message;}};
++q('#search').onsubmit=async e=>{e.preventDefault();const mine=++searchEpoch;try{const rows=await request('/places?q='+encodeURIComponent(q('#query').value));if(mine!==searchEpoch)return;q('#places').replaceChildren(...rows.map(p=>{const b=document.createElement('button');b.type='button';b.textContent=p.name;b.onclick=()=>{selected=p;q('#selection').textContent=p.name;if(marker)marker.remove();marker=L.circleMarker([p.latitude,p.longitude],{radius:10,color:'#b05820',renderer:L.canvas()}).addTo(map);ready();};return b;}));}catch(e){if(mine===searchEpoch)q('#status').textContent=e.message;}};
+ async function create(mode){if(busy||!selected)return;busy=true;ready();try{const details={match_id:q('#matches').value,place_id:selected.id,product_id:q('#products').value},key=JSON.stringify([mode,details]);if(!pending||pending.key!==key)pending={key,id:crypto.randomUUID()};sessionStorage.setItem('date-intent-'+actor.id,JSON.stringify(pending));await request('/'+mode,{id:pending.id,...details});pending=null;sessionStorage.removeItem('date-intent-'+actor.id);q('#status').textContent='Date created';await refresh();}catch(e){q('#status').textContent=e.message;}finally{busy=false;ready();}}
+ q('#credit').onclick=()=>create('credit');q('#purchase').onclick=()=>create('purchase');q('#location').onclick=()=>map.setView([actor.latitude,actor.longitude],14,{animate:false});
+ enter().catch(()=>{});
+diff --git a/store.py b/store.py
+index e9c56ef0d0499fd3866fa70f7269eec77558ac4c..2d75d2f92eb74874a3a20a61d1fc8a591642d71c 100644
+--- a/store.py
++++ b/store.py
+@@ -1,37 +1,666 @@
+-import sqlite3,json,urllib.request,hashlib,hmac,secrets
++"""Persistence and provider integration for the date-planning component.
++
++The provider is deliberately kept behind this module.  In particular, callers
++never get to choose the user, price, or amount sent to the payment provider:
++the authenticated user and the server configuration are the source of those
++values.
++"""
++
++from __future__ import annotations
++
++import datetime as _datetime
++import hashlib
++import hmac
++import json
++import secrets
++import sqlite3
++import threading
++import urllib.error
++import urllib.request
++from typing import Any, Optional
++
++
++ELIGIBLE_PLACE_TYPES = frozenset({"restaurant", "bar", "pub", "coffee"})
++
++
+ class Error(Exception):
+- def __init__(self,code,status=400):self.code=code;self.status=status
++    """An expected application error, suitable for returning as JSON."""
++
++    def __init__(self, code: str, status: int = 400):
++        super().__init__(code)
++        self.code = code
++        self.status = status
++
++
+ class Store:
+- def __init__(self,path,config):
+-  self.path=path;self.config=config
+-  with self.db() as db:
+-   db.executescript('CREATE TABLE IF NOT EXISTS wallets(user TEXT PRIMARY KEY,credits INTEGER NOT NULL CHECK(credits>=0));CREATE TABLE IF NOT EXISTS dates(id TEXT PRIMARY KEY,user TEXT,record TEXT);CREATE TABLE IF NOT EXISTS sessions(hash TEXT PRIMARY KEY,user TEXT);')
+-   for user in config['users']:db.execute('INSERT OR IGNORE INTO wallets VALUES(?,?)',(user['id'],user['credits']))
+- def db(self):return sqlite3.connect(self.path,timeout=8)
+- def login(self,a):
+-  user=next((u for u in self.config['users'] if u['username']==a.get('username')),None)
+-  if not user or not hmac.compare_digest(hashlib.scrypt(str(a.get('password','')).encode(),salt=bytes.fromhex(user['salt']),n=16384,r=8,p=1).hex(),user['password_hash']):raise Error('invalid_credentials',403)
+-  token=secrets.token_urlsafe(32)
+-  with self.db() as db:db.execute('INSERT INTO sessions VALUES(?,?)',(hashlib.sha256(token.encode()).hexdigest(),user['id']))
+-  return token
+- def actor(self,token):
+-  with self.db() as db:r=db.execute('SELECT user FROM sessions WHERE hash=?',(hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+-  user=next((u for u in self.config['users'] if r and u['id']==r[0]),None)
+-  if not user:raise Error('auth_required',403)
+-  return {'id':user['id'],'name':user['name'],'latitude':user['latitude'],'longitude':user['longitude']}
+- def http(self,path,body):
+-  request=urllib.request.Request(self.config['provider_url']+path,data=json.dumps(body).encode(),headers={'Content-Type':'application/json','Authorization':'Bearer '+self.config['provider_token']})
+-  try:
+-   with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request,timeout=3) as r:return json.load(r)
+-  except Exception:raise Error('provider_unavailable',502)
+- def places(self,q):
+-  result=self.http('/places/search',{'query':q})
+-  return [p for p in result['places'] if p['type'] in {'restaurant','bar','pub','coffee'} and q.casefold() in p['name'].casefold()]
+- def selected(self,ident):
+-  p=self.http('/places/get',{'id':ident}).get('place')
+-  if not p or p['type'] not in {'restaurant','bar','pub','coffee'}:raise Error('missing_place',404)
+-  return p
+- def me(self,user):
+-  with self.db() as db:credits=db.execute('SELECT credits FROM wallets WHERE user=?',(user,)).fetchone()[0];dates=[json.loads(x[0]) for x in db.execute('SELECT record FROM dates WHERE user=? ORDER BY rowid',(user,))]
+-  return {'credits':credits,'dates':dates,'matches':[m for m in self.config['matches'] if user in m['users']],'products':self.config['products']}
+- def create(self,user,a,mode):raise Error('not_implemented',501)
++    def __init__(self, path: str, config: dict[str, Any]):
++        self.path = path
++        self.config = config
++        self._write_lock = threading.RLock()
++        # A shared in-memory URI keeps the convenient ":memory:" test/database
++        # spelling usable even though this class intentionally opens short-
++        # lived connections for each operation.
++        self._memory_uri: Optional[str] = None
++        if str(path) == ":memory:":
++            self._memory_uri = "file:date_store_" + secrets.token_hex(12) + "?mode=memory&cache=shared"
++            self._memory_keeper = sqlite3.connect(
++                self._memory_uri, uri=True, timeout=30, check_same_thread=False
++            )
++
++        # Initialise the schema in its own connection.  Wallet rows are only
++        # seeded when absent: changing a configuration file must not silently
++        # reset balances that are already persisted in the ledger.
++        with self.db() as db:
++            db.executescript(
++                """
++                CREATE TABLE IF NOT EXISTS wallets(
++                    user TEXT PRIMARY KEY,
++                    credits INTEGER NOT NULL CHECK(credits >= 0)
++                );
++                CREATE TABLE IF NOT EXISTS dates(
++                    id TEXT PRIMARY KEY,
++                    user TEXT NOT NULL,
++                    record TEXT NOT NULL
++                );
++                CREATE TABLE IF NOT EXISTS sessions(
++                    hash TEXT PRIMARY KEY,
++                    user TEXT NOT NULL
++                );
++                """
++            )
++            for user in config.get("users", []):
++                if not isinstance(user, dict):
++                    continue
++                user_id = user.get("id")
++                if not isinstance(user_id, str) or not user_id:
++                    continue
++                credits = user.get("credits", 0)
++                if isinstance(credits, bool) or not isinstance(credits, int) or credits < 0:
++                    raise ValueError("invalid configured wallet")
++                db.execute(
++                    "INSERT OR IGNORE INTO wallets(user, credits) VALUES(?, ?)",
++                    (user_id, credits),
++                )
++
++    def db(self) -> sqlite3.Connection:
++        """Open a short-lived connection with useful SQLite concurrency settings."""
++
++        if self._memory_uri is not None:
++            db = sqlite3.connect(
++                self._memory_uri, uri=True, timeout=30, check_same_thread=False
++            )
++        else:
++            db = sqlite3.connect(self.path, timeout=30)
++        db.execute("PRAGMA busy_timeout=30000")
++        db.execute("PRAGMA foreign_keys=ON")
++        # WAL permits the read-only actor/me requests to proceed while a ledger
++        # reader is active, while BEGIN IMMEDIATE below still serialises writes.
++        try:
++            db.execute("PRAGMA journal_mode=WAL")
++        except sqlite3.DatabaseError:
++            # SQLite installations/filesystems that do not support WAL still
++            # work correctly with the normal rollback journal.
++            pass
++        return db
++
++    # ------------------------------------------------------------------ auth
++    def login(self, action: dict[str, Any]) -> str:
++        username = action.get("username")
++        password = action.get("password")
++        if not isinstance(username, str) or not isinstance(password, str):
++            raise Error("invalid_credentials", 403)
++
++        user = next(
++            (u for u in self.config.get("users", [])
++             if isinstance(u, dict) and u.get("username") == username),
++            None,
++        )
++        valid = False
++        if user is not None:
++            try:
++                supplied = hashlib.scrypt(
++                    password.encode("utf-8"),
++                    salt=bytes.fromhex(str(user["salt"])),
++                    n=16384,
++                    r=8,
++                    p=1,
++                ).hex()
++                configured = user.get("password_hash")
++                valid = isinstance(configured, str) and hmac.compare_digest(
++                    supplied, configured
++                )
++            except (KeyError, TypeError, ValueError):
++                valid = False
++        if not valid:
++            raise Error("invalid_credentials", 403)
++
++        token = secrets.token_urlsafe(32)
++        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
++        with self.db() as db:
++            db.execute(
++                "INSERT INTO sessions(hash, user) VALUES(?, ?)",
++                (token_hash, user["id"]),
++            )
++        return token
++
++    def actor(self, token: str) -> dict[str, Any]:
++        if not isinstance(token, str) or not token:
++            raise Error("auth_required", 403)
++        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
++        with self.db() as db:
++            row = db.execute(
++                "SELECT user FROM sessions WHERE hash=?", (token_hash,)
++            ).fetchone()
++
++        user = next(
++            (u for u in self.config.get("users", [])
++             if isinstance(u, dict) and row and u.get("id") == row[0]),
++            None,
++        )
++        if user is None:
++            raise Error("auth_required", 403)
++        return {
++            "id": user["id"],
++            "name": user.get("name", ""),
++            "latitude": user["latitude"],
++            "longitude": user["longitude"],
++        }
++
++    # -------------------------------------------------------------- provider
++    def http(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
++        """POST JSON to the configured provider using the private bearer token."""
++
++        provider_url = self.config.get("provider_url")
++        provider_token = self.config.get("provider_token")
++        if not isinstance(provider_url, str) or not isinstance(provider_token, str):
++            raise Error("provider_unavailable", 502)
++
++        request = urllib.request.Request(
++            provider_url.rstrip("/") + path,
++            data=json.dumps(body, separators=(",", ":")).encode("utf-8"),
++            headers={
++                "Content-Type": "application/json",
++                "Authorization": "Bearer " + provider_token,
++            },
++            method="POST",
++        )
++        try:
++            # Do not inherit ambient proxy settings for this local/private
++            # provider interface.
++            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
++            with opener.open(request, timeout=3) as response:
++                value = json.load(response)
++        except urllib.error.HTTPError as exc:
++            # A provider-level missing lookup is a normal place-selection
++            # failure, not a payment/provider outage.  The fixture uses both a
++            # null place response and (for some implementations) HTTP 404.
++            if path == "/places/get" and exc.code == 404:
++                return {"place": None}
++            raise Error("provider_unavailable", 502)
++        except (urllib.error.URLError, TimeoutError, OSError, ValueError, TypeError):
++            raise Error("provider_unavailable", 502)
++        if not isinstance(value, dict):
++            raise Error("provider_unavailable", 502)
++        return value
++
++    @staticmethod
++    def _place_type(place: Any) -> Optional[str]:
++        if not isinstance(place, dict) or not isinstance(place.get("type"), str):
++            return None
++        return place["type"].casefold()
++
++    @staticmethod
++    def _public_place(place: dict[str, Any]) -> Optional[dict[str, Any]]:
++        """Keep the provider result to the documented synthetic place shape."""
++
++        required = ("id", "name", "type", "latitude", "longitude")
++        if any(key not in place for key in required):
++            return None
++        if not isinstance(place["id"], str) or not place["id"]:
++            return None
++        if not isinstance(place["name"], str):
++            return None
++        if not isinstance(place["type"], str):
++            return None
++        # Coordinates are passed directly to Leaflet and must be real numeric
++        # values.  bool is deliberately not accepted as a number.
++        for key in ("latitude", "longitude"):
++            if isinstance(place[key], bool) or not isinstance(place[key], (int, float)):
++                return None
++        return {
++            "id": place["id"],
++            "name": place["name"],
++            "type": place["type"],
++            "latitude": place["latitude"],
++            "longitude": place["longitude"],
++        }
++
++    def places(self, query: str) -> list[dict[str, Any]]:
++        if not isinstance(query, str):
++            raise Error("invalid_request")
++        try:
++            result = self.http("/places/search", {"query": query})
++        except Error:
++            raise
++        except Exception:
++            raise Error("provider_unavailable", 502)
++        if not isinstance(result, dict):
++            raise Error("provider_unavailable", 502)
++        raw_places = result.get("places")
++        if not isinstance(raw_places, list):
++            raise Error("provider_unavailable", 502)
++
++        folded_query = query.casefold()
++        output: list[dict[str, Any]] = []
++        for raw in raw_places:
++            if self._place_type(raw) not in ELIGIBLE_PLACE_TYPES:
++                continue
++            place = self._public_place(raw)
++            if place is None or folded_query not in place["name"].casefold():
++                continue
++            output.append(place)
++        return output
++
++    def selected(self, ident: str) -> dict[str, Any]:
++        if not isinstance(ident, str) or not ident:
++            raise Error("missing_place", 404)
++        try:
++            result = self.http("/places/get", {"id": ident})
++        except Error:
++            raise
++        except urllib.error.HTTPError as exc:
++            if exc.code == 404:
++                raise Error("missing_place", 404)
++            raise Error("provider_unavailable", 502)
++        except Exception:
++            raise Error("provider_unavailable", 502)
++        if not isinstance(result, dict):
++            raise Error("provider_unavailable", 502)
++        raw_place = result.get("place")
++        place = self._public_place(raw_place) if isinstance(raw_place, dict) else None
++        if (
++            place is None
++            or place["id"] != ident
++            or self._place_type(place) not in ELIGIBLE_PLACE_TYPES
++        ):
++            raise Error("missing_place", 404)
++        return place
++
++    # --------------------------------------------------------------- records
++    def _configured_user(self, user_id: str) -> Optional[dict[str, Any]]:
++        return next(
++            (u for u in self.config.get("users", [])
++             if isinstance(u, dict) and u.get("id") == user_id),
++            None,
++        )
++
++    def _match(self, user_id: str, match_id: str) -> dict[str, Any]:
++        for match in self.config.get("matches", []):
++            if not isinstance(match, dict) or match.get("id") != match_id:
++                continue
++            members = match.get("users", [])
++            if isinstance(members, list) and user_id in members:
++                # Do not copy a complete profile/membership object into a date
++                # record.  The UI only needs the synthetic match identity/name.
++                return {"id": match_id, "name": match.get("name", "")}
++            break
++        raise Error("missing_match", 404)
++
++    def _product(self, product_id: Any) -> dict[str, Any]:
++        if not isinstance(product_id, str) or not product_id:
++            raise Error("missing_product", 404)
++        for product in self.config.get("products", []):
++            if not isinstance(product, dict) or product.get("id") != product_id:
++                continue
++            quantity = product.get("quantity")
++            amount_minor = product.get("amount_minor")
++            currency = product.get("currency")
++            if (
++                isinstance(quantity, bool)
++                or not isinstance(quantity, int)
++                or quantity < 1
++                or isinstance(amount_minor, bool)
++                or not isinstance(amount_minor, int)
++                or amount_minor < 0
++                or not isinstance(currency, str)
++                or not currency
++            ):
++                raise Error("missing_product", 404)
++            # Return a server-owned copy, never values from the action.
++            return {
++                "id": product_id,
++                "quantity": quantity,
++                "amount_minor": amount_minor,
++                "currency": currency,
++            }
++        raise Error("missing_product", 404)
++
++    @staticmethod
++    def _action_id(action: Any) -> str:
++        if not isinstance(action, dict):
++            raise Error("invalid_request")
++        ident = action.get("id")
++        if not isinstance(ident, str) or not ident:
++            raise Error("invalid_request")
++        return ident
++
++    @staticmethod
++    def _timestamp() -> str:
++        return _datetime.datetime.now(_datetime.timezone.utc).isoformat(timespec="milliseconds")
++
++    @staticmethod
++    def _same_request(
++        record: dict[str, Any],
++        user_id: str,
++        action_id: str,
++        match_id: str,
++        place_id: str,
++        product_id: Optional[str],
++        mode: str,
++    ) -> bool:
++        # The user is stored in the row and checked separately by the caller;
++        # retaining this argument documents that the comparison is user-scoped.
++        del user_id
++        return (
++            record.get("id") == action_id
++            and record.get("mode") == mode
++            and record.get("match_id") == match_id
++            and record.get("place_id") == place_id
++            and record.get("product_id") == product_id
++        )
++
++    @staticmethod
++    def _decode_record(row: tuple[Any, ...]) -> Optional[dict[str, Any]]:
++        try:
++            value = json.loads(row[1])
++        except (TypeError, ValueError, json.JSONDecodeError):
++            return None
++        return value if isinstance(value, dict) else None
++
++    def _existing(
++        self,
++        db: sqlite3.Connection,
++        user_id: str,
++        action_id: str,
++        match_id: str,
++        place_id: str,
++        product_id: Optional[str],
++        mode: str,
++    ) -> Optional[dict[str, Any]]:
++        row = db.execute(
++            "SELECT user, record FROM dates WHERE id=?", (action_id,)
++        ).fetchone()
++        if row is None:
++            return None
++        record = self._decode_record(row)
++        if row[0] != user_id:
++            # Never return the other user's date, even when the transaction ID
++            # is replayed with otherwise identical fields.
++            raise Error("conflicting_id", 409)
++        if record is not None and self._same_request(
++            record, user_id, action_id, match_id, place_id, product_id, mode
++        ):
++            return record
++        raise Error("conflicting_id", 409)
++
++    def _date_record(
++        self,
++        action_id: str,
++        user_id: str,
++        match: dict[str, Any],
++        place: dict[str, Any],
++        product_id: Optional[str],
++        mode: str,
++    ) -> dict[str, Any]:
++        # user_id is intentionally a database column, not part of the public
++        # date object.  This prevents /me from becoming a cross-user data path.
++        del user_id
++        return {
++            "id": action_id,
++            "mode": mode,
++            "match_id": match["id"],
++            "place_id": place["id"],
++            "product_id": product_id,
++            "match": match,
++            "place": place,
++            "created_at": self._timestamp(),
++        }
++
++    def _confirm_purchase(
++        self,
++        action_id: str,
++        user_id: str,
++        product: dict[str, Any],
++    ) -> None:
++        # Every value in this request is sourced from the authenticated actor,
++        # the transaction ID, or server-owned product configuration.
++        try:
++            response = self.http(
++                "/payments/confirm",
++                {
++                    "id": action_id,
++                    "user": user_id,
++                    "product_id": product["id"],
++                    "amount_minor": product["amount_minor"],
++                    "currency": product["currency"],
++                },
++            )
++        except Error:
++            raise
++        except Exception:
++            raise Error("provider_unavailable", 502)
++        payload = response.get("payload") if isinstance(response, dict) else None
++        signature = response.get("signature") if isinstance(response, dict) else None
++        if not isinstance(payload, dict) or not isinstance(signature, str):
++            raise Error("invalid_receipt")
++
++        try:
++            receipt_key = bytes.fromhex(str(self.config["receipt_key"]))
++            canonical = json.dumps(
++                payload, sort_keys=True, separators=(",", ":")
++            ).encode("utf-8")
++            expected = hmac.new(receipt_key, canonical, hashlib.sha256).hexdigest()
++        except (KeyError, TypeError, ValueError, UnicodeError):
++            raise Error("invalid_receipt")
++        if not hmac.compare_digest(signature, expected):
++            raise Error("invalid_receipt")
++
++        expected_fields = {
++            "id": action_id,
++            "user": user_id,
++            "product_id": product["id"],
++            "amount_minor": product["amount_minor"],
++            "currency": product["currency"],
++            "status": "paid",
++        }
++        for key, expected_value in expected_fields.items():
++            actual = payload.get(key)
++            # In addition to value equality, require the JSON scalar type.  In
++            # particular, True must not be accepted as the integer amount 1.
++            if type(actual) is not type(expected_value) or actual != expected_value:
++                raise Error("invalid_receipt")
++
++    def _find_existing_without_lock(
++        self,
++        user_id: str,
++        action_id: str,
++        match_id: str,
++        place_id: str,
++        product_id: Optional[str],
++        mode: str,
++    ) -> Optional[dict[str, Any]]:
++        with self.db() as db:
++            return self._existing(
++                db, user_id, action_id, match_id, place_id, product_id, mode
++            )
++
++    def create(self, user_id: str, action: dict[str, Any], mode: str) -> dict[str, Any]:
++        # SQLite serialises writes across Store instances, while this lock also
++        # makes the short-lived shared in-memory connections safe when several
++        # threads use one Store object.
++        with self._write_lock:
++            return self._create(user_id, action, mode)
++
++    def _create(self, user_id: str, action: dict[str, Any], mode: str) -> dict[str, Any]:
++        """Create one date using a credit or a verified package purchase.
++
++        The final ledger operation is performed in a single SQLite write
++        transaction.  Rechecking the transaction ID after acquiring the write
++        lock makes duplicate and concurrent requests idempotent without a
++        second credit decrement (or a second payment confirmation).
++        """
++
++        if not isinstance(user_id, str) or self._configured_user(user_id) is None:
++            raise Error("auth_required", 403)
++        if not isinstance(mode, str) or mode not in {"credit", "purchase"}:
++            raise Error("invalid_request")
++        if not isinstance(action, dict):
++            raise Error("invalid_request")
++
++        action_id = self._action_id(action)
++        match_id = action.get("match_id")
++        place_id = action.get("place_id")
++        if not isinstance(match_id, str) or not match_id:
++            raise Error("invalid_request")
++        if not isinstance(place_id, str) or not place_id:
++            # Keep the externally useful missing-place error for an unknown or
++            # absent venue selection, before any ledger operation.
++            raise Error("missing_place", 404)
++
++        product_id: Optional[str]
++        if "product_id" in action and action.get("product_id") is not None:
++            if not isinstance(action.get("product_id"), str) or not action.get("product_id"):
++                raise Error("missing_product", 404)
++            product_id = action["product_id"]
++        else:
++            product_id = None
++
++        # Fast idempotency path: successful retries return the persisted date
++        # without contacting the provider again.  The locked transaction below
++        # repeats this check for races.  It intentionally precedes product
++        # lookup, so an already-persisted successful retry remains replayable
++        # even if a later configuration reload removes that product.
++        existing = self._find_existing_without_lock(
++            user_id, action_id, match_id, place_id, product_id, mode
++        )
++        if existing is not None:
++            return existing
++
++        # A purchase must name a configured product.  A credit may carry the
++        # selected package ID from the UI, but it is not used to price credit.
++        product: Optional[dict[str, Any]] = None
++        if mode == "purchase":
++            product = self._product(product_id)
++        elif product_id is not None:
++            self._product(product_id)
++
++        # Validate all untrusted foreign keys and the provider venue before a
++        # transaction can alter the wallet.  selected() also reconstructs the
++        # place from the real provider rather than trusting the action body.
++        match = self._match(user_id, match_id)
++        place = self.selected(place_id)
++
++        db = self.db()
++        try:
++            db.execute("BEGIN IMMEDIATE")
++            existing = self._existing(
++                db, user_id, action_id, match_id, place_id, product_id, mode
++            )
++            if existing is not None:
++                db.commit()
++                return existing
++
++            wallet = db.execute(
++                "SELECT credits FROM wallets WHERE user=?", (user_id,)
++            ).fetchone()
++            if wallet is None:
++                # This should only be possible for a malformed configuration,
++                # but never create a date without a corresponding wallet row.
++                raise Error("auth_required", 403)
++
++            if mode == "credit":
++                if wallet[0] < 1:
++                    raise Error("insufficient_credit", 409)
++                record = self._date_record(
++                    action_id, user_id, match, place, product_id, mode
++                )
++                changed = db.execute(
++                    "UPDATE wallets SET credits=credits-1 WHERE user=? AND credits>=1",
++                    (user_id,),
++                ).rowcount
++                if changed != 1:
++                    raise Error("insufficient_credit", 409)
++                db.execute(
++                    "INSERT INTO dates(id, user, record) VALUES(?, ?, ?)",
++                    (action_id, user_id, json.dumps(record, separators=(",", ":"))),
++                )
++            else:
++                # Keep the confirmation inside the write transaction.  This
++                # serialises concurrent requests and means a second request
++                # cannot issue another confirmation before seeing the first
++                # committed date.  A failed/invalid receipt rolls everything
++                # back, leaving both date and wallet unchanged.
++                assert product is not None
++                self._confirm_purchase(action_id, user_id, product)
++                record = self._date_record(
++                    action_id, user_id, match, place, product_id, mode
++                )
++                db.execute(
++                    "UPDATE wallets SET credits=credits+? WHERE user=?",
++                    (product["quantity"] - 1, user_id),
++                )
++                db.execute(
++                    "INSERT INTO dates(id, user, record) VALUES(?, ?, ?)",
++                    (action_id, user_id, json.dumps(record, separators=(",", ":"))),
++                )
++
++            db.commit()
++            return record
++        except Exception:
++            db.rollback()
++            raise
++        finally:
++            db.close()
++
++    # ------------------------------------------------------------------- API
++    def me(self, user: str) -> dict[str, Any]:
++        if self._configured_user(user) is None:
++            raise Error("auth_required", 403)
++        with self.db() as db:
++            wallet = db.execute(
++                "SELECT credits FROM wallets WHERE user=?", (user,)
++            ).fetchone()
++            if wallet is None:
++                raise Error("auth_required", 403)
++            rows = db.execute(
++                "SELECT record FROM dates WHERE user=? ORDER BY rowid", (user,)
++            ).fetchall()
++
++        dates: list[dict[str, Any]] = []
++        for row in rows:
++            try:
++                record = json.loads(row[0])
++            except (TypeError, ValueError, json.JSONDecodeError):
++                continue
++            if isinstance(record, dict):
++                dates.append(record)
++
++        # Matches are restricted to the authenticated actor.  The configured
++        # match and product shapes are synthetic/public application data (the
++        # private password and provider fields are never included here).
++        matches = [
++            dict(match) for match in self.config.get("matches", [])
++            if isinstance(match, dict)
++            and isinstance(match.get("users", []), list)
++            and user in match.get("users", [])
++        ]
++        products = [
++            dict(product) for product in self.config.get("products", [])
++            if isinstance(product, dict)
++        ]
++        return {
++            "credits": wallet[0],
++            "dates": dates,
++            "matches": matches,
++            "products": products,
++        }

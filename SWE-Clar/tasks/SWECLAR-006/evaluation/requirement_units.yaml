@@ -1,0 +1,232 @@
+schema_version: 1
+task_id: SWECLAR-006
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent Flutter booking and local message client with actual UI and atomic file persistence
+requirement_units:
+- ru_id: RU-001
+  name: Application state and real local persistence
+  content: Retain the complete public README interfaces and state/action shapes, synthetic Flutter application,
+    real widget operation adapter and actual FileBookingStorage. Isolate constructor input, action input,
+    snapshots, screen results and storage-call arguments. Persist an isolated proposed state before publishing
+    it; a retained storage argument cannot later mutate the controller. Accepted actions return true,
+    clear prior error and notify widgets. A failed save returns false with storage_failed and preserves
+    prior state and displayed records. busy is true while a save is pending, concurrent act returns false
+    without another save, and completion resets busy. File saves use a temporary sibling followed by atomic
+    rename; loads reopen actual JSON, missing files preserve current state, and no temporary file is left
+    after successful save. Valid saved state is restored in full. The evaluator supplies valid JSON or
+    a controlled save failure; corrupt-state repair and multiple processes sharing a file are outside
+    scope. Basic creation requires a known actor, distinct known peer and unused nonblank string ID; create
+    two participants, zero minutes, extended=false, confirmed=false, status=draft. Invalid creation reports
+    invalid_booking; unknown actor/action report unknown_actor/unknown_action. IDs are literal strings,
+    not trimmed or normalized; all required ID values must be nonblank. Preserve required fields and existing
+    records, allowing harmless extra metadata. All infrastructure and public regression obligations are
+    disclosed initially.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern application state and real local persistence?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python /public_tests/run_booking.py --script session.json --output /tmp/booking-preview
+      runtime: Prepared Flutter/Dart Linux AMD64 component engine, offline dependencies and actual local
+        file storage
+    inputs:
+      controller: Complete public README state/action schema
+      widget: Published keys, tap/text/viewport/restore operations
+    output:
+      controller: Accepted/rejected action results, isolated state and actual saved JSON
+      widget: Real Flutter widgets, rendered screenshots and user-visible text
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Booking confirmation, more-time requests, messages, screen work and administrative component
+    needs are source-grounded privately. All IDs, code, designs, users and precise rules here are independently
+    authored; no original chat, source code or platform identifier is disclosed.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/booking_contract.py
+- ru_id: RU-002
+  name: Real registered pages and usable controls
+  content: Render actual Home, Bookings and Messages widgets with the README keys and editable controls;
+    retain booking creation, status/minutes display, message composition and role-appropriate administrative
+    controls. Screen choices include exactly the registry entries whose platform list contains the constructor
+    platform, sorted by screen ID. Titles and registry insertion order can vary; the three page IDs remain
+    home, bookings and messages. Do not mutate registry data through returned rows. Reject unregistered
+    or unsupported navigation with unknown_screen and unchanged state. At 360x950 and 768x950 logical
+    pixels, pages have no render exceptions, controls can be reached by scrolling, and real taps/text
+    input execute controller operations. Show literal saved message body and sender/recipient, booking
+    ID/status/extension minutes, and controller error text. Refresh from accepted controller state; a
+    rejected operation must retain prior records and values. New message/admin button intents create distinct
+    operation IDs, including after reopening. Styling and unrelated wording are free. Platform labels
+    select this tested component and do not claim native build, mobile signing, remote delivery or device
+    authentication. Remaining navigation, lifecycle, idempotency and record-visibility decisions are available
+    by clarification.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern real registered pages and usable controls?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python /public_tests/run_booking.py --script session.json --output /tmp/booking-preview
+      runtime: Prepared Flutter/Dart Linux AMD64 component engine, offline dependencies and actual local
+        file storage
+    inputs:
+      controller: Complete public README state/action schema
+      widget: Published keys, tap/text/viewport/restore operations
+    output:
+      controller: Accepted/rejected action results, isolated state and actual saved JSON
+      widget: Real Flutter widgets, rendered screenshots and user-visible text
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Booking confirmation, more-time requests, messages, screen work and administrative component
+    needs are source-grounded privately. All IDs, code, designs, users and precise rules here are independently
+    authored; no original chat, source code or platform identifier is disclosed.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/booking_contract.py
+- ru_id: RU-003
+  name: Persistent supported-screen Back history
+  content: Navigating to a different registered supported screen appends the prior route to history, then
+    selects the target. Navigating to the current screen leaves route/history unchanged and is accepted.
+    Back pops history from newest to oldest until a currently registered, supported screen is found, then
+    selects it; discard missing or platform-incompatible entries encountered along the way. If none remains,
+    retain the current route and leave history empty. Empty-history Back is an accepted no-op. Store the
+    resulting route/history through the same atomic save protocol, and restore them on reopen. Invalid
+    navigation and failed saves must preserve both route and history. History may contain entries from
+    earlier screen/platform configurations. No-op acceptance does not require avoiding an otherwise valid
+    storage call. Actual Back/navigation widgets must use this policy. These precise history decisions
+    are independently constructed benchmark rules.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern persistent supported-screen back history?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python /public_tests/run_booking.py --script session.json --output /tmp/booking-preview
+      runtime: Prepared Flutter/Dart Linux AMD64 component engine, offline dependencies and actual local
+        file storage
+    inputs:
+      controller: Complete public README state/action schema
+      widget: Published keys, tap/text/viewport/restore operations
+    output:
+      controller: Accepted/rejected action results, isolated state and actual saved JSON
+      widget: Real Flutter widgets, rendered screenshots and user-visible text
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Booking confirmation, more-time requests, messages, screen work and administrative component
+    needs are source-grounded privately. All IDs, code, designs, users and precise rules here are independently
+    authored; no original chat, source code or platform identifier is disclosed.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/booking_contract.py
+- ru_id: RU-004
+  name: Booking extension and confirmation lifecycle
+  content: Only a booking participant can extend or confirm that booking. Extension requires an existing
+    booking in draft status with confirmed=false and extended=false, and an integer number of minutes
+    from 1 through 30 inclusive; set extension_minutes to that number and extended=true. Reject all other
+    extension requests with extension_denied, including repeats, nonintegers, nonparticipants, missing
+    bookings and non-draft bookings. Confirmation requires an existing draft booking with confirmed=false
+    and a participant actor; set confirmed=true and status=confirmed, preserving extension information.
+    Otherwise reject with confirmation_denied. Confirmation does not require a prior extension. Unknown
+    event-supplied role/actor fields confer no authority. Persist and render accepted changes; rejection
+    or save failure leaves the previous booking unchanged. A member sees only booking cards containing
+    their actor ID; an admin may see every booking card, but administrative role alone does not grant
+    participant extension/confirmation. Users and IDs can vary. The numeric range and lifecycle policy
+    are independently authored.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern booking extension and confirmation lifecycle?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python /public_tests/run_booking.py --script session.json --output /tmp/booking-preview
+      runtime: Prepared Flutter/Dart Linux AMD64 component engine, offline dependencies and actual local
+        file storage
+    inputs:
+      controller: Complete public README state/action schema
+      widget: Published keys, tap/text/viewport/restore operations
+    output:
+      controller: Accepted/rejected action results, isolated state and actual saved JSON
+      widget: Real Flutter widgets, rendered screenshots and user-visible text
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Booking confirmation, more-time requests, messages, screen work and administrative component
+    needs are source-grounded privately. All IDs, code, designs, users and precise rules here are independently
+    authored; no original chat, source code or platform identifier is disclosed.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/booking_contract.py
+- ru_id: RU-005
+  name: Participant messages and audited administrative overrides
+  content: 'Saving a message requires an existing booking, a participant sender from the trusted constructor,
+    a different participant recipient, and nonblank string message ID and text; otherwise return false
+    with message_denied. Preserve body whitespace and literal markup/Unicode; do not normalize IDs/text.
+    Store booking_id, sender_id, recipient_id and text under the global message ID. A repeated message
+    ID with the same four business values is accepted without adding or changing the message; a different
+    value reports message_conflict and preserves state. Key order and harmless metadata do not create
+    conflicts. Messages can be composed at any booking lifecycle status. Only sender or recipient sees
+    a message row; an unrelated user, including an unrelated admin, sees none. Saved messages reappear
+    when the recipient opens the component using the same state.
+
+
+    Only an actor whose trusted user registry role is admin can issue admin_status; reject other actors
+    with admin_required regardless of action-supplied identity/role fields. Require an existing booking,
+    a nonblank string event ID and status in draft, confirmed, cancelled, completed; invalid inputs report
+    invalid_status. For a new event, add an audit row containing booking_id, actor_id and status, set
+    the booking status, and set confirmed=true for confirmed/completed or false for draft/cancelled. Preserve
+    participants, extension_minutes, extended and all other records. The same event ID and three business
+    values is an accepted replay with no new audit row and no reapplication of an old status after later
+    events. Reusing an event ID with different values reports event_conflict. Field order and harmless
+    metadata do not affect replay matching. The administrative UI can mark an accessible booking completed
+    using a fresh event ID. All state changes use the common save-before-publish protocol and visible
+    UI; a storage failure commits neither booking nor message/audit changes. These permissions and override/replay
+    rules are synthetic benchmark conventions.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What rules govern participant messages and audited administrative overrides?
+  matching_keywords: []
+  test_interface:
+    type: command
+    entry:
+      command: python /public_tests/run_booking.py --script session.json --output /tmp/booking-preview
+      runtime: Prepared Flutter/Dart Linux AMD64 component engine, offline dependencies and actual local
+        file storage
+    inputs:
+      controller: Complete public README state/action schema
+      widget: Published keys, tap/text/viewport/restore operations
+    output:
+      controller: Accepted/rejected action results, isolated state and actual saved JSON
+      widget: Real Flutter widgets, rendered screenshots and user-visible text
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Booking confirmation, more-time requests, messages, screen work and administrative component
+    needs are source-grounded privately. All IDs, code, designs, users and precise rules here are independently
+    authored; no original chat, source code or platform identifier is disclosed.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/booking_contract.py

@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-063",
+  "public": {
+    "readme": "# Photo, feed and map component\n\nIndependent Python/SQLite/Pillow and Leaflet 1.9.4 web client. Prepared python-vision includes Python3.12.3, Pillow12.3.0 and Chromium/Playwright. No installation is needed. Before the task budget, `/public_tests/preflight.py` creates runtime/config.json and synthetic tokens. Start `FOOD_CONFIG=runtime/config.json FOOD_DATABASE=runtime/meals.sqlite PORT=8080 python server.py`; stdout reports a JSON port. HTTP health is GET http://127.0.0.1:8080/. Run public checks with `python /public_tests/smoke.py`. Runtime files are excluded from the source deliverable. Private config supplies tokens:{token:user_id}, users:{user_id:{follows:[user_id]}}, venues:{venue_id:{name,address,latitude,longitude}} and optionally a host-controlled clock_file containing a timezone-aware ISO timestamp for deterministic tests. The browser receives only the authenticated user's allowed feed and images. Original customer identities, photos, locations, app design and credentials are excluded.\n\nComplete the supplied photo upload, posting and map/feed component. POST /upload accepts {data:base64 PNG/JPEG}; POST /post accepts post_id,image_id,food,caption plus venue_id or venue:{name,address,latitude,longitude}. GET /feed returns records with id,owner,food,caption,venue,created,image_url,can_save,saved. POST /save accepts post_id,saved. GET /pins?mode=personal|friends returns post_id,food,name,address,latitude,longitude. GET /image/id serves the actual stored PNG to authorized viewers. GET /venues returns independent synthetic venues. Authentication comes from Authorization: Bearer token, not caller user_id fields.\n\nThe project includes working HTTP, SQLite, page and Leaflet infrastructure. Repair the missing image/post logic and map scope. Tests must transmit actual images and render actual map geometry; a list of pin flags is insufficient. The local map has synthetic point geometry and no external tiles. Manual venue, save/unsave and chronological feed adapt agency-reported behavior rather than client quotations; the job description supports meal photos, venue tagging, friend feed and personal/social map pins. This web component does not claim a complete React Native/Flutter application, camera hardware, Google Places lookup, Supabase deployment or store submission. Pillow 12.3.0 and the public Leaflet BSD license are used for the local verification environment.\n\nThe implemented feed ordering, image ownership, save controls and epoch guard are public regressions. The server clock or configured clock_file determines the creation instant; request timestamps and actor IDs do not. Identical owned post retries reuse the original stored creation instant; conflicting IDs reject. Required post strings are nonempty; configured venues or complete manual venues use finite latitude/longitude within geographic ranges. Fresh PNG output removes source metadata and retains decoded pixels. Successful JSON responses may include additional metadata and appropriate HTTP2xx; rejected operations use HTTP4xx with no exact error wording requirement. Array order is required only for the chronological feed (descending creation instant, then ascending ID).",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "store.py",
+          "function": "Store.post",
+          "signature": "Store.post(user_id,action) -> dict"
+        },
+        "inputs": {
+          "user_id": "trusted runtime actor",
+          "action": "meal post"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "persisted post"
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "store.py",
+        "function": "Store.post",
+        "signature": "Store.post(user_id,action) -> dict"
+      },
+      "inputs": {
+        "user_id": "trusted runtime actor",
+        "action": "meal post"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "persisted post"
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "store.py",
+        "function": "Store.post",
+        "signature": "Store.post(user_id,action) -> dict"
+      },
+      "inputs": {
+        "user_id": "trusted runtime actor",
+        "action": "meal post"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "persisted post"
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "store.py",
+        "function": "Store.post",
+        "signature": "Store.post(user_id,action) -> dict"
+      },
+      "inputs": {
+        "user_id": "trusted runtime actor",
+        "action": "meal post"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "persisted post"
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "store.py",
+        "function": "Store.post",
+        "signature": "Store.post(user_id,action) -> dict"
+      },
+      "inputs": {
+        "user_id": "trusted runtime actor",
+        "action": "meal post"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "persisted post"
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "store.py",
+        "function": "Store.post",
+        "signature": "Store.post(user_id,action) -> dict"
+      },
+      "inputs": {
+        "user_id": "trusted runtime actor",
+        "action": "meal post"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "persisted post"
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "7e693b0668bee3338900e07d8d050e48cf7a0d4ef72c7fc0c1c7c8066c1147df",
+  "test_sources_sha256": {
+    "evaluation/tests/README.md": "ec2e63d36571fd933b741ea79de485591af83c91a1b63added23a91499fcc072",
+    "evaluation/tests/browser_check.py": "5a8c865ffa6e7c59b350107bf29c66ea78e146a4f365f3521df404017cdb2910",
+    "evaluation/tests/evaluate.py": "555a95759eb4f6f3ae24b75d50a726b3dcf298533fc953a2e4b777308f287fb7",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/food_contract.py": "59f1f7a5347539de71b495adae650513d5380bf59d847e73331b01dbb7f536b8",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "3ef7b0783eaaa1c9c974a024f199488ec5fa1677629804b5a92fe7a427030765"
+  },
+  "public_environment_sha256": "f9e7347b59baf9310cdb66ab3248223a0719bc77085a16a400cfb110af075da2",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

@@ -1,0 +1,16 @@
+const h=React.createElement;
+function App(){
+ const [auth,setAuth]=React.useState(null),[error,setError]=React.useState(''),[rows,setRows]=React.useState([]),[module,setModule]=React.useState('daily_chart'),[messages,setMessages]=React.useState([]);const epoch=React.useRef(0);
+ async function request(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(auth?{Authorization:'Bearer '+auth.token}:{})},body:body?JSON.stringify(body):undefined});const data=await r.json();if(!r.ok)throw Error(data.error);return data;}
+ async function load(m=module){const mark=epoch.current;try{const result=await request('/api/records?module='+m);if(mark!==epoch.current)return;setRows(result);setError('');}catch(e){if(mark===epoch.current){setRows([]);setError(e.message);}}}
+ React.useEffect(()=>{if(auth)load();},[auth,module]);
+ const field=(label,name,type='text')=>h('label',null,label,h('input',{name,type,required:true}));
+ return h('main',null,h('h1',null,'Centre portal'),h('p',null,'Synthetic operational records'),error&&h('p',{role:'alert',id:'error'},error),!auth?
+ h('form',{id:'login',onSubmit:async e=>{e.preventDefault();const mark=++epoch.current;try{const value=await request('/login',Object.fromEntries(new FormData(e.target)));if(mark!==epoch.current)return;setAuth(value);setError('');}catch(e){if(mark===epoch.current)setError(e.message);}}},field('User ID','user_id'),field('Centre ID','centre_id'),field('PIN','pin','password'),h('button',null,'Sign in')):
+ h(React.Fragment,null,h('p',{id:'identity'},auth.user.id+' · '+auth.user.centre_id+' · '+auth.user.role),h('button',{onClick:()=>{epoch.current++;setAuth(null);setRows([]);setMessages([]);}},'Sign out'),
+ h('nav',null,['daily_chart','curriculum','incident','attendance'].map(m=>h('button',{key:m,onClick:()=>{if(m!==module){epoch.current++;setRows([]);setModule(m);}},'data-module':m},m.replaceAll('_',' ')))),h('h2',null,module.replaceAll('_',' ')),
+ h('div',{id:'records'},rows.map(row=>h('article',{key:row.id,'data-record':row.id},h('h3',null,row.id),h('p',null,Object.values(row.data).filter(v=>typeof v==='string'||typeof v==='number').join(' · '))))),
+ auth.user.role!=='parent'&&h('form',{id:'create',onSubmit:async e=>{e.preventDefault();const mark=epoch.current,a=Object.fromEntries(new FormData(e.target));try{await request('/api/records',{id:a.id,module,centre_id:auth.user.centre_id,child_id:a.child_id||null,data:{note:a.note}});if(mark===epoch.current)await load();}catch(e){if(mark===epoch.current)setError(e.message);}}},field('Record ID','id'),field('Child ID','child_id'),field('Note','note'),h('button',null,'Save record')),
+ h('h2',null,'Messages'),h('form',{id:'chat',onSubmit:async e=>{e.preventDefault();const mark=epoch.current;try{await request('/api/messages',Object.fromEntries(new FormData(e.target)));const values=await request('/api/messages');if(mark!==epoch.current)return;setMessages(values);setError('');}catch(e){if(mark===epoch.current)setError(e.message);}}},field('Message ID','message_id'),field('Recipient ID','recipient_id'),field('Message','text'),h('button',null,'Send message')),h('div',{id:'messages'},messages.map(m=>h('p',{key:m.id},m.text)))));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h(App));

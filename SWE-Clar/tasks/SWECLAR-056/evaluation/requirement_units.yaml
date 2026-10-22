@@ -1,0 +1,176 @@
+schema_version: 1
+task_id: SWECLAR-056
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Real WebSocket device-session routing with signed JWTs and controlled heartbeat timing
+requirement_units:
+- ru_id: RU-001
+  name: Protocol entry point
+  content: Complete the supplied Node.js WebSocket service while preserving its HTTP health endpoint,
+    actual connection handling and startServer interface. Successful connections receive a ready frame
+    with a non-empty server-generated connection_id and their device_id. Malformed JSON or a JSON value
+    that is not an object returns error.code=invalid_message without stopping the server.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for protocol entry point.
+  test_interface:
+    type: api
+    entry:
+      language: javascript
+      file: server.cjs
+      function: startServer
+    inputs:
+      transport: loopback HTTP and WebSocket
+      configuration: secret, clock callback, port, host
+    output:
+      type: network_behavior
+      meaning: Observed handshake, socket frames, connection closure and metrics
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/socket_contract.cjs
+  notes: Independent exercise derived from a device communication scenario. Exact wire protocol, signature
+    algorithm, timing boundaries and routing counters are benchmark conventions; production capacity and
+    original device compatibility are not certified.
+- ru_id: RU-002
+  name: JWT-gated connections
+  content: Admit a WebSocket connection only after verifying the bearer JWT signature with the configured
+    HS256 secret. Require a non-empty string sub and device_id and a finite numeric exp strictly later
+    than the server clock. Invalid, forged, unsigned, malformed or expired credentials fail the HTTP upgrade
+    with status 401. A device already active cannot connect again in ordinary connect mode.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for jwt-gated connections.
+  test_interface:
+    type: api
+    entry:
+      language: javascript
+      file: server.cjs
+      function: startServer
+    inputs:
+      transport: loopback HTTP and WebSocket
+      configuration: secret, clock callback, port, host
+    output:
+      type: network_behavior
+      meaning: Observed handshake, socket frames, connection closure and metrics
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/socket_contract.cjs
+  notes: Independent exercise derived from a device communication scenario. Exact wire protocol, signature
+    algorithm, timing boundaries and routing counters are benchmark conventions; production capacity and
+    original device compatibility are not certified.
+- ru_id: RU-003
+  name: Resilient reconnection
+  content: 'A connection using mode=reconnect for an active device replaces that device session: close
+    the old socket, preserve its inactive historical record, create a new connection ID for the same device,
+    and increment reconnects once for that successful replacement.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for resilient reconnection.
+  test_interface:
+    type: api
+    entry:
+      language: javascript
+      file: server.cjs
+      function: startServer
+    inputs:
+      transport: loopback HTTP and WebSocket
+      configuration: secret, clock callback, port, host
+    output:
+      type: network_behavior
+      meaning: Observed handshake, socket frames, connection closure and metrics
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/socket_contract.cjs
+  notes: Independent exercise derived from a device communication scenario. Exact wire protocol, signature
+    algorithm, timing boundaries and routing counters are benchmark conventions; production capacity and
+    original device compatibility are not certified.
+- ru_id: RU-004
+  name: Heartbeat expiry
+  content: A heartbeat JSON frame updates that active session timestamp using the server clock and receives
+    an acknowledgment. sweep(timeout) closes and returns the sorted IDs of active connections whose last
+    heartbeat age is strictly greater than a positive timeout, preserving fresh connections.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for heartbeat expiry.
+  test_interface:
+    type: api
+    entry:
+      language: javascript
+      file: server.cjs
+      function: startServer
+    inputs:
+      transport: loopback HTTP and WebSocket
+      configuration: secret, clock callback, port, host
+    output:
+      type: network_behavior
+      meaning: Observed handshake, socket frames, connection closure and metrics
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/socket_contract.cjs
+  notes: Independent exercise derived from a device communication scenario. Exact wire protocol, signature
+    algorithm, timing boundaries and routing counters are benchmark conventions; production capacity and
+    original device compatibility are not certified.
+- ru_id: RU-005
+  name: Authorized routing and monitoring
+  content: A publish frame contains target_device and payload. Deliver exactly one actual WebSocket message
+    to the active target, with a sequence beginning at 1 and the correct source_device, target_device
+    and unchanged payload; acknowledge the sender. Unknown or inactive targets return target_unavailable.
+    A status frame reports integer active, disconnected, routed_messages and reconnects counts. Closed
+    sessions cannot send new routed messages.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for authorized routing and monitoring.
+  test_interface:
+    type: api
+    entry:
+      language: javascript
+      file: server.cjs
+      function: startServer
+    inputs:
+      transport: loopback HTTP and WebSocket
+      configuration: secret, clock callback, port, host
+    output:
+      type: network_behavior
+      meaning: Observed handshake, socket frames, connection closure and metrics
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/socket_contract.cjs
+  notes: Independent exercise derived from a device communication scenario. Exact wire protocol, signature
+    algorithm, timing boundaries and routing counters are benchmark conventions; production capacity and
+    original device compatibility are not certified.

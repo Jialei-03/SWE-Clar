@@ -1,0 +1,11 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Attendance workspace</title><link rel="stylesheet" href="/style.css"></head><body><main>
+<header><p class="eyebrow">SYNTHETIC SCHOOL WORKSPACE</p><h1>Attendance &amp; collection</h1><p>Prepared tag-reader simulation · staff confirmation · parent inbox</p></header>
+<p id="error" role="alert"></p><form id="login-form"><label>Username<input id="username" autocomplete="off" required></label><label>Password<input id="password" type="password" autocomplete="off" required></label><button id="login">Sign in</button></form>
+<div id="workspace" hidden><nav><button id="refresh">Refresh</button><button id="logout">Sign out</button></nav>
+<section><h2>Students</h2><ul id="roster"></ul></section>
+<section id="scan-panel"><h2>Simulated reading</h2><p>This interface emits synthetic tag readings. It does not connect to physical NFC hardware.</p><div class="fields"><label>Tag UID<input id="tag-uid"></label><label>Device<select id="device-id"></select></label><label>Interaction<select id="interaction"><option value="tap">Intentional tap</option><option value="proximity">Proximity</option></select></label><label>Reading time (Unix seconds)<input id="reading-time" type="number" min="0" max="2000000000" step="1" value="1000"></label><label>Direction<select id="direction"><option value="in">Check in</option><option value="out">Check out</option></select></label></div><button id="scan">Scan</button></section>
+<section id="pending-section"><h2>Pending confirmation</h2><ul id="pending-list"></ul></section>
+<section><h2>Attendance record</h2><ul id="attendance-list"></ul></section>
+<section id="inbox-section"><h2>Parent inbox</h2><ul id="inbox"></ul></section>
+<section id="admin-section"><h2>Administration</h2><h3>Tags</h3><ul id="tag-list"></ul><h3>Collection contacts</h3><ul id="guardian-list"></ul></section>
+</div></main><script src="/app.js"></script></body></html>

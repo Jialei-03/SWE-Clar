@@ -1,0 +1,20 @@
+{
+  "profile": "python-web",
+  "platform": "linux/amd64",
+  "workdir": "/workspace",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 1536,
+    "pids": 256,
+    "workspace_mb": 256,
+    "evaluation_wall_seconds": 120
+  },
+  "dependencies": "Prepared Python Playwright/Chromium. Static HTML/CSS/JavaScript and bundled SVGs require no build/install.",
+  "public_test": [
+    "python",
+    "/public_tests/smoke.py"
+  ],
+  "start": "PORT=8188 python /public_tests/static_server.py",
+  "health": "GET http://127.0.0.1:8188/index.html",
+  "reset": "Reload page."
+}

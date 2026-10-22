@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Integer lattice explorer</title><link rel="stylesheet" href="/style.css"></head>
+<body><main><p class="eyebrow">Independent mathematics workshop</p><h1>Integer lattice explorer</h1><p>Compare positive integer solutions across coefficient families.</p>
+<form id="problem-form" novalidate><label>Coefficient total<input id="total" type="number" value="8" min="3" max="40"></label><label>Largest equation level<input id="limit" type="number" value="32" max="600"></label>
+<label>Family policy<select id="family-policy"><option value="all">All families</option><option value="coprime">Coprime</option><option value="opposite_parity">Opposite parity</option></select></label>
+<label>Coordinates<select id="coordinates"><option value="raw">Raw</option><option value="by_total">By equation total</option><option value="weighted">Weighted</option></select></label><button id="run" type="submit">Run problem</button></form>
+<p id="error" role="alert" hidden></p><section aria-label="Comparison"><div class="toolbar"><p id="result-summary" data-point-count="0"></p><button id="export" type="button" disabled>Export CSV</button></div><canvas id="plot" width="720" height="480" aria-label="Lattice solution comparison"></canvas><div id="family-list"></div></section>
+</main><script type="module" src="/app.js"></script></body></html>

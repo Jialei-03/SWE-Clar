@@ -1,0 +1,197 @@
+schema_version: 1
+task_id: SWECLAR-039
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent framed-device monitoring dashboard with actual local peer communication and
+  responsive UI.
+requirement_units:
+- ru_id: RU-001
+  name: Working device dashboard
+  content: Preserve the actual HTTP/browser dashboard, prepared local-peer startup and strict framed TCP
+    transport documented in README. Keep the public field/route/control contracts, render discovered names
+    and telemetry safely as text, and use the selected SQLite state. The normal starter must launch and
+    scan without setup work. Do not require a physical device or caller-supplied scan/telemetry results.
+    Stop automatically launched peer processes with the app.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for working device dashboard?
+  matching_keywords:
+  - application
+  - dashboard
+  - protocol
+  - interface
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --peer-port <prepared peer>
+      protocol: HTTP/browser and framed TCP interfaces in starter README
+    inputs: Synthetic device peer responses, pairing codes, commands and viewport sizes
+    output: Observed peer exchanges, persisted state, actual telemetry and rendered layout
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Protocol, device identifiers, exact workflow and screen breakpoint are independent benchmark
+    conventions; no original radio or mobile-platform compatibility claim.
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/devices_contract.py
+- ru_id: RU-002
+  name: Filtered discovery from peer
+  content: 'On each scan send the service request to the actual prepared peer. Validate every advertisement:
+    device_id follows the published ID pattern, name is a string and services is a list of strings. Deduplicate
+    by ID with latest fields winning while preserving first-seen ID order, then filter using exact service
+    membership of that latest record. Replace previous discoveries on success. Do not sort or merge old
+    scans. Invalid response shapes or framing are peer failures and must not replace the last valid discovery
+    list.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for filtered discovery from peer?
+  matching_keywords:
+  - scan
+  - service
+  - discovery
+  - advertisements
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --peer-port <prepared peer>
+      protocol: HTTP/browser and framed TCP interfaces in starter README
+    inputs: Synthetic device peer responses, pairing codes, commands and viewport sizes
+    output: Observed peer exchanges, persisted state, actual telemetry and rendered layout
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Protocol, device identifiers, exact workflow and screen breakpoint are independent benchmark
+    conventions; no original radio or mobile-platform compatibility claim.
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/devices_contract.py
+- ru_id: RU-003
+  name: Peer-backed pairing and lifecycle
+  content: This application has one local operator. Pair only a currently discovered target device, using
+    the submitted nonempty code in a real peer pair request. Add the device to paired only after ok:true;
+    the peer consumes its one-time code. Pairing an already paired, still discovered device is idempotent
+    and must not resend or consume another code. Connect only a discovered, paired device, after real
+    peer confirmation. Connecting the current device is idempotent; reject switching to another device
+    while connected with 409 already_connected. An unpaired connection is 409 not_paired and an undiscovered
+    pair/connect is 409 not_discovered. Disconnect the current peer before clearing connected; repeated
+    disconnect is a no-op. Preserve paired and all command/telemetry history on disconnect or app restart.
+    On app restart clear discoveries and connected, requiring a fresh scan/connect. A successful scan
+    clears connected if that device no longer appears; otherwise keep it. Never store or expose submitted
+    pairing codes in app state/history. Lifecycle malformed IDs/codes are 400. Peer denial is 403 without
+    adding pairing/connection; a transport/protocol failure is 502 and clears connected while retaining
+    pairing and histories.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for peer-backed pairing and lifecycle?
+  matching_keywords:
+  - pair
+  - code
+  - connect
+  - disconnect
+  - restart
+  - lifecycle
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --peer-port <prepared peer>
+      protocol: HTTP/browser and framed TCP interfaces in starter README
+    inputs: Synthetic device peer responses, pairing codes, commands and viewport sizes
+    output: Observed peer exchanges, persisted state, actual telemetry and rendered layout
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Protocol, device identifiers, exact workflow and screen breakpoint are independent benchmark
+    conventions; no original radio or mobile-platform compatibility claim.
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/devices_contract.py
+- ru_id: RU-004
+  name: Real commands and telemetry history
+  content: Allow only start, stop, calibrate and status commands with valid IDs, only for the currently
+    connected device. Malformed command names/IDs return 400; a different or absent connection returns
+    409 not_connected, without a peer request. Command IDs are global within this local database. An identical
+    device/ID/name retry while connected returns its cached result without a new peer command or new telemetry;
+    reusing an ID for different device/name returns 409 command_conflict. Send actual commands and require
+    a matching response command_id, object result and all declared well-formed packet frames before changing
+    command/telemetry history. A malformed response or packet yields 502 and clears connected, retaining
+    all prior histories; do not cache the failed command. Preserve the peer result object and accepted
+    packet data exactly. Discard valid packets for other devices. Deduplicate telemetry by (device_id,packet_id),
+    including duplicates within a batch and across commands; first data wins. Keep first-arrival order
+    and accept only packets belonging to the connected device. Valid peer denial is 403 and does not clear
+    connected or change histories. Serialized concurrent identical retries produce one peer command. Histories
+    and ID deduplication persist across app restarts.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for real commands and telemetry history?
+  matching_keywords:
+  - command
+  - telemetry
+  - packet
+  - retry
+  - idempotence
+  - history
+  - failure
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --peer-port <prepared peer>
+      protocol: HTTP/browser and framed TCP interfaces in starter README
+    inputs: Synthetic device peer responses, pairing codes, commands and viewport sizes
+    output: Observed peer exchanges, persisted state, actual telemetry and rendered layout
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Protocol, device identifiers, exact workflow and screen breakpoint are independent benchmark
+    conventions; no original radio or mobile-platform compatibility claim.
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/devices_contract.py
+- ru_id: RU-005
+  name: Actual phone and tablet layout
+  content: At viewport widths below 768 CSS pixels, stack the device panel above the command/telemetry
+    panel in one column. At 768 pixels and above, show the device panel on the left and telemetry panel
+    on the right in two columns. At widths from 320 through 1024 keep controls and text readable without
+    page-level horizontal overflow. Resizing preserves selected device, live connection, visible telemetry
+    and stored history and must not trigger a new scan, pairing, connection or command. Judge actual rendered
+    panel positions and browser state, not a reported layout-mode field.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: What are the rules for actual phone and tablet layout?
+  matching_keywords:
+  - layout
+  - phone
+  - tablet
+  - width
+  - responsive
+  test_interface:
+    type: api
+    entry:
+      command: python server.py --port 0 --db <isolated database> --peer-port <prepared peer>
+      protocol: HTTP/browser and framed TCP interfaces in starter README
+    inputs: Synthetic device peer responses, pairing codes, commands and viewport sizes
+    output: Observed peer exchanges, persisted state, actual telemetry and rendered layout
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  notes: Protocol, device identifiers, exact workflow and screen breakpoint are independent benchmark
+    conventions; no original radio or mobile-platform compatibility claim.
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/devices_contract.py

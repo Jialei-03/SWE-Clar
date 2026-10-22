@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-079",
+  "readme": "# Local portrait workflow module\n\nComplete `build_portrait_workflow(config)` in solution.py. It returns `{\"prompt\": {node_id: {\"class_type\": ..., \"inputs\": ...}}}` for the **ComfyUI API**, or `{\"error\": {\"code\": \"nonempty string\", ...}}` without a runnable prompt. Node IDs/order and additional metadata are unrestricted. Preserve the supplied config. This is an API export, not the separate visual-editor workflow JSON format.\n\nThe prepared python-comfy environment supplies ComfyUI v0.3.30, pinned IPAdapter Plus, CPU PyTorch and public pretrained SD1.5 / Canny ControlNet / Plus-Face IPAdapter / CLIP Vision weights. No package, model, image or account download is needed during an attempt. Native `/object_info`, `/prompt`, `/history` and `/view` are used; the included comfy_client.py is a loopback client, not an interpreter.\n\n`python cli.py config.json --output workflow.json` exports the graph. Add `--submit http://127.0.0.1:8188` to submit it to the provided local server and wait for real execution. The runtime recipe contains the exact server launcher and model inventory. Public model/code licenses are included in that runtime.\n\nConfiguration fields:\n\n- `template_asset`, `face_asset`: input filenames listed in `assets`.\n- `prompt`, `negative_prompt`: nonempty text.\n- `models`: checkpoint, controlnet, clip_vision and ipadapter filenames. `available_models` gives lists under checkpoints, controlnet, clip_vision and ipadapter. `available_nodes` comes from the actual server's object-info keys.\n- `width`, `height`: requested saved-image dimensions. `sample_width`, `sample_height`: separate diffusion dimensions, at least64 and divisible by8.\n- `face_crop`: x/y/width/height rectangle in source-face pixels. `edit_box`: x/y/width/height rectangle in output pixels.\n- `seed`: nonnegative integer; `steps`: integer1\u2013100; `vram_gb`: a workflow-selection hint, not container RAM.\n\nAsk for the intended conditioning, output preservation and decode policies. The bounded integration uses synthetic drawings and a short CPU sampling pass, then a declared output resize. It does not score subjective face identity, pose accuracy, photorealism or seam quality, and does not establish native high-resolution generation. The execution allocation is at most7GiB RAM / CPU2; GPU-memory hints must not be confused with that budget.\n\nStart the local server with `python /workspace/dev_runtime/start.py --root /tmp/comfy-demo --port 8188`; health is `GET http://127.0.0.1:8188/object_info`. Place local images in `/tmp/comfy-demo/input`. Run `python /public_tests/smoke.py` for the working inventory/CLI regression; it does not require a finished portrait graph.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "build_portrait_workflow",
+        "signature": "build_portrait_workflow(config: dict) -> dict"
+      },
+      "inputs": {
+        "arguments": [
+          "config"
+        ]
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Native ComfyUI prompt wrapper, or a structured nonempty error; extra metadata and arbitrary node IDs are allowed."
+      },
+      "operations": []
+    }
+  ]
+}

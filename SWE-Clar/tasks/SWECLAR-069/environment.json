@@ -1,0 +1,20 @@
+{
+  "profile": "python-web",
+  "platform": "linux/amd64",
+  "workdir": "/workspace",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "workspace_mb": 256,
+    "evaluation_wall_seconds": 180
+  },
+  "dependencies": "Prepared Python3.12.3/SQLite standard library; CLI only",
+  "public_test": [
+    "python",
+    "/public_tests/smoke.py"
+  ],
+  "start": "python cli.py runtime/ledger.sqlite snapshot (after init)",
+  "health": "CLI snapshot exits successfully; no network port",
+  "reset": "New runtime database; never reinitialize existing ledger"
+}

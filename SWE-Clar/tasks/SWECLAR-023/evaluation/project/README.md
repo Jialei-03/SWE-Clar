@@ -1,0 +1,66 @@
+# C graph storage, traversal, persistence and measurement
+
+An independently authored C11 graph library and real local CRUD measurement program, grounded in a general graph-database development scenario. All code, inputs, interfaces and detailed policies are synthetic. No original repository, private schema, attachment, identity, conversation or benchmark numbers are included. This is a single-process library and measurement task; it does not claim a production database or comparison with an external commercial service.
+
+## Public environment and delivery
+
+Prepared Linux AMD64 native-control profile: GCC14.2 C11 compiler (`cc`), GNU make, standard/POSIX C libraries and Python3.11 for protected tests. Candidate UID1000/cap0, isolated from evaluator files. Network none except loopback. Two CPUs,2048MiB memory,256PIDs,512MiB workspace and1024MiB temporary storage; evaluation wall budget300seconds. Compiler, sanitizer and resource-measurement preflight finishes before candidate budget. Runtime setup/repair is never a candidate responsibility.
+
+Work in `/workspace`. `make all` builds `build/libfcb_graph.a`, `build/graph_demo` and `build/graph_bench`. `make clean` removes generated build files only. Build must honor `CC`, `CFLAGS` and `LDFLAGS` overrides; defaults include `-std=c11 -O2 -Wall -Wextra` and `-Iinclude`. Protected tests can link a fresh C test driver against the static library. Sanitized validation uses `CFLAGS='-std=c11 -O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-omit-frame-pointer' LDFLAGS='-fsanitize=address,undefined'`. Both ordinary and sanitized builds must execute without memory/undefined-behavior diagnostics. Do not depend on incidental compiler extensions, candidate network downloads or privileged calls.
+
+`python /public_tests/test_public.py` runs visible regressions in disposable copies. `./build/graph_demo` performs actual directed node and edge CRUD, validates its own observed results and prints one JSON object `{ok:true,nodes:2,edges:1}` then exits0. It creates three synthetic nodes and two edges, updates a node and edge, removes the third node with its incident edge, and verifies the surviving data before reporting. Extra harmless JSON fields are allowed. It uses the public library rather than printing a fixed result.
+
+`./build/graph_bench --runs 100 --output /workspace/data/measurements.csv` is the documented measurement invocation. `--runs` accepts a decimal integer1..10000 (no sign, whitespace, decimal point or suffix). Exactly one --runs and one --output are required; order is free, unknown/duplicate/missing options or empty output path fail nonzero. Output parent must already exist; README tells the candidate user to `mkdir -p /workspace/data` before running. Filename/path bytes are opaque and may include spaces/Unicode; no external services. A failed run does not print a false success record. Detailed measurement/output rules are clarifiable.
+
+Destroying a graph frees memory; graph contents are not durable until explicitly saved. To reset local examples, remove only your generated files from `/workspace/data`; `make clean` resets build artifacts. Fixtures are fully synthetic, candidate-readable and immutable under `/public_tests`. Hidden tests generate independent local fixture graphs.
+
+## Public C ABI and common semantics
+
+Public header `include/fcb_graph.h` declares opaque `typedef struct fcb_graph fcb_graph;` and includes stdbool.h/stddef.h/stdint.h. Internal representation, allocation strategy, file layout and algorithm implementations are free. All listed symbols must link even when a starter feature is unimplemented.
+
+```
+fcb_graph *fcb_graph_create(bool directed);
+void fcb_graph_destroy(fcb_graph *graph);
+size_t fcb_graph_node_count(const fcb_graph *graph);
+size_t fcb_graph_edge_count(const fcb_graph *graph);
+uint64_t fcb_graph_add_node(fcb_graph *graph, const char *value);
+const char *fcb_graph_get_node(const fcb_graph *graph, uint64_t id);
+bool fcb_graph_update_node(fcb_graph *graph, uint64_t id, const char *value);
+bool fcb_graph_remove_node(fcb_graph *graph, uint64_t id);
+bool fcb_graph_add_edge(fcb_graph *graph, uint64_t from, uint64_t to, const char *label);
+const char *fcb_graph_get_edge(const fcb_graph *graph, uint64_t from, uint64_t to);
+bool fcb_graph_update_edge(fcb_graph *graph, uint64_t from, uint64_t to, const char *label);
+bool fcb_graph_remove_edge(fcb_graph *graph, uint64_t from, uint64_t to);
+size_t fcb_graph_bfs(const fcb_graph *graph, uint64_t start, uint64_t *out, size_t capacity);
+size_t fcb_graph_dfs(const fcb_graph *graph, uint64_t start, uint64_t *out, size_t capacity);
+bool fcb_graph_save(const fcb_graph *graph, const char *path);
+fcb_graph *fcb_graph_load(const char *path);
+```
+
+Caller strings are valid NUL-terminated byte strings,0..4096bytes before NUL, including quotes, newline and UTF-8; no encoding conversion/trim/case folding. NULL is invalid, not an empty string. Add/update copies the supplied bytes. On success, callers may mutate/free their original buffers. A getter returns a borrowed immutable string whose bytes remain valid until the same entity is updated/removed or graph destroyed; mutations to different entities must not invalidate it. Passing a getter's value back to that entity's update is valid. Caller must not free or write borrowed strings. Invalid/dangling caller pointers are outside the contract.
+
+IDs are opaque uint64 values, nonzero for successful insertion, unique among current live nodes.0 indicates add failure and never identifies a node. No sequential spelling, minimum starting ID, global uniqueness between separate graphs or non-reuse of deleted IDs is required. Count includes current records only. Official workloads use at most10000nodes/30000edges and no allocation fault injection. Ordinary validation/failure leaves graph logically unchanged; gracefully return failure if an allocation fails. No graph function prints output.
+
+NULL graph: counts/traversal return0, getters returnNULL, mutations/save false, add0, destroy no-op. Unknown/zero node IDs returnNULL/false as appropriate. Empty strings are valid; values longer than4096bytes and NULL strings fail. `destroy(NULL)` is safe. Multiple graphs are independent. Concurrent access to the same graph is not required; evaluator will not race unsafe caller operations.
+
+## RU-001 — Runnable lifecycle and engineering surface (visible)
+
+Provide the public C ABI, static library, build/clean flow and real graph_demo. Create directed or undirected empty graphs with zero nodes/edges; maintain independent handles; destroy frees all owned storage. Demonstration links/calls the library and checks real operations before emitting JSON. Starter includes this working delivery surface. Public test driver must link through the documented header/library without reading candidate private structs. Run under the prepared compiler and sanitizer with no leaks, out-of-bounds access or undefined behavior.
+
+## RU-002 — Node storage and ownership (visible)
+
+Implement add/get/update/remove/count with common ID/string/error contracts. Add creates a live node with a copied string; update copies replacement and preserves ID/count. Unknown remove/update returnsfalse. Removing one node does not remove unrelated nodes; recreating nodes must not alias another live ID. Getters expose exact current bytes. Empty strings, punctuation, newline and UTF-8 work. Updates with the borrowed current string work. Starter includes real heap-owned node CRUD, not an empty placeholder.
+
+## RU-003 — Relationship CRUD and directedness (visible)
+
+Both endpoints must be live. A directed ordered pair has at most one edge; (a,b) differs from (b,a). In an undirected graph, (a,b) and (b,a) refer to one edge and either order reads/updates/removes it. Self-loops are allowed once and count as one edge. Duplicate add fails and preserves previous label; missing endpoint, NULL/oversized label, unknown update/remove fail without changes. Labels have the same copied/borrowed ownership guarantees as node values. Node removal also removes every incident edge (incoming, outgoing and self-loop), exactly once; other edges remain. Starter provides real relationships and cleanup.
+
+
+## Remaining work
+
+Clarify traversal, file snapshot and CRUD measurement policies with the simulated client. Complete the supplied linkable placeholders while keeping working storage and demo regressions. The benchmark source is `tools/graph_bench.c`; candidate-defined persistence format and traversal neighbor order are allowed. All dependencies and native execution are prepared. Sanitizer verification inspects diagnostics and sets `UBSAN_OPTIONS=halt_on_error=1`; a zero exit code alone does not establish memory safety.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

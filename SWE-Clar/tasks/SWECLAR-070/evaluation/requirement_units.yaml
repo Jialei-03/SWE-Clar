@@ -1,0 +1,186 @@
+schema_version: 1
+task_id: SWECLAR-070
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Actual geocoding/Solar protocol integration, Leaflet building bounds, server quote and
+  session-scoped leads
+requirement_units:
+- ru_id: RU-001
+  name: Calculator entry point
+  content: Complete the supplied web/provider/database component and preserve caller inputs. Persist real
+    detection, quote and enquiry records in SQLite; isolate browser sessions and protect provider keys/server
+    files. Reject failed operations without partial records. The README defines the independently reconstructed
+    Google response shapes and pricing/schema boundary.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for calculator entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.quote
+      signature: Store.quote(session_id,action) -> dict
+    inputs:
+      session_id: private browser session
+      action: quote selection
+    output:
+      type: dict
+      meaning: persisted quote
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/roof_contract.py
+  notes: Independent Python/SQLite/Leaflet reconstruction. API fixtures, addresses, coordinates, area
+    values, prices and contact information are synthetic; original customer data, keys and imagery are
+    excluded. Solar-reported modelled area is not a claim of complete roof coverage.
+- ru_id: RU-002
+  name: Address roof lookup
+  content: Resolve an address through the configured Geocoding HTTP endpoint, require one unambiguous
+    OK result, then request Solar buildingInsights:findClosest with its latitude/longitude. Validate a
+    finite positive wholeRoofStats.areaMeters2 plus geographic centre/bounds; save only the necessary
+    address/area/location fields. Missing, ambiguous, malformed or failed provider results reject the
+    operation. Draw the returned building bounds with actual Leaflet geometry. Synthetic protocol tests
+    do not prove remote roof recognition quality.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for address roof lookup.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.quote
+      signature: Store.quote(session_id,action) -> dict
+    inputs:
+      session_id: private browser session
+      action: quote selection
+    output:
+      type: dict
+      meaning: persisted quote
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/roof_contract.py
+  notes: Independent Python/SQLite/Leaflet reconstruction. API fixtures, addresses, coordinates, area
+    values, prices and contact information are synthetic; original customer data, keys and imagery are
+    excluded. Solar-reported modelled area is not a claim of complete roof coverage.
+- ru_id: RU-003
+  name: MVP scope boundary
+  content: The MVP quote flow has no manual-boundary editor. Derive quote area from a saved detection
+    belonging to the current session; ignore caller area, roof records and authorized-override flags.
+    Preserve successful data when a provider fails, and ignore stale page responses after input changes.
+    Map bounds are for orientation and must not be described as an exact roof polygon.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for mvp scope boundary.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.quote
+      signature: Store.quote(session_id,action) -> dict
+    inputs:
+      session_id: private browser session
+      action: quote selection
+    output:
+      type: dict
+      meaning: persisted quote
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/roof_contract.py
+  notes: Independent Python/SQLite/Leaflet reconstruction. API fixtures, addresses, coordinates, area
+    values, prices and contact information are synthetic; original customer data, keys and imagery are
+    excluded. Solar-reported modelled area is not a claim of complete roof coverage.
+- ru_id: RU-004
+  name: Dynamic price calculation
+  content: Calculate one line for roof_type, one for material and one per unique extra using server-configured
+    per-square-metre rates and stored area. Round each line half-up to two decimals, then sum rounded
+    lines; return canonical two-decimal strings. Unknown choices, duplicate extras, invalid rates and
+    missing/foreign detections fail without saving a quote. Display the actual line amounts and total.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for dynamic price calculation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.quote
+      signature: Store.quote(session_id,action) -> dict
+    inputs:
+      session_id: private browser session
+      action: quote selection
+    output:
+      type: dict
+      meaning: persisted quote
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/roof_contract.py
+  notes: Independent Python/SQLite/Leaflet reconstruction. API fixtures, addresses, coordinates, area
+    values, prices and contact information are synthetic; original customer data, keys and imagery are
+    excluded. Solar-reported modelled area is not a claim of complete roof coverage.
+- ru_id: RU-005
+  name: Lead capture and idempotency
+  content: Save an enquiry only with nonempty name,email,phone,address and a stored quote owned by the
+    same browser session; contact address must match that quote. Preserve the full stored quote and make
+    repeated lead IDs idempotent for their owning session. A foreign session cannot retrieve an existing
+    lead or use another session’s detection/quote ID. Never accept caller-invented quote totals as the
+    stored estimate.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for lead capture and idempotency.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: store.py
+      function: Store.quote
+      signature: Store.quote(session_id,action) -> dict
+    inputs:
+      session_id: private browser session
+      action: quote selection
+    output:
+      type: dict
+      meaning: persisted quote
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/roof_contract.py
+  notes: Independent Python/SQLite/Leaflet reconstruction. API fixtures, addresses, coordinates, area
+    values, prices and contact information are synthetic; original customer data, keys and imagery are
+    excluded. Solar-reported modelled area is not a claim of complete roof coverage.

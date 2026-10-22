@@ -1,0 +1,20 @@
+{
+  "profile": "python-cesium",
+  "platform": "linux/amd64",
+  "workdir": "/workspace",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "workspace_mb": 256,
+    "evaluation_wall_seconds": 240
+  },
+  "dependencies": "Prepared Python 3.12.3, Playwright/Chromium, Pillow and local CesiumJS 1.121.0; no dependency installation.",
+  "public_test": [
+    "python",
+    "/public_tests/smoke.py"
+  ],
+  "start": "python /public_tests/demo_config.py /tmp/console-config.json && CONSOLE_CONFIG=/tmp/console-config.json CONSOLE_DATABASE=/tmp/console-sessions.sqlite PORT=8080 python server.py",
+  "health": "GET http://127.0.0.1:8080/",
+  "reset": "Restart using a fresh SQLite path for a new local demo."
+}

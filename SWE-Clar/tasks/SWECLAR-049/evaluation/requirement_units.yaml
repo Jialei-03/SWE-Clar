@@ -1,0 +1,185 @@
+schema_version: 1
+task_id: SWECLAR-049
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Durable relational intake, duplicate cleanup and matching webhook stabilization
+requirement_units:
+- ru_id: RU-001
+  name: Automation entry point
+  content: Repair the supplied durable SQLite workflow and actual local HTTP event server. Preserve caller
+    events and use the supplied normalized tables, not a serialized state blob. Return result/error.code
+    through process_mentor_event(database_path,event) and POST /events. Valid operations persist across
+    process restarts; error responses leave prior business rows unchanged. An event is a JSON object.
+    Malformed JSON/non-object HTTP input receives HTTP 400 and a nonempty error.code; unknown types also
+    return an error. Successful HTTP responses use 200. Additional result metadata and alternative nonempty
+    error codes are allowed.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for automation entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_mentor_event
+      signature: process_mentor_event(database_path,event) -> dict
+    inputs:
+      database_path: Dedicated SQLite file using supplied schema
+      event: Intake, cleanup, stabilization, match, notice or snapshot event
+    output:
+      type: dict
+      meaning: result/error and real database effects; same events supported through POST /events
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Synthetic benchmark convention grounded in intake workflow repair; no external notification delivery.
+- ru_id: RU-002
+  name: Single-source intake
+  content: Mentor or mentee intake trims and case-folds a valid email (one @, nonempty sides, no whitespace),
+    upserts exactly one users row and links one profiles row for that user and role. Return user_id/profile_id/role.
+    Preserve the existing user ID and profile ID on replay, updating only a supplied string name after
+    trimming. Concurrent identical intake requests must not create duplicates. Non-string or omitted names
+    leave the stored name unchanged; a supplied blank string sets an empty name. Do not alter unrelated
+    users/profiles.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for single-source intake.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_mentor_event
+      signature: process_mentor_event(database_path,event) -> dict
+    inputs:
+      database_path: Dedicated SQLite file using supplied schema
+      event: Intake, cleanup, stabilization, match, notice or snapshot event
+    output:
+      type: dict
+      meaning: result/error and real database effects; same events supported through POST /events
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Synthetic benchmark convention grounded in intake workflow repair; no external notification delivery.
+- ru_id: RU-003
+  name: Duplicate prevention and cleanup
+  content: Normal and legacy_mentor_intake/legacy_mentee_intake paths must share idempotent intake. cleanup_duplicates
+    keeps the earliest profiles.sequence for each user/role, rewires match foreign keys before removing
+    duplicate profiles, collapses duplicate mentor/mentee matches to their earliest sequence and rewires/deduplicates
+    the corresponding outbox rows. Keep canonical IDs and all unrelated users/profiles. Invalid or orphan
+    profiles/match links make cleanup fail atomically. Keep the lowest outbox.sequence after rewiring
+    each surviving match; preserve its notice_id. Preserve the earliest match status. Empty/already-clean
+    cleanup succeeds with result.status=deduplicated. Missing users, wrong profile roles, orphan match/outbox
+    links reject without any business-row changes. Legacy intake remains supported even after route stabilization.
+    Error codes may be any nonempty string.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for duplicate prevention and cleanup.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_mentor_event
+      signature: process_mentor_event(database_path,event) -> dict
+    inputs:
+      database_path: Dedicated SQLite file using supplied schema
+      event: Intake, cleanup, stabilization, match, notice or snapshot event
+    output:
+      type: dict
+      meaning: result/error and real database effects; same events supported through POST /events
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Synthetic benchmark convention grounded in intake workflow repair; no external notification delivery.
+- ru_id: RU-004
+  name: Automation consolidation
+  content: stabilize_automations disables the configured synthetic legacy_mentor, legacy_mentee, duplicate_match
+    and duplicate_notice routes while preserving canonical_intake, canonical_matching, canonical_communication
+    and unrelated settings. These labels replace original private automation identifiers. Update existing
+    redundant routes only, do not insert absent settings, and preserve each canonical or unrelated enabled
+    value, including disabled canonical routes. Repeated calls are idempotent. The result object is informational;
+    stored settings are authoritative.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for automation consolidation.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_mentor_event
+      signature: process_mentor_event(database_path,event) -> dict
+    inputs:
+      database_path: Dedicated SQLite file using supplied schema
+      event: Intake, cleanup, stabilization, match, notice or snapshot event
+    output:
+      type: dict
+      meaning: result/error and real database effects; same events supported through POST /events
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Synthetic benchmark convention grounded in intake workflow repair; no external notification delivery.
+- ru_id: RU-005
+  name: Idempotent matching and notification
+  content: create_match stores at most one matches row per valid mentor/mentee profile pair, requiring
+    existing linked users and correct roles. notify_match queues one durable outbox row per existing valid
+    match. Both preserve IDs on exact replay, including across server restarts, and reject missing users/profiles/matches
+    without creating partial rows. Notifications here are stored intents, not delivery to an external
+    person.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for idempotent matching and notification.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: process_mentor_event
+      signature: process_mentor_event(database_path,event) -> dict
+    inputs:
+      database_path: Dedicated SQLite file using supplied schema
+      event: Intake, cleanup, stabilization, match, notice or snapshot event
+    output:
+      type: dict
+      meaning: result/error and real database effects; same events supported through POST /events
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Synthetic benchmark convention grounded in intake workflow repair; no external notification delivery.

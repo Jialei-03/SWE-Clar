@@ -1,0 +1,3 @@
+# Shared Node WebSocket profile
+
+Extends the prepared node-sdk environment without changing its recipe. Adds only locked ws8.19.0 plus an ordinary-user actual WebSocket round-trip preflight. Node22.18.0 is inherited. No task code, source identities or credentials are included. Build it with `python SWE-Clar/environments/build.py` (see the repository README), which prepares the base profiles automatically; no manual preparation step is needed. During the build, host npm/Docker are manager preparation tools, network package installation is never charged to candidates. Exact npm lock integrity and immutable built image are recorded. Installed package license files are retained.

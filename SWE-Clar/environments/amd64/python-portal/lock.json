@@ -1,0 +1,13 @@
+{
+  "platform": "linux/amd64",
+  "base_profile": "python-web",
+  "source_profile": "python-portal",
+  "wheels": [],
+  "archives": [],
+  "mongodb": {
+    "url": "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu2204-7.0.16.tgz",
+    "version": "7.0.16",
+    "sha256": "376c258ae9b104b88814214bc3214a2e0d1300d8192d24d8c46259f364866422",
+    "bytes": 84761594
+  }
+}

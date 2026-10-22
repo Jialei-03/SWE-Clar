@@ -1,0 +1,24 @@
+{
+  "profile": "python-report",
+  "platform": "linux/amd64",
+  "workdir": "/workspace",
+  "resources": {
+    "cpus": 2,
+    "memory_mb": 2048,
+    "pids": 256,
+    "workspace_mb": 256,
+    "evaluation_wall_seconds": 240
+  },
+  "dependencies": "Prepared Python3.12.3/Pillow12.3.0/ReportLab4.4.9; evaluator Playwright/Chromium and pypdf6.10.0",
+  "task_preflight": [
+    "python",
+    "/public_tests/preflight.py"
+  ],
+  "public_test": [
+    "python",
+    "/public_tests/smoke.py"
+  ],
+  "start": "SAAS_CONFIG=runtime/config.json SAAS_DATABASE=runtime/reports.sqlite PORT=8080 python server.py",
+  "health": "GET http://127.0.0.1:8080/",
+  "reset": "new workspace/runtime namespace; restart app with same database for persistence tests"
+}

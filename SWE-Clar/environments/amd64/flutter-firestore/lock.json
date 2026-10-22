@@ -1,0 +1,21 @@
+{
+  "platform": "linux/amd64",
+  "base_profile": "flutter-component",
+  "source_profile": "flutter-firestore",
+  "wheels": [],
+  "archives": [],
+  "artifacts": [
+    {
+      "file": "zulu21.52.203-ca-jre21.0.12.1-linux_x64.tar.gz",
+      "url": "https://cdn.azul.com/zulu/bin/zulu21.52.203-ca-jre21.0.12.1-linux_x64.tar.gz",
+      "bytes": 52435156,
+      "sha256": "170f31af477726931543e91a5c44dfef4b7117382800dfd962aaea9fbbca4e50"
+    },
+    {
+      "file": "cloud-firestore-emulator-v1.19.8.jar",
+      "url": "https://storage.googleapis.com/firebase-preview-drop/emulator/cloud-firestore-emulator-v1.19.8.jar",
+      "sha256": "9d43599ed6151199e8d604dc87fac51218e49e5f3a48519b1ae560bbe5e3382d",
+      "bytes": 63634791
+    }
+  ]
+}

@@ -1,0 +1,428 @@
+schema_version: 1
+task_id: SWECLAR-016
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Independent authenticated screenshot-text, communication-suggestion and image-review browser
+  workspace
+requirement_units:
+- ru_id: RU-001
+  name: Existing authenticated and persistent workspace
+  content: 'Preserve real login/logout, owned conversation and image upload/display, durable SQLite state
+    and public commands/interfaces. Login returns an unpredictable token based on at least32 random bytes.
+    Caller-supplied user/owner fields never choose the actor. Different users cannot read or mutate one
+    another''s conversations, profile, image bytes, advice or rankings. Return404 for foreign resource
+    references before OCR/provider use. UI shows only the active user''s data and clears it on logout/session
+    invalidation. Sessions are kept in memory. Actual PNG files are validated and sanitized as specified;
+    no path traversal or filenames from caller text. Invalid operations preserve existing database/files.
+    Restart preserves stored application data and normal workflow resumes after login. Public baseline
+    contains runnable engineering and usable controls.
+
+
+    Public delivery and interface contract:
+
+
+    Extend the supplied working Python HTTP/SQLite/browser application. It provides session login, owned
+    conversations, PNG upload/display and actual OCR extraction. Implement preference updates, context-grounded
+    advice, image ranking and idempotent workflow requests while preserving the existing application and
+    its user-facing controls.
+
+
+    The prepared `python-vision` Linux AMD64 profile supplies Python 3.12, SQLite, Pillow 12.3.0, Tesseract
+    5.3.4 with English data, DejaVu Sans, Chromium and Playwright. The benchmark starts the local provider
+    and supplies synthetic fixture accounts and sample PNG images before the coding budget. No dependency
+    installation, font/model download, remote API or original platform is required. The provider is a
+    deterministic local HTTP fixture for transport/context/image-byte validation; it does not generate
+    or judge real personal advice. System and public test/provider files are protected. Candidate processes
+    and Chromium use UID 1000 with no capabilities; the provider uses a separate UID 2000 with no capabilities
+    and isolated state. Provider fault controls and logs are evaluator-only; ordinary public development
+    has the same provider protocol and default capabilities.
+
+
+    Workdir `/workspace`. Build: `python -m compileall -q server.py store.py media.py`. Start: `python
+    server.py --host 0.0.0.0 --port 8080 --db /workspace/data/workspace.sqlite3 --uploads /workspace/data/images
+    --fixture /public_tests/accounts.json --provider http://127.0.0.1:8081 --provider-token synthetic-provider-token`.
+    Open port 8080. Run `python /public_tests/test_public.py`. The token is a published synthetic local
+    fixture credential, never a real account credential. Stop the application before reset; remove `/workspace/data`
+    and rerun the documented command to recreate fresh fixture state. Stopping/restarting without removing
+    data preserves application data. Benchmark attempts have new workspaces, databases, uploads and provider
+    state. Resources: 2 CPUs, 2048 MiB RAM, 256 PIDs, 512 MiB workspace, 1024 MiB temporary storage, loopback-only
+    network. Protected preflight verifies actual OCR, PNG handling, HTTP/provider response and browser
+    interaction independently of candidate code.
+
+
+    ## Public application state and HTTP contract
+
+
+    The account fixture has `users:[{id,username,password}]`, with unique synthetic IDs/usernames and
+    string passwords. Fresh initialization creates those users, each profile `{tone:"neutral",goal:"clarity",revision:0}`,
+    and no conversations/assets/results. Do not reset an existing database on restart. Sessions need not
+    survive process restart. IDs in application outputs are nonempty opaque strings and need not resemble
+    the reference''s IDs.
+
+
+    Bodies are UTF-8 JSON objects; Content-Length 1..1048576 bytes for upload and 1..16384 bytes elsewhere.
+    Invalid JSON, wrong types, invalid ranges or missing required fields return 400 `{error:"invalid_request"}`.
+    Unknown paths/methods ->404 `{error:"not_found"}`. Missing/invalid Bearer session ->401 `{error:"unauthenticated"}`.
+    Foreign or unknown resources ->404 without processing them. Business conflicts ->409 `{error:"conflict"}`.
+    OCR failure ->422 `{error:"extraction_failed"}`. Provider transport, response-shape or content failure
+    ->502 `{error:"provider_failed"}`. Do not convert failures into empty successful results. Extra request
+    fields are ignored and cannot override identity, extracted text, advice, scores, coordinates, revision
+    or stored ownership. Extra harmless response fields and presentation variations are permitted.
+
+
+    `GET /health` ->200 `{ok:true}`. `POST /api/login {username,password}` ->200 `{token,user:{id,username}}`;
+    reject invalid credentials with401. `POST /api/logout {}` invalidates only its own session. Authenticated
+    application endpoints:
+
+
+    - `GET /api/workspace` -> `{profile,conversations:[{id,title,revision}],assets:[{id,label,kind,width,height}]}`
+    for the current user only. Conversations/assets are in creation order. No passwords, session tokens
+    or provider credentials in these results.
+
+    - `POST /api/conversations {title}` ->201 `{conversation}`. Trim title to1..80 Unicode codepoints;
+    create `{id,title,revision:0,messages:[],advice:[]}`.
+
+    - `GET /api/conversations/{id}` -> `{conversation}` with stored messages/advice. A message is `{sender:"me"|"peer",text}`;
+    advice record is `{id,question,text,context_revision}`. Arrays preserve append order.
+
+    - `POST /api/assets {label,kind,image_base64}` ->201 `{asset}`. Trim label1..80; kind is `screenshot`
+    or `photo`. Base64 must decode to a real PNG, at most524288 bytes and1..1600 pixels per dimension,
+    at most2000000 pixels. Decode/verify the complete image; store a fresh PNG converted to RGB without
+    source metadata. Use a generated file name under the upload directory, not a caller path. Return metadata
+    but not filesystem paths. The canonical stored bytes are the image bytes sent to the provider later.
+
+    - `GET /api/assets/{id}/image` serves the owned canonical PNG with image/png. Foreign images must
+    not be readable. Invalid upload is atomic: no registered asset or lasting image file.
+
+    - `POST /api/extract {conversation_id,asset_id,request_id}` -> `{conversation}` after actual OCR and
+    append. Screenshot must have kind=screenshot.
+
+    - `POST /api/coach {conversation_id,question,request_id}` -> `{advice}`. Question is a string trimmed
+    to1..300 characters.
+
+    - `PUT /api/profile {tone,goal,revision}` -> `{profile}`. Both strings trim to1..120 characters. revision
+    is a nonnegative JSON integer (booleans excluded). Normalization, revision/ownership rules are clarified.
+
+    - `POST /api/rank {asset_ids,request_id}` -> `{ranking:{id,items:[{asset_id,score,reasons}]}}`. The
+    required array contains1..6 unique nonempty string asset IDs of kind=photo. Rank results persist,
+    and `GET /api/rankings` returns `{rankings:[...]}` for the current user in creation order.
+
+
+    request_id is a string matching `[A-Za-z0-9_-]{1,64}`. It applies to extract/coach/rank; replay and
+    conflict rules are clarified. All authorization/ownership/type validation precedes OCR or provider
+    side effects. Success responses reflect durable data. Numeric scores are finite JSON numbers, not
+    booleans. Arrays/objects must reflect real computed/transmitted data rather than caller-provided advice,
+    OCR or scores.
+
+
+    ## Public OCR and local provider interfaces
+
+
+    Synthetic screenshot text consists of clear, single-column English lines, labeled `Me:` or `Peer:`;
+    case of these prefixes is irrelevant. Use real PNG decoding and Tesseract English recognition. Public
+    fixtures use the prepared DejaVu Sans font, black on white, with enough spacing. Whitespace within
+    recognized message text is collapsed to single spaces; blank lines ignored. Reject empty text, any
+    nonempty unrecognized line or an empty message after a recognized prefix. No requirement to recognize
+    arbitrary messenger designs, handwriting, complex layouts, languages other than English or arbitrary
+    photographic text. Images may differ in content and dimensions; original filenames/OCR metadata/caller
+    strings cannot substitute for reading the actual image.
+
+
+    Provider requests use `Authorization: Bearer <configured token>` and UTF-8 JSON, to the configured
+    local URL. `POST /coach` accepts `{system_prompt,profile:{tone,goal},messages:[{sender,text}],question}`
+    and replies `{advice:string}`. `POST /photo-scores` accepts `{preferences:{tone,goal},images:[{asset_id,mime_type:"image/png",image_base64}]}`
+    and replies `{scores:[{asset_id,score,reasons:[string,...]}]}`. Complete request/response shape is
+    public infrastructure. Exact context policy, valid content, score range and ordering are clarified.
+    The provider may return arbitrary synthetically configured valid advice/scores or a transport/format
+    failure. The application must actually transmit the context and image bytes and use returned values;
+    neither the provider fixture nor the benchmark claims real model-quality evaluation. A successful
+    provider response is not by itself a committed application action.
+
+
+    ## Public browser interface
+
+
+    Serve `/`, `/app.js`, `/style.css`; same-origin HTTP. Export `WorkspaceClient` with `login(username,password)`,
+    `logout()`, `refresh()`, `openConversation(id)`, `createConversation(title)`, `upload(label,kind,file)`,
+    `extract(assetId)`, `coach(question)`, `saveProfile(tone,goal)`, `rank(assetIds)`, `dispose()`. Methods
+    call real application endpoints. Expose `workspace`, `conversation`, `ranking`, `error` for developer
+    observation; internal organization otherwise free. Export `WorkspaceView(client,document)` with `dispose()`
+    and boot the actual page through these classes.
+
+
+    DOM IDs: `login-form`, `username`, `password`, `login`, `logout`, `workspace`, `error`, `conversation-title`,
+    `create-conversation`, `conversation-list`, `transcript`, `advice-list`, `question`, `coach`, `asset-label`,
+    `asset-kind`, `asset-file`, `upload`, `asset-list`, `extract`, `tone`, `goal`, `save-profile`, `rank`,
+    `ranking`. Conversation controls have `data-conversation-id`; asset rows have `data-asset-id`; screenshot
+    selection uses radio inputs with `data-screenshot-id`, photo selection checkboxes use `data-photo-id`.
+    Images use actual authenticated image requests (for example fetching a Blob then assigning an object
+    URL), never filesystem paths or publicly exposed session-token query URLs. Transcript rows display
+    literal sender/text, advice rows literal question/advice, and ranking rows have `data-ranked-asset-id`
+    plus visible numeric score/reasons. Text must not execute HTML. Labels, styles, shapes and nonessential
+    prose may vary. Forms/buttons, PNG upload, conversation selection, extraction, advice, preference
+    editing and ranking are actual browser interactions. Layout fits390x844 and1280x900 without page overflow.
+    Fresh page starts logged out; no sessions/results automatically restored from persistent browser storage.
+
+
+    '
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for existing authenticated and persistent workspace.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/workspace.sqlite3 --uploads
+        /workspace/data/images --fixture /public_tests/accounts.json --provider http://127.0.0.1:8081
+        --provider-token synthetic-provider-token
+    inputs:
+      transport: Loopback HTTP, actual PNG files, real OCR and browser interactions
+      contract: README.md
+    output:
+      type: conversation_image_workspace
+      meaning: Owned durable transcripts, provider-grounded suggestions, actual image-byte ranking and
+        reliable visible workflows
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/conversation_contract.py
+  notes: The software-workflow category comes from a real business scenario. Exact accounts, images, prompts,
+    policies, APIs, limits and code are independent benchmark choices. Answer relevant business questions
+    only; do not provide original records, unrelated policies, test internals or reference code.
+- ru_id: RU-002
+  name: Real screenshot extraction into selected conversation
+  content: Read the owned canonical screenshot PNG and execute actual Tesseract recognition. Parse all
+    recognized nonempty labeled lines under the public format and append those messages, in order, to
+    only the selected owned conversation. An extraction advances that conversation's revision by exactly
+    one regardless of line count. Do not call the provider, produce advice, rank images or append caller-supplied
+    OCR/text. Reject wrong-kind, foreign, corrupt or unparseable images with no partial transcript/revision
+    update. Render the appended transcript and keep advice separate. New screenshot contents must produce
+    the corresponding new extracted text.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for real screenshot extraction into selected conversation.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/workspace.sqlite3 --uploads
+        /workspace/data/images --fixture /public_tests/accounts.json --provider http://127.0.0.1:8081
+        --provider-token synthetic-provider-token
+    inputs:
+      transport: Loopback HTTP, actual PNG files, real OCR and browser interactions
+      contract: README.md
+    output:
+      type: conversation_image_workspace
+      meaning: Owned durable transcripts, provider-grounded suggestions, actual image-byte ranking and
+        reliable visible workflows
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/conversation_contract.py
+  notes: The software-workflow category comes from a real business scenario. Exact accounts, images, prompts,
+    policies, APIs, limits and code are independent benchmark choices. Answer relevant business questions
+    only; do not provide original records, unrelated policies, test internals or reference code.
+- ru_id: RU-003
+  name: Context-grounded advice without transcript contamination
+  content: 'Coach the selected owned conversation using the current stored profile and complete current
+    transcript at the accepted request''s start. Require at least one transcript message. Send exactly
+    the configured synthetic system prompt `Offer clear and respectful communication suggestions.`, the
+    profile''s tone and goal, the messages in stored order and the trimmed question. Never include profile
+    revision, user IDs, session/provider credentials, advice history, another conversation or any uploaded
+    image in this text-only call. Caller-supplied profile, transcript, prompt and advice are ignored.
+
+
+    Require provider advice to be a string trimmed to1..4000 characters. On success store that exact trimmed
+    advice, question and the transcript revision used, separately from messages; creating advice does
+    not advance transcript revision or append to transcript. Each provider-generated successful advice
+    is shown in the advice panel. Transport/status/JSON/type/empty/oversized response failure creates
+    no advice and leaves prior messages/advice intact. Profile/selected conversation changes must affect
+    the next distinct coaching request''s context. This verifies integration and scoping, not subjective
+    advice quality.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for context-grounded advice without transcript contamination.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/workspace.sqlite3 --uploads
+        /workspace/data/images --fixture /public_tests/accounts.json --provider http://127.0.0.1:8081
+        --provider-token synthetic-provider-token
+    inputs:
+      transport: Loopback HTTP, actual PNG files, real OCR and browser interactions
+      contract: README.md
+    output:
+      type: conversation_image_workspace
+      meaning: Owned durable transcripts, provider-grounded suggestions, actual image-byte ranking and
+        reliable visible workflows
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/conversation_contract.py
+  notes: The software-workflow category comes from a real business scenario. Exact accounts, images, prompts,
+    policies, APIs, limits and code are independent benchmark choices. Answer relevant business questions
+    only; do not provide original records, unrelated policies, test internals or reference code.
+- ru_id: RU-004
+  name: Owned preferences with optimistic revision
+  content: Trim tone and goal at both ends, preserve their internal whitespace and case, and store only
+    these two fields plus revision. The authenticated user's profile alone is updated; ignore caller-supplied
+    actor or owner. Require the supplied revision to match the current stored revision, then replace both
+    strings and increment revision exactly once in a transaction. A mismatch returns409 without changing
+    either field/revision or calling OCR/provider. Both fields must validate before writing. The browser
+    submits the revision it last read, shows a conflict as an error, refreshes authoritative preferences,
+    and permits a deliberate new save. Preference editing does not alter conversations, advice or rankings.
+    No biometric identity inference or matching is part of this independent task.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for owned preferences with optimistic revision.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/workspace.sqlite3 --uploads
+        /workspace/data/images --fixture /public_tests/accounts.json --provider http://127.0.0.1:8081
+        --provider-token synthetic-provider-token
+    inputs:
+      transport: Loopback HTTP, actual PNG files, real OCR and browser interactions
+      contract: README.md
+    output:
+      type: conversation_image_workspace
+      meaning: Owned durable transcripts, provider-grounded suggestions, actual image-byte ranking and
+        reliable visible workflows
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/conversation_contract.py
+  notes: The software-workflow category comes from a real business scenario. Exact accounts, images, prompts,
+    policies, APIs, limits and code are independent benchmark choices. Answer relevant business questions
+    only; do not provide original records, unrelated policies, test internals or reference code.
+- ru_id: RU-005
+  name: Actual image-byte review and deterministic ranking
+  content: 'Validate ownership/kind/uniqueness and read all requested canonical PNG files before calling
+    the provider. Require valid stored files; a missing/corrupt member rejects the entire action before
+    any provider request. Send current owned preferences and every selected image''s exact canonical bytes,
+    with only asset_id, MIME type and Base64 in each image record. Preserve requested image order in that
+    provider request. Ignore caller scores/reasons/anchors and do not include transcript/advice, credentials
+    or unrelated images.
+
+
+    Provider scores must have exactly one row for each requested asset ID, no missing/extra/duplicate
+    rows. Each score is a finite nonboolean number in0..100 inclusive. Reasons is a list of strings; preserve
+    their exact text/order, including an empty list. Sort stored/returned items by descending numeric
+    score and then ascending asset ID for ties. Ranking uses provider-returned values, not local caller
+    values or hardcoded fixture scores. Display the actual ordered image IDs, scores and literal reasons.
+    A provider failure or any invalid response row creates no ranking and preserves prior results. Successful
+    rankings persist across restart and are owned by the requester.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for actual image-byte review and deterministic ranking.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/workspace.sqlite3 --uploads
+        /workspace/data/images --fixture /public_tests/accounts.json --provider http://127.0.0.1:8081
+        --provider-token synthetic-provider-token
+    inputs:
+      transport: Loopback HTTP, actual PNG files, real OCR and browser interactions
+      contract: README.md
+    output:
+      type: conversation_image_workspace
+      meaning: Owned durable transcripts, provider-grounded suggestions, actual image-byte ranking and
+        reliable visible workflows
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/conversation_contract.py
+  notes: The software-workflow category comes from a real business scenario. Exact accounts, images, prompts,
+    policies, APIs, limits and code are independent benchmark choices. Answer relevant business questions
+    only; do not provide original records, unrelated policies, test internals or reference code.
+- ru_id: RU-006
+  name: Atomic workflow replay and current UI state
+  content: 'Extract, coach and rank share a request_id namespace within one authenticated user. Commit
+    the workflow mutation and its replay record atomically. A previously successful identical request
+    returns its saved result without repeating OCR/provider calls or appending messages/advice/rankings.
+    Equality compares operation plus canonical semantic fields: selected IDs in their specified order
+    and trimmed question; ignored extra request fields do not affect equality. Reusing the same key for
+    a different operation or changed semantic payload returns409 with no side effects. Different users
+    may independently use the same key. Failed requests do not reserve the key and may later succeed with
+    that key. Concurrent identical requests commit once. Successful records survive server restart; key
+    identity is the stable user ID, not a transient session token.
+
+
+    The UI generates one key per intent and retains it across a lost reply when retrying the same action.
+    The retry''s originally selected IDs/question remain the same, even if newer state is refreshed. An
+    explicitly different action/payload abandons the old retry intent. While an action is pending, double
+    clicks must not launch competing copies. A successful reply clears retry state; errors remain visible.
+    Logout, switching the selected conversation or a newer login prevents old pending responses from replacing
+    the current user''s/conversation''s rendered data. Stored successful results remain available through
+    ordinary refresh/history. Do not let a delayed old reply show foreign or previous-conversation content
+    in the current screen.'
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the requirements for atomic workflow replay and current ui state.
+  test_interface:
+    type: command
+    entry:
+      language: Python and JavaScript
+      file: server.py
+      command: python server.py --host 0.0.0.0 --port 8080 --db /workspace/data/workspace.sqlite3 --uploads
+        /workspace/data/images --fixture /public_tests/accounts.json --provider http://127.0.0.1:8081
+        --provider-token synthetic-provider-token
+    inputs:
+      transport: Loopback HTTP, actual PNG files, real OCR and browser interactions
+      contract: README.md
+    output:
+      type: conversation_image_workspace
+      meaning: Owned durable transcripts, provider-grounded suggestions, actual image-byte ranking and
+        reliable visible workflows
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-006-T01
+    file: evaluation/tests/conversation_contract.py
+  notes: The software-workflow category comes from a real business scenario. Exact accounts, images, prompts,
+    policies, APIs, limits and code are independent benchmark choices. Answer relevant business questions
+    only; do not provide original records, unrelated policies, test internals or reference code.

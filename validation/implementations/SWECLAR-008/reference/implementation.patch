@@ -1,0 +1,679 @@
+diff --git a/monitoring.py b/monitoring.py
+index 3263355b7a81a9b7c6dfd2ac791f92bbed94afd0..d5a9a0ebd286a8d30e64f8a345a750d2bc954277 100644
+--- a/monitoring.py
++++ b/monitoring.py
+@@ -1,30 +1,486 @@
+-"""Working current observations; implement the clarified rule and report behavior."""
+-def homes(db,user):
+-    if user['role']=='individual':return [r['id'] for r in db.execute('SELECT id FROM households WHERE id=?',(user['household_id'],))]
+-    if user['role']=='caregiver':return [r['household_id'] for r in db.execute('SELECT household_id FROM assignments WHERE user_id=? ORDER BY household_id',(user['id'],))]
++"""Household-scoped observation, rule, alert and report calculations."""
++from decimal import Decimal
++import hashlib
++import math
++
++
++RULE_KINDS = {
++    "fridge_open",
++    "bathroom_occupied_day",
++    "bathroom_occupied_night",
++    "no_occupancy",
++    "exterior_open_night",
++}
++SEVERITIES = {"info", "warning", "critical"}
++DAY_MS = 24 * 60 * 60 * 1000
++MINUTE_MS = 60 * 1000
++
++
++def homes(db, user):
++    """Return only household IDs configured for the authenticated actor."""
++    if user["role"] == "individual":
++        household_id = user["household_id"]
++        if household_id is None:
++            return []
++        exists = db.execute(
++            "SELECT 1 FROM households WHERE id=?", (household_id,)
++        ).fetchone()
++        return [household_id] if exists else []
++    if user["role"] == "caregiver":
++        rows = db.execute(
++            """
++            SELECT a.household_id
++            FROM assignments AS a
++            JOIN households AS h ON h.id=a.household_id
++            WHERE a.user_id=?
++            ORDER BY a.household_id
++            """,
++            (user["id"],),
++        )
++        return [row["household_id"] for row in rows]
+     return []
+ 
+-def snapshot(db,home,as_of):
+-    result=[]
+-    for room in db.execute('SELECT * FROM rooms WHERE household_id=? ORDER BY id',(home['id'],)):
+-        row={'household_id':home['id'],'room_id':room['id'],'name':room['name'],'sensors':[]}
+-        for sensor in db.execute('SELECT * FROM sensors WHERE household_id=? AND room_id=? ORDER BY id',(home['id'],room['id'])):
+-            event=db.execute('SELECT * FROM events WHERE household_id=? AND sensor_id=? AND timestamp_ms<=? ORDER BY timestamp_ms DESC,event_id DESC LIMIT 1',(home['id'],sensor['id'],as_of)).fetchone()
+-            row['sensors'].append({'sensor_id':sensor['id'],'name':sensor['name'],'kind':sensor['kind'],'value':bool(event['value']) if event else None,'timestamp_ms':event['timestamp_ms'] if event else None,'stale':event is None or as_of-event['timestamp_ms']>home['freshness_minutes']*60000})
++
++def _home_id(home):
++    return home["id"] if isinstance(home, dict) or hasattr(home, "keys") else home
++
++
++def snapshot(db, home, as_of):
++    """Build a read-only, household-scoped current observation snapshot."""
++    household_id = _home_id(home)
++    freshness_ms = home["freshness_minutes"] * MINUTE_MS
++    result = []
++    rooms = db.execute(
++        "SELECT * FROM rooms WHERE household_id=? ORDER BY id", (household_id,)
++    )
++    for room in rooms:
++        row = {
++            "household_id": household_id,
++            "room_id": room["id"],
++            "name": room["name"],
++            "sensors": [],
++        }
++        sensors = db.execute(
++            """
++            SELECT * FROM sensors
++            WHERE household_id=? AND room_id=?
++            ORDER BY id
++            """,
++            (household_id, room["id"]),
++        )
++        for sensor in sensors:
++            event = db.execute(
++                """
++                SELECT * FROM events
++                WHERE household_id=? AND sensor_id=? AND timestamp_ms<=?
++                ORDER BY timestamp_ms DESC, event_id DESC
++                LIMIT 1
++                """,
++                (household_id, sensor["id"], as_of),
++            ).fetchone()
++            timestamp_ms = event["timestamp_ms"] if event else None
++            row["sensors"].append(
++                {
++                    "sensor_id": sensor["id"],
++                    "name": sensor["name"],
++                    "kind": sensor["kind"],
++                    "value": bool(event["value"]) if event else None,
++                    "timestamp_ms": timestamp_ms,
++                    "stale": event is None
++                    or as_of - timestamp_ms > freshness_ms,
++                }
++            )
+         result.append(row)
+     return result
+ 
+-def saved_rules(db,home,room):
+-    return [{**dict(row),'enabled':bool(row['enabled'])} for row in db.execute('SELECT * FROM rules WHERE household_id=? AND room_id=? ORDER BY kind',(home,room))]
+ 
+-def save_rule(db,user,body):
+-    # TODO: implement the clarified edit permissions, validation and persistent replacement.
+-    return 501,'not_implemented'
++def saved_rules(db, home, room):
++    rows = db.execute(
++        """
++        SELECT household_id,room_id,kind,sensor_id,enabled,threshold_minutes,severity
++        FROM rules
++        WHERE household_id=? AND room_id=?
++        ORDER BY kind
++        """,
++        (home, room),
++    )
++    return [{**dict(row), "enabled": bool(row["enabled"])} for row in rows]
+ 
+-def alerts(db,home,as_of):
+-    # TODO: derive actual rule alerts from stored sensor intervals.
+-    return []
+ 
+-def report(db,home,as_of):
+-    # TODO: derive the clarified rolling counts from stored observations and rules.
+-    return {'as_of':as_of,'window_start':as_of-86400000,'rooms':[]}
++def _is_finite_number(value):
++    # bool is a subclass of int, but is deliberately not a valid threshold.
++    if isinstance(value, bool) or not isinstance(value, (int, float)):
++        return False
++    try:
++        return math.isfinite(value)
++    except (OverflowError, TypeError, ValueError):
++        return False
++
++
++def save_rule(db, user, body):
++    """Validate and replace one household/room/kind rule atomically."""
++    if user["role"] != "caregiver":
++        return 403, "denied"
++
++    kind = body["kind"]
++    severity = body["severity"]
++    threshold = body["threshold_minutes"]
++    enabled = body["enabled"]
++    if kind not in RULE_KINDS:
++        return 400, "invalid_rule"
++    if severity not in SEVERITIES:
++        return 400, "invalid_rule"
++    if type(enabled) is not bool:
++        return 400, "invalid_rule"
++    if not _is_finite_number(threshold) or not 0 <= threshold <= 1440:
++        return 400, "invalid_rule"
++
++    household_id = body["household_id"]
++    room_id = body["room_id"]
++    sensor_id = body["sensor_id"]
++    room = db.execute(
++        "SELECT 1 FROM rooms WHERE household_id=? AND id=?",
++        (household_id, room_id),
++    ).fetchone()
++    if room is None:
++        return 400, "invalid_rule"
++    sensor = db.execute(
++        """
++        SELECT kind FROM sensors
++        WHERE household_id=? AND id=? AND room_id=?
++        """,
++        (household_id, sensor_id, room_id),
++    ).fetchone()
++    if sensor is None:
++        return 400, "invalid_rule"
++
++    needs_contact = kind in {"fridge_open", "exterior_open_night"}
++    needs_presence = kind in {
++        "bathroom_occupied_day",
++        "bathroom_occupied_night",
++        "no_occupancy",
++    }
++    compatible = (needs_contact and sensor["kind"] == "contact") or (
++        needs_presence and sensor["kind"] == "presence"
++    )
++    if not compatible:
++        return 400, "invalid_rule"
++
++    # The surrounding HTTP request owns the transaction.  All validation is
++    # complete before this replacement, so rejection cannot alter an old rule.
++    db.execute(
++        """
++        INSERT INTO rules
++          (household_id,room_id,kind,sensor_id,enabled,threshold_minutes,severity)
++        VALUES (?,?,?,?,?,?,?)
++        ON CONFLICT(household_id,room_id,kind) DO UPDATE SET
++          sensor_id=excluded.sensor_id,
++          enabled=excluded.enabled,
++          threshold_minutes=excluded.threshold_minutes,
++          severity=excluded.severity
++        """,
++        (
++            household_id,
++            room_id,
++            kind,
++            sensor_id,
++            1 if enabled else 0,
++            threshold,
++            severity,
++        ),
++    )
++    row = db.execute(
++        """
++        SELECT household_id,room_id,kind,sensor_id,enabled,threshold_minutes,severity
++        FROM rules WHERE household_id=? AND room_id=? AND kind=?
++        """,
++        (household_id, room_id, kind),
++    ).fetchone()
++    return 200, {**dict(row), "enabled": bool(row["enabled"])}
++
++
++def _window_parts(start, end, complement=False):
++    """Return sorted, non-wrapping [start,end) UTC-day windows in ms."""
++    start_ms = int(start) * MINUTE_MS
++    end_ms = int(end) * MINUTE_MS
++    if start_ms == end_ms:
++        # An equal night window is empty.  Its daytime complement is all day.
++        return [(0, DAY_MS)] if complement else []
++    if not complement:
++        if start_ms < end_ms:
++            return [(start_ms, end_ms)]
++        return [(0, end_ms), (start_ms, DAY_MS)]
++
++    # Complement of the (non-empty) night interval.
++    if start_ms < end_ms:
++        return [(0, start_ms), (end_ms, DAY_MS)]
++    return [(end_ms, start_ms)]
++
++
++def _window_for_rule(home, kind):
++    if kind in {"fridge_open", "no_occupancy"}:
++        return None  # None means all instants, rather than an empty window.
++    night = kind in {"bathroom_occupied_night", "exterior_open_night"}
++    return _window_parts(
++        home["night_start"], home["night_end"], complement=not night
++    )
++
++
++def _window_contains(timestamp_ms, parts):
++    if parts is None:
++        return True
++    offset = timestamp_ms % DAY_MS
++    return any(start <= offset < end for start, end in parts)
++
++
++def _next_window_time(timestamp_ms, parts):
++    """Return the first eligible instant at or after timestamp_ms."""
++    if parts is None:
++        return timestamp_ms
++    if not parts:
++        return None
++    # All application timestamps are non-negative.  floor also behaves well
++    # for the fractional value produced by a fractional minute threshold.
++    day = math.floor(timestamp_ms / DAY_MS)
++    day_start = day * DAY_MS
++    offset = timestamp_ms - day_start
++    for start, end in parts:
++        if offset < start:
++            return day_start + start
++        if start <= offset < end:
++            return timestamp_ms
++    return (day + 1) * DAY_MS + parts[0][0]
++
++
++def _collapse_history(db, household_id, sensor_id, as_of):
++    """Read a sensor history and collapse equal-timestamp ties by event ID."""
++    rows = db.execute(
++        """
++        SELECT event_id,timestamp_ms,value
++        FROM events
++        WHERE household_id=? AND sensor_id=? AND timestamp_ms<=?
++        ORDER BY timestamp_ms ASC,event_id ASC
++        """,
++        (household_id, sensor_id, as_of),
++    )
++    collapsed = []
++    for row in rows:
++        item = {
++            "event_id": row["event_id"],
++            "timestamp_ms": row["timestamp_ms"],
++            "value": bool(row["value"]),
++        }
++        if collapsed and collapsed[-1]["timestamp_ms"] == item["timestamp_ms"]:
++            # SQL is ascending, but spelling this out keeps the policy clear if
++            # the query is ever changed.
++            if item["event_id"] > collapsed[-1]["event_id"]:
++                collapsed[-1] = item
++        else:
++            collapsed.append(item)
++    return collapsed
++
++
++def _state_intervals(history):
++    """Make [start,end) state intervals; the final interval has end=None."""
++    intervals = []
++    for observation in history:
++        state = observation["value"]
++        timestamp = observation["timestamp_ms"]
++        if not intervals:
++            intervals.append({"start": timestamp, "end": None, "state": state})
++        elif intervals[-1]["state"] != state:
++            intervals[-1]["end"] = timestamp
++            intervals.append({"start": timestamp, "end": None, "state": state})
++        # Same-value observations deliberately leave the onset unchanged.
++    return intervals
++
++
++def _duration_point(start_ms, threshold_minutes):
++    """Calculate a stable millisecond value, retaining integer JSON values."""
++    duration = Decimal(str(threshold_minutes)) * Decimal(MINUTE_MS)
++    point = Decimal(start_ms) + duration
++    if point == point.to_integral_value():
++        return int(point)
++    return float(point)
++
++
++def _first_trigger(interval, kind, home, threshold_minutes, upper_ms):
++    """Find an interval's first eligible trigger, respecting its end."""
++    threshold_point = _duration_point(interval["start"], threshold_minutes)
++    parts = _window_for_rule(home, kind)
++    candidate = _next_window_time(threshold_point, parts)
++    if candidate is None:
++        return None
++    end = interval["end"]
++    if end is not None:
++        # A state interval is closed at the transition timestamp.
++        if candidate >= end:
++            return None
++        if candidate > upper_ms:
++            return None
++    else:
++        # The current interval includes the as_of instant.
++        if candidate > upper_ms:
++            return None
++    return candidate
++
++
++def _required_state(kind):
++    return kind != "no_occupancy"
++
++
++def _alert_id(household_id, room_id, kind, sensor_id, start_ms):
++    identity = "\x1f".join(
++        [household_id, room_id, kind, sensor_id, str(start_ms)]
++    ).encode("utf-8")
++    # Keep the generated public identifier within the documented 64-character
++    # alphabet while retaining ample collision resistance for synthetic data.
++    return "alert_" + hashlib.sha256(identity).hexdigest()[:58]
++
++
++def _explanation(rule, interval, trigger):
++    state = "on" if _required_state(rule["kind"]) else "off"
++    return (
++        f"Sensor {rule['sensor_id']} in room {rule['room_id']} has remained "
++        f"{state} since {interval['start']} and reached the "
++        f"{rule['threshold_minutes']} minute {rule['kind']} threshold at {trigger}."
++    )
++
++
++def alerts(db, home, as_of):
++    household_id = _home_id(home)
++    rules = db.execute(
++        """
++        SELECT household_id,room_id,kind,sensor_id,enabled,threshold_minutes,severity
++        FROM rules
++        WHERE household_id=? AND enabled=1
++        ORDER BY room_id,kind,sensor_id
++        """,
++        (household_id,),
++    ).fetchall()
++    histories = {}
++    result = []
++    for rule in rules:
++        sensor_key = rule["sensor_id"]
++        if sensor_key not in histories:
++            histories[sensor_key] = _collapse_history(
++                db, household_id, sensor_key, as_of
++            )
++        history = histories[sensor_key]
++        if not history or history[-1]["value"] != _required_state(rule["kind"]):
++            continue
++        latest = history[-1]
++        if as_of - latest["timestamp_ms"] > home["freshness_minutes"] * MINUTE_MS:
++            continue
++
++        intervals = _state_intervals(history)
++        interval = intervals[-1]
++        # Window eligibility is a decision about the current instant, not the
++        # instant at which the threshold happened.
++        parts = _window_for_rule(home, rule["kind"])
++        if not _window_contains(as_of, parts):
++            continue
++        trigger = _first_trigger(
++            interval,
++            rule["kind"],
++            home,
++            rule["threshold_minutes"],
++            as_of,
++        )
++        if trigger is None:
++            continue
++        result.append(
++            {
++                "household_id": household_id,
++                "room_id": rule["room_id"],
++                "kind": rule["kind"],
++                "sensor_id": rule["sensor_id"],
++                "start_ms": interval["start"],
++                "trigger_ms": trigger,
++                "severity": rule["severity"],
++                "alert_id": _alert_id(
++                    household_id,
++                    rule["room_id"],
++                    rule["kind"],
++                    rule["sensor_id"],
++                    interval["start"],
++                ),
++                "explanation": _explanation(rule, interval, trigger),
++            }
++        )
++    result.sort(key=lambda row: (row["room_id"], row["kind"], row["sensor_id"], row["start_ms"]))
++    return result
++
++
++def report(db, home, as_of):
++    household_id = _home_id(home)
++    window_start = as_of - 86400000
++    result = []
++    history_cache = {}
++
++    rooms = db.execute(
++        "SELECT id FROM rooms WHERE household_id=? ORDER BY id", (household_id,)
++    ).fetchall()
++    for room in rooms:
++        room_id = room["id"]
++        event_rows = db.execute(
++            """
++            SELECT e.timestamp_ms
++            FROM events AS e
++            JOIN sensors AS s
++              ON s.household_id=e.household_id AND s.id=e.sensor_id
++            WHERE e.household_id=? AND s.room_id=?
++              AND e.timestamp_ms BETWEEN ? AND ?
++            """,
++            (household_id, room_id, window_start, as_of),
++        ).fetchall()
++        sleep_parts = _window_parts(
++            home["sleep_start"], home["sleep_end"], complement=False
++        )
++        event_count = len(event_rows)
++        sleep_event_count = sum(
++            1 for row in event_rows if _window_contains(row["timestamp_ms"], sleep_parts)
++        )
++
++        rules = db.execute(
++            """
++            SELECT household_id,room_id,kind,sensor_id,enabled,threshold_minutes,severity
++            FROM rules
++            WHERE household_id=? AND room_id=? AND enabled=1
++            ORDER BY kind,sensor_id
++            """,
++            (household_id, room_id),
++        ).fetchall()
++        alert_count = 0
++        for rule in rules:
++            sensor_id = rule["sensor_id"]
++            if sensor_id not in history_cache:
++                history_cache[sensor_id] = _collapse_history(
++                    db, household_id, sensor_id, as_of
++                )
++            history = history_cache[sensor_id]
++            if not history:
++                continue
++            for interval in _state_intervals(history):
++                if interval["state"] != _required_state(rule["kind"]):
++                    continue
++                trigger = _first_trigger(
++                    interval,
++                    rule["kind"],
++                    home,
++                    rule["threshold_minutes"],
++                    as_of,
++                )
++                if trigger is not None and window_start <= trigger <= as_of:
++                    alert_count += 1
++
++        result.append(
++            {
++                "household_id": household_id,
++                "room_id": room_id,
++                "event_count": event_count,
++                "sleep_event_count": sleep_event_count,
++                "alert_count": alert_count,
++            }
++        )
++    return {"as_of": as_of, "window_start": window_start, "rooms": result}
+diff --git a/server.py b/server.py
+index 8eb8ad959c666a8be71ee87e4cda25d6a9f91414..80d2bd5f0eb89c0339509246a1d60c951c956231 100644
+--- a/server.py
++++ b/server.py
+@@ -32,7 +32,9 @@ class Handler(BaseHTTPRequestHandler):
+             static={'/':('index.html','text/html'),'/ui.js':('ui.js','text/javascript'),'/style.css':('style.css','text/css')}
+             if self.command=='GET' and route.path in static:
+                 name,kind=static[route.path];self.send(200,(Path(__file__).parent/'web'/name).read_bytes(),kind);return
+-            if self.command=='GET' and route.path=='/health':self.send(200,{'ok':True});return
++            if self.command=='GET' and route.path=='/health':
++                require(not route.query)
++                self.send(200,{'ok':True});return
+             body={}
+             if self.command in ['POST','PUT']:
+                 size=int(self.headers.get('Content-Length','0'));require(0<size<=65536)
+@@ -51,17 +53,28 @@ class Handler(BaseHTTPRequestHandler):
+     def query(self,route):
+         values=parse_qs(route.query,keep_blank_values=True);require(all(len(v)==1 for v in values.values()));return {k:v[0] for k,v in values.items()}
+     def authorized_home(self,db,user,ident):
+-        require(identifier(ident));require(ident in monitoring.homes(db,user),'denied',403)
+-        home=db.execute('SELECT * FROM households WHERE id=?',(ident,)).fetchone();require(home is not None,'denied',403);return home
++        # Validate the public identifier before checking membership.  A valid
++        # but unassigned household is deliberately indistinguishable from any
++        # other denied household at the data layer.
++        require(identifier(ident))
++        require(ident in monitoring.homes(db,user),'denied',403)
++        home=db.execute('SELECT * FROM households WHERE id=?',(ident,)).fetchone()
++        require(home is not None,'denied',403)
++        return home
+     def dispatch(self,db,route,body):
+         path=route.path;method=self.command
+         if method=='POST' and path=='/api/login':
++            require(not route.query)
+             fields(body,['id','password']);require(isinstance(body['id'],str) and isinstance(body['password'],str))
+             user=db.execute('SELECT * FROM users WHERE id=?',(body['id'],)).fetchone()
+             require(user is not None and hmac.compare_digest(user['password_hash'],encoded_password(body['password'],user['password_hash'].split('$')[0])),'unauthorized',401)
+             token=secrets.token_urlsafe(32);db.execute('INSERT INTO sessions VALUES(?,?)',(token,user['id']));return {'token':token,'user':public_user(user)}
+         if method=='POST' and path=='/api/ingest':
+-            secret=json.loads(db.execute("SELECT value FROM meta WHERE key='feed_token'").fetchone()[0]);require(hmac.compare_digest(self.headers.get('Authorization',''),'Bearer '+secret),'unauthorized',401)
++            require(not route.query)
++            secret=json.loads(db.execute("SELECT value FROM meta WHERE key='feed_token'").fetchone()[0])
++            supplied=self.headers.get('Authorization','')
++            expected='Bearer '+secret if isinstance(secret,str) else None
++            require(isinstance(expected,str) and hmac.compare_digest(supplied.encode('utf-8'),expected.encode('utf-8')),'unauthorized',401)
+             fields(body,['household_id','event_id','sensor_id','timestamp_ms','value'])
+             require(all(identifier(body[k]) for k in ['household_id','event_id','sensor_id']) and type(body['timestamp_ms']) is int and 0<=body['timestamp_ms']<=253402300799999 and type(body['value']) is bool)
+             require(db.execute('SELECT 1 FROM sensors WHERE household_id=? AND id=?',(body['household_id'],body['sensor_id'])).fetchone() is not None,'not_found',404)
+@@ -71,11 +84,22 @@ class Handler(BaseHTTPRequestHandler):
+             db.execute('INSERT INTO events VALUES(?,?,?,?,?)',tuple(body[k] for k in ['household_id','event_id','sensor_id','timestamp_ms','value']));return {'accepted':True,'duplicate':False}
+         user=self.actor(db)
+         if method=='POST' and path=='/api/logout':
++            require(not route.query)
+             fields(body,[]);db.execute('DELETE FROM sessions WHERE token=?',(self.headers['Authorization'][7:],));return {'ok':True}
+-        if method=='GET' and path=='/api/me':return {'user':public_user(user)}
++        if method=='GET' and path=='/api/me':
++            require(not route.query)
++            return {'user':public_user(user)}
+         if method=='GET' and path=='/api/homes':
+-            allowed=monitoring.homes(db,user);return {'households':[dict(db.execute('SELECT * FROM households WHERE id=?',(ident,)).fetchone()) for ident in sorted(allowed)],'clock_ms':json.loads(db.execute("SELECT value FROM meta WHERE key='clock_ms'").fetchone()[0])}
++            require(not route.query)
++            allowed=monitoring.homes(db,user)
++            households=[]
++            for ident in sorted(allowed):
++                row=db.execute('SELECT * FROM households WHERE id=?',(ident,)).fetchone()
++                if row is not None:
++                    households.append({k:row[k] for k in ['id','name','freshness_minutes','night_start','night_end','sleep_start','sleep_end']})
++            return {'households':households,'clock_ms':json.loads(db.execute("SELECT value FROM meta WHERE key='clock_ms'").fetchone()[0])}
+         if method=='PUT' and path=='/api/rules':
++            require(not route.query)
+             fields(body,['household_id','room_id','kind','sensor_id','enabled','threshold_minutes','severity'])
+             self.authorized_home(db,user,body['household_id'])
+             status,data=monitoring.save_rule(db,user,body)
+diff --git a/web/style.css b/web/style.css
+index df49ff42d81423cb7e8f4b028cc7df05c7a961fb..6f417f25120e1d091590b5db43d5f8f940480961 100644
+--- a/web/style.css
++++ b/web/style.css
+@@ -1 +1 @@
+-:root{font:16px/1.5 system-ui,sans-serif;color:#18352f;background:#f3f6f2}*{box-sizing:border-box}body{margin:0}header,main{max-width:1280px;margin:auto;padding:24px}header{display:flex;gap:20px;align-items:center;justify-content:space-between;border-bottom:1px solid #c9d5cf}h1{font-size:28px;margin:0}h2{font-size:21px;margin:0 0 14px}small{letter-spacing:.12em;color:#547166}section{margin-bottom:24px;min-width:0}label{display:flex;flex-direction:column;gap:5px;min-width:0}input,select,button{font:inherit;border:1px solid #9eafa5;border-radius:6px;padding:9px;min-width:0;max-width:100%}button{background:#245c4f;color:white;cursor:pointer}button:disabled{opacity:.45;cursor:default}.toolbar{display:flex;gap:14px;align-items:end;flex-wrap:wrap}.toolbar label{flex:1;min-width:200px}form{display:grid;gap:12px}#login-panel{max-width:440px;padding:24px;background:white;border:1px solid #c9d5cf;border-radius:12px}.rooms{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}.room,.columns>section{padding:20px;border:1px solid #bfcec4;border-radius:12px;background:white;overflow-wrap:anywhere}.room h3{margin:0 0 12px;font-size:18px}.sensor{border-top:1px solid #dce5df;padding:10px 0}.sensor strong{display:block}.state{font-weight:650;color:#245c4f}.stale{color:#815b25}.columns{display:grid;grid-template-columns:1fr 1fr;gap:20px}.check{flex-direction:row;align-items:center}p{overflow-wrap:anywhere}.alert{border-left:4px solid #bc8a38;padding:6px 14px;margin:12px 0;background:#fff7e6}.saved-rule{padding:8px 0;border-bottom:1px solid #dae3dd}.error{color:#9c3030}[hidden]{display:none!important}@media(max-width:650px){header,main{padding:16px}header{flex-wrap:wrap}h1{font-size:24px}.columns{grid-template-columns:1fr}.toolbar{align-items:stretch}.toolbar label{flex-basis:100%}.toolbar button{flex:1}.rooms{grid-template-columns:1fr}}
++:root{font:16px/1.5 system-ui,sans-serif;color:#18352f;background:#f3f6f2}*{box-sizing:border-box}body{margin:0}header,main{max-width:1280px;margin:auto;padding:24px}header{display:flex;gap:20px;align-items:center;justify-content:space-between;border-bottom:1px solid #c9d5cf}header>div{min-width:0;overflow-wrap:anywhere}h1{font-size:28px;margin:0}h2{font-size:21px;margin:0 0 14px}small{letter-spacing:.12em;color:#547166}section{margin-bottom:24px;min-width:0}label{display:flex;flex-direction:column;gap:5px;min-width:0}input,select,button{font:inherit;border:1px solid #9eafa5;border-radius:6px;padding:9px;min-width:0;max-width:100%}button{background:#245c4f;color:white;cursor:pointer}button:disabled{opacity:.45;cursor:default}.toolbar{display:flex;gap:14px;align-items:end;flex-wrap:wrap}.toolbar label{flex:1;min-width:200px}form{display:grid;gap:12px}#login-panel{max-width:440px;padding:24px;background:white;border:1px solid #c9d5cf;border-radius:12px}.rooms{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}.room,.columns>section{padding:20px;border:1px solid #bfcec4;border-radius:12px;background:white;overflow-wrap:anywhere}.room h3{margin:0 0 12px;font-size:18px}.sensor{border-top:1px solid #dce5df;padding:10px 0}.sensor strong{display:block}.state{font-weight:650;color:#245c4f}.stale{color:#815b25}.columns{display:grid;grid-template-columns:1fr 1fr;gap:20px}.check{flex-direction:row;align-items:center}p{overflow-wrap:anywhere}.room h3,.sensor,.alert,.saved-rule{overflow-wrap:anywhere}.alert{border-left:4px solid #bc8a38;padding:6px 14px;margin:12px 0;background:#fff7e6}.saved-rule{padding:8px 0;border-bottom:1px solid #dae3dd}.error{color:#9c3030}[hidden]{display:none!important}@media(max-width:650px){header,main{padding:16px}header{flex-wrap:wrap}h1{font-size:24px}.columns{grid-template-columns:1fr}.toolbar{align-items:stretch}.toolbar label{flex-basis:100%}.toolbar button{flex:1}.rooms{grid-template-columns:1fr}}
+diff --git a/web/ui.js b/web/ui.js
+index 8552351221e82987ac30256f3dc645408786e328..c9388cabe6952363f811b7c1a76cf315c2e3aa5a 100644
+--- a/web/ui.js
++++ b/web/ui.js
+@@ -1,8 +1,16 @@
+ const $=id=>document.getElementById(id);
+ let token=null,actor=null,epoch=0,inflight=null,roomRows=[],savedRules=[],dirty=false;
+-const canEdit=()=>true; // Implement the clarified rule-editor permissions.
++// Caregivers have the separately granted rule-editing capability.  The server
++// repeats this check; this only keeps the control honest for the browser.
++const canEdit=()=>actor?.role==='caregiver';
+ const node=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=String(text);if(cls)e.className=cls;return e;};
+-function clearData(){roomRows=[];savedRules=[];dirty=false;for(const id of ['rooms','alerts','saved-rules','identity','status','rule-status','download-status'])$(id).replaceChildren();for(const id of ['household','rule-room','rule-sensor'])$(id).replaceChildren();}
++function clearData(){
++ roomRows=[];savedRules=[];dirty=false;
++ for(const id of ['rooms','alerts','saved-rules','identity','status','rule-status','download-status'])$(id).replaceChildren();
++ for(const id of ['household','rule-room','rule-sensor'])$(id).replaceChildren();
++ $('as-of').value='';$('rule-threshold').value='10';$('rule-severity').value='warning';
++ $('rule-enabled').checked=true;$('rule-kind').value='fridge_open';$('save-rule').disabled=true;
++}
+ async function api(path,body,method='GET',auth=token){
+  const r=await fetch(path,{method,headers:{...(auth?{Authorization:'Bearer '+auth}:{}),...(body!==undefined?{'Content-Type':'application/json'}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});
+  if(!r.ok){let code='request_failed';try{code=(await r.json()).error.code;}catch{}throw Error(code);}
+@@ -19,11 +27,30 @@ function showRooms(rows){
+  }
+ }
+ function showAlerts(rows){$('alerts').replaceChildren();if(!rows.length)$('alerts').append(node('p','No current alerts'));for(const row of rows){const e=node('article',undefined,'alert');e.dataset.alertId=row.alert_id;e.append(node('strong',row.kind+' · '+row.severity),node('div',row.room_id+' / '+row.sensor_id),node('p',row.explanation));$('alerts').append(e);}}
++function compatibleSensor(sensor,kind){
++ const contact=kind==='fridge_open'||kind==='exterior_open_night';
++ const presence=kind==='bathroom_occupied_day'||kind==='bathroom_occupied_night'||kind==='no_occupancy';
++ return (contact&&sensor.kind==='contact')||(presence&&sensor.kind==='presence');
++}
+ function showRuleForm(){
+- const room=roomRows.find(r=>r.room_id===$('rule-room').value);const prior=$('rule-sensor').value;options($('rule-sensor'),(room?.sensors??[]).map(s=>({id:s.sensor_id,name:s.name})),prior);
+- const rule=savedRules.find(r=>r.kind===$('rule-kind').value);
+- if(rule){$('rule-sensor').value=rule.sensor_id;$('rule-threshold').value=rule.threshold_minutes;$('rule-enabled').checked=rule.enabled;$('rule-severity').value=rule.severity;}
+- $('save-rule').disabled=!canEdit();
++ const room=roomRows.find(r=>r.room_id===$('rule-room').value);
++ const kind=$('rule-kind').value;
++ const prior=$('rule-sensor').value;
++ const compatible=(room?.sensors??[]).filter(sensor=>compatibleSensor(sensor,kind));
++ options($('rule-sensor'),compatible.map(s=>({id:s.sensor_id,name:s.name})),prior);
++ const rule=savedRules.find(r=>r.kind===kind);
++ if(rule){
++  $('rule-sensor').value=rule.sensor_id;
++  $('rule-threshold').value=rule.threshold_minutes;
++  $('rule-enabled').checked=rule.enabled;
++  $('rule-severity').value=rule.severity;
++ }else{
++  if(!$('rule-sensor').value && compatible.length)$('rule-sensor').value=compatible[0].sensor_id;
++  $('rule-threshold').value='10';
++  $('rule-enabled').checked=true;
++  $('rule-severity').value='warning';
++ }
++ $('save-rule').disabled=!canEdit()||!room||!$('rule-sensor').value;
+ }
+ async function loadRules(expected=epoch){
+  const home=$('household').value,room=$('rule-room').value;if(!home||!room)return;
+@@ -59,10 +86,25 @@ $('login-form').addEventListener('submit',async e=>{
+   if(!data.households.length)$('status').textContent='No accessible households';await refresh();
+  }catch(error){if(epoch===expected){token=null;actor=null;clearData();$('login-status').textContent='Sign in failed: '+error.message;}}
+ });
+-$('logout').addEventListener('click',()=>{const prior=token;epoch++;token=null;actor=null;clearData();$('application').hidden=true;$('logout').hidden=true;$('login-panel').hidden=false;api('/api/logout',{},'POST',prior).catch(()=>{});});
+-$('household').addEventListener('change',()=>{epoch++;roomRows=[];savedRules=[];dirty=false;for(const id of ['rooms','alerts','saved-rules','rule-room','rule-sensor'])$(id).replaceChildren();refresh();});
++$('logout').addEventListener('click',()=>{
++ const prior=token;epoch++;token=null;actor=null;clearData();
++ $('account').value='';$('password').value='';$('login-status').textContent='';
++ $('application').hidden=true;$('logout').hidden=true;$('login-panel').hidden=false;
++ // Use the old token only for revocation; no response can be applied after
++ // epoch was advanced above.
++ if(prior)api('/api/logout',{},'POST',prior).catch(()=>{});
++});
++$('household').addEventListener('change',()=>{
++ epoch++;roomRows=[];savedRules=[];dirty=false;
++ for(const id of ['rooms','alerts','saved-rules','rule-room','rule-sensor'])$(id).replaceChildren();
++ $('rule-threshold').value='10';$('rule-severity').value='warning';$('rule-enabled').checked=true;$('save-rule').disabled=true;
++ refresh();
++});
+ $('as-of').addEventListener('change',()=>{epoch++;refresh();});$('refresh').addEventListener('click',refresh);
+-$('rule-room').addEventListener('change',()=>{dirty=false;loadRules().catch(e=>{$('rule-status').textContent=e.message;});});
++$('rule-room').addEventListener('change',()=>{
++ const expected=epoch;dirty=false;
++ loadRules(expected).catch(e=>{if(epoch===expected)$('rule-status').textContent=e.message;});
++});
+ $('rule-kind').addEventListener('change',()=>{dirty=false;showRuleForm();});
+ for(const id of ['rule-sensor','rule-threshold','rule-enabled','rule-severity'])$(id).addEventListener('input',()=>{dirty=true;});
+ $('rule-form').addEventListener('submit',async e=>{

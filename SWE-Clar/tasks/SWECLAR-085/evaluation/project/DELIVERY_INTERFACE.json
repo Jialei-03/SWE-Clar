@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-085",
+  "readme": "# Browser radio component\nRun `python server.py` (PORT defaults to 8765), then visit http://127.0.0.1:8765. Run `python /public_tests/smoke.py` for a real Chromium/audio smoke check. No npm installation or external service is required.\n\nThe existing project fetches schedule/recent JSON over HTTP and plays synthetic WAV recordings using one HTML audio element. A linear station uses `/api/live` to get a current offset into a 90-second synthetic programme; playing/resuming a station must catch up to that offset (within 1 second). This is a finite local linear-programme simulation, not HLS or a radio hardware certification. Recent programmes start at zero. Keep selection on pause, remove its playing highlight, and replace the old source when selecting another programme.\n\nKeep these public DOM interfaces: `#schedule`, `#recent` with `[data-id]` buttons; `#audio`; `#selected`; `#pause`, `#resume`; `#refresh-schedule`, `#refresh-recent`; timer `#seconds`, `#set-timer`, `#cancel-timer`, `#show-timer`, `#remaining`. The `playing` CSS class identifies the active item. HTTP list rows have id, title, artist, album, live, url. Page refresh replaces only the relevant page from its latest HTTP response. Sleep timers accept positive finite seconds, use elapsed monotonic time, pause at expiry, remain unchanged when displaying remaining time, and cancel completely.\n\nRepair paused highlighting and complete the browser Media Session integration. Ask the client which programme metadata must be published and how selection changes should replace it. Preserve existing functionality. Native CarPlay, Apple APIs, background operation, acoustic output and hardware integration are outside this reconstruction.",
+  "interfaces": [
+    {
+      "type": "web_ui",
+      "entry": {
+        "language": "javascript",
+        "file": "app.js",
+        "function": "browser UI",
+        "signature": "HTTP and documented DOM"
+      },
+      "inputs": {
+        "programme": "synthetic HTTP record"
+      },
+      "output": {
+        "type": "object",
+        "meaning": "actual audio, browser metadata and rendered DOM"
+      },
+      "operations": []
+    }
+  ]
+}

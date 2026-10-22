@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-049",
+  "readme": "# Local intake service\n\nUse `python server.py --db /tmp/intake.sqlite --port 8080` from /workspace.\nGET /health and POST /events use loopback HTTP. Run public checks with\n`python /public_tests/test_public.py`. Stop the server and remove the chosen SQLite\nfile to reset; restarts otherwise preserve data. Python standard library only.\nThe schema and records are synthetic; outbox entries do not send real messages.\nRepair intake replay, cleanup and route stabilization while retaining match/notice behavior.",
+  "interfaces": [
+    {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_mentor_event",
+        "signature": "process_mentor_event(database_path,event) -> dict"
+      },
+      "inputs": {
+        "database_path": "Dedicated SQLite file using supplied schema",
+        "event": "Intake, cleanup, stabilization, match, notice or snapshot event"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "result/error and real database effects; same events supported through POST /events"
+      },
+      "operations": []
+    }
+  ]
+}

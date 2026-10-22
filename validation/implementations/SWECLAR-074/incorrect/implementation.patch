@@ -1,0 +1,896 @@
+diff --git a/app.js b/app.js
+index afd7669..f5742f1 100644
+--- a/app.js
++++ b/app.js
+@@ -1,10 +1,340 @@
+-const q=s=>document.querySelector(s);let viewer=null,marker=null,epoch=0;
+-async function request(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});if(!r.ok)throw Error(r.status===404?'No sample found.':'Please check your session or input.');return r.json();}
+-function aim(p){const location=Cesium.Cartesian3.fromDegrees(p.longitude,p.latitude);if(marker)viewer.entities.remove(marker);marker=viewer.entities.add({id:'selected-sample',position:location,point:{pixelSize:14,color:Cesium.Color.fromCssColorString('#e29551'),outlineColor:Cesium.Color.WHITE,outlineWidth:2,disableDepthTestDistance:Number.POSITIVE_INFINITY}});viewer.camera.setView({destination:Cesium.Cartesian3.fromDegrees(p.longitude,p.latitude,20000),orientation:{heading:0,pitch:-Cesium.Math.PI_OVER_TWO,roll:0}});viewer.scene.requestRender();}
+-async function enter(user){const mark=++epoch;q('#login-panel').hidden=true;q('#console').hidden=false;q('#user').textContent=user.name;if(!viewer){viewer=new Cesium.Viewer('map',{baseLayer:false,geocoder:false,baseLayerPicker:false,animation:false,timeline:false,homeButton:false,sceneModePicker:false,navigationHelpButton:false,fullscreenButton:false,infoBox:false,selectionIndicator:false,skyBox:false,skyAtmosphere:false});viewer.scene.globe.baseColor=Cesium.Color.fromCssColorString('#d4e0dc');viewer.scene.backgroundColor=Cesium.Color.fromCssColorString('#253b4c');for(let step=-2;step<=2;step++){const v=step*.05;for(const coords of [[-.12,v,.12,v],[v,-.12,v,.12]])viewer.entities.add({polyline:{positions:Cesium.Cartesian3.fromDegreesArray(coords),width:1,material:Cesium.Color.fromCssColorString('#8faaa0')}});}viewer.camera.setView({destination:Cesium.Cartesian3.fromDegrees(0,0,9000000)});new ResizeObserver(()=>{viewer.resize();viewer.scene.requestRender();}).observe(q('#map'));}const tracks=await request('/tracks');if(mark!==epoch)return;q('#track').replaceChildren();for(const t of tracks){const option=document.createElement('option');option.value=t.id;option.textContent=t.name;q('#track').append(option);}q('#status').textContent='Local console ready.';}
+-q('#login').onsubmit=async e=>{e.preventDefault();const mark=++epoch;try{const user=await request('/login',{username:q('#username').value,password:q('#password').value});q('#password').value='';if(mark!==epoch)return;await enter(user);}catch(e){if(mark===epoch)q('#login-error').textContent=e.message;}};
+-q('#logout').onclick=async()=>{epoch++;await request('/logout',{});q('#console').hidden=true;q('#login-panel').hidden=false;q('#results').replaceChildren();q('#metadata').textContent='';q('#login-error').textContent='';if(marker){viewer.entities.remove(marker);marker=null;}};
+-for(const [button,panel] of [['#main-toggle','#main-panel'],['#camera-toggle','#camera-panel']])q(button).onclick=()=>{q(panel).hidden=!q(panel).hidden;q(button).setAttribute('aria-expanded',String(!q(panel).hidden));};
+-q('#search').onsubmit=async e=>{e.preventDefault();const mark=epoch;try{const rows=await request('/locations?q='+encodeURIComponent(q('#query').value));if(mark!==epoch)return;q('#results').replaceChildren();for(const row of rows){const button=document.createElement('button');button.textContent=row.name;button.dataset.location=row.id;button.onclick=()=>{aim(row);q('#status').textContent='Selected '+row.name;};q('#results').append(button);}}catch(e){if(mark===epoch)q('#status').textContent=e.message;}};
+-q('#rewind').onsubmit=async e=>{e.preventDefault();const mark=epoch;try{const r=await request('/rewind?id='+encodeURIComponent(q('#track').value)+'&at='+encodeURIComponent(q('#at').value+'Z'));if(mark!==epoch)return;aim(r.sample);q('#metadata').textContent=r.name+' · '+r.description+' · '+r.sample.time;q('#status').textContent='Sample displayed.';}catch(e){if(mark!==epoch)return;if(marker)viewer.entities.remove(marker);marker=null;q('#metadata').textContent='';q('#status').textContent=e.message;}};
+-const initialEpoch=epoch;request('/me').then(user=>{if(epoch===initialEpoch)return enter(user);}).catch(()=>{});
++const q = (selector) => document.querySelector(selector);
++
++let viewer = null;
++let marker = null;
++let selectedPoint = null;
++let trackRecords = [];
++let epoch = 0;
++
++async function request(path, body) {
++  const options = {
++    method: body === undefined ? 'GET' : 'POST',
++    credentials: 'same-origin',
++  };
++  if (body !== undefined) {
++    options.headers = { 'Content-Type': 'application/json' };
++    options.body = JSON.stringify(body);
++  }
++  const response = await fetch(path, options);
++  if (!response.ok) {
++    if (response.status === 404) throw Error('No sample found.');
++    if (response.status === 403) throw Error('Please check your session or input.');
++    throw Error('The local request could not be completed.');
++  }
++  return response.json();
++}
++
++function centerSelectedPoint() {
++  if (!viewer || !selectedPoint) return;
++  viewer.camera.setView({
++    // The camera is placed directly above the selected coordinate.  No
++    // longitude/state offset is used to compensate for the side panels.
++    destination: Cesium.Cartesian3.fromDegrees(
++      selectedPoint.longitude,
++      selectedPoint.latitude,
++      selectedPoint.height,
++    ),
++    orientation: {
++      heading: 0,
++      pitch: -Cesium.Math.PI_OVER_TWO,
++      roll: 0,
++    },
++  });
++  viewer.scene.requestRender();
++}
++
++function resizeMap() {
++  if (!viewer) return;
++  const focus = selectedPoint && { ...selectedPoint };
++  viewer.resize();
++  // A canvas resize changes the viewport, not the geographic target.  Set the
++  // camera back to the same world coordinate after Cesium has resized it.
++  if (focus) {
++    selectedPoint = focus;
++    centerSelectedPoint();
++  } else {
++    viewer.scene.requestRender();
++  }
++}
++
++function createViewer() {
++  if (viewer) return;
++
++  // The viewer is deliberately configured with no imagery or online terrain.
++  // The ellipsoid, local grid entities and selected points are real Cesium
++  // scene geometry, rather than a state flag standing in for a map.
++  if (Cesium.Ion) Cesium.Ion.defaultAccessToken = undefined;
++  viewer = new Cesium.Viewer('map', {
++    baseLayer: false,
++    terrainProvider: new Cesium.EllipsoidTerrainProvider(),
++    geocoder: false,
++    baseLayerPicker: false,
++    animation: false,
++    timeline: false,
++    homeButton: false,
++    sceneModePicker: false,
++    navigationHelpButton: false,
++    fullscreenButton: false,
++    infoBox: false,
++    selectionIndicator: false,
++    skyBox: false,
++    skyAtmosphere: false,
++    scene3DOnly: true,
++  });
++  viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#d4e0dc');
++  viewer.scene.globe.show = true;
++  viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#253b4c');
++
++  // A small local reference grid makes the synthetic ellipsoid visible while
++  // keeping the reconstruction independent of map imagery or tile services.
++  for (let step = -2; step <= 2; step += 1) {
++    const coordinate = step * 0.05;
++    for (const coordinates of [
++      [-0.12, coordinate, 0.12, coordinate],
++      [coordinate, -0.12, coordinate, 0.12],
++    ]) {
++      viewer.entities.add({
++        polyline: {
++          positions: Cesium.Cartesian3.fromDegreesArray(coordinates),
++          width: 1,
++          material: Cesium.Color.fromCssColorString('#8faaa0'),
++        },
++      });
++    }
++  }
++  viewer.camera.setView({
++    destination: Cesium.Cartesian3.fromDegrees(0, 0, 9000000),
++    orientation: {
++      heading: 0,
++      pitch: -Cesium.Math.PI_OVER_TWO,
++      roll: 0,
++    },
++  });
++
++  const map = q('#map');
++  if (window.ResizeObserver) {
++    new ResizeObserver(resizeMap).observe(map);
++  }
++  window.addEventListener('resize', resizeMap, { passive: true });
++}
++
++function displayPoint(point) {
++  const location = Cesium.Cartesian3.fromDegrees(point.longitude, point.latitude);
++  if (marker) viewer.entities.remove(marker);
++  marker = viewer.entities.add({
++    id: 'selected-sample',
++    position: location,
++    point: {
++      pixelSize: 14,
++      color: Cesium.Color.fromCssColorString('#e29551'),
++      outlineColor: Cesium.Color.WHITE,
++      outlineWidth: 2,
++      disableDepthTestDistance: Number.POSITIVE_INFINITY,
++    },
++  });
++  selectedPoint = {
++    longitude: point.longitude,
++    latitude: point.latitude,
++    height: 20000,
++  };
++  centerSelectedPoint();
++}
++
++function clearDisplayedPoint() {
++  if (marker && viewer) viewer.entities.remove(marker);
++  marker = null;
++  selectedPoint = null;
++}
++
++function allocatePanelSpace() {
++  const workspace = q('#workspace');
++  const panels = [
++    ['#main-panel', '--left'],
++    ['#camera-panel', '--right'],
++  ];
++  for (const [selector, variable] of panels) {
++    const panel = q(selector);
++    // Keep a compact, fixed reservation for an open drawer rather than
++    // letting the grid use the drawer's actual rendered width.
++    const measured = panel.hidden ? 0 : 280;
++    workspace.style.setProperty(variable, `${measured}px`);
++  }
++  resizeMap();
++}
++
++function schedulePanelLayout() {
++  // The browser must lay out an opened panel before its actual width can be
++  // allocated to the grid.  A second frame also covers font/layout changes.
++  requestAnimationFrame(allocatePanelSpace);
++  requestAnimationFrame(() => requestAnimationFrame(allocatePanelSpace));
++}
++
++function setPanel(button, panel, open) {
++  panel.hidden = !open;
++  button.setAttribute('aria-expanded', String(open));
++  // Allocate once synchronously for callers that inspect the layout directly,
++  // then repeat after the browser has completed its normal layout pass.
++  allocatePanelSpace();
++  schedulePanelLayout();
++}
++
++const panelControls = [
++  ['#main-toggle', '#main-panel'],
++  ['#camera-toggle', '#camera-panel'],
++];
++for (const [buttonSelector, panelSelector] of panelControls) {
++  const button = q(buttonSelector);
++  const panel = q(panelSelector);
++  button.addEventListener('click', () => setPanel(button, panel, panel.hidden));
++}
++
++function showTrackInfo(track) {
++  q('#track-info').textContent = track
++    ? `${track.name} · ${track.description}`
++    : '';
++}
++
++function selectedTrack() {
++  const id = q('#track').value;
++  return trackRecords.find((track) => track.id === id) || null;
++}
++
++q('#track').addEventListener('change', () => {
++  epoch += 1;
++  clearDisplayedPoint();
++  q('#metadata').textContent = '';
++  const track = selectedTrack();
++  showTrackInfo(track);
++  q('#status').textContent = track ? 'Track selected.' : '';
++});
++
++async function enter(user) {
++  const mark = ++epoch;
++  q('#login-panel').hidden = true;
++  q('#console').hidden = false;
++  q('#user').textContent = user.name;
++  createViewer();
++
++  const tracks = await request('/tracks');
++  if (mark !== epoch) return;
++  trackRecords = tracks;
++  const select = q('#track');
++  select.replaceChildren();
++  for (const track of tracks) {
++    const option = document.createElement('option');
++    option.value = track.id;
++    option.textContent = track.name;
++    select.append(option);
++  }
++  showTrackInfo(tracks[0] || null);
++  q('#status').textContent = 'Local console ready.';
++  allocatePanelSpace();
++}
++
++q('#login').addEventListener('submit', async (event) => {
++  event.preventDefault();
++  const mark = ++epoch;
++  q('#login-error').textContent = '';
++  try {
++    const user = await request('/login', {
++      username: q('#username').value,
++      password: q('#password').value,
++    });
++    q('#password').value = '';
++    if (mark !== epoch) return;
++    await enter(user);
++  } catch (error) {
++    if (mark === epoch) q('#login-error').textContent = error.message;
++  }
++});
++
++q('#logout').addEventListener('click', async () => {
++  epoch += 1;
++  try {
++    await request('/logout', {});
++  } finally {
++    q('#console').hidden = true;
++    q('#login-panel').hidden = false;
++    q('#results').replaceChildren();
++    q('#metadata').textContent = '';
++    q('#track-info').textContent = '';
++    q('#login-error').textContent = '';
++    q('#status').textContent = '';
++    q('#track').replaceChildren();
++    trackRecords = [];
++    clearDisplayedPoint();
++    for (const [buttonSelector, panelSelector] of panelControls) {
++      const button = q(buttonSelector);
++      const panel = q(panelSelector);
++      setPanel(button, panel, false);
++    }
++  }
++});
++
++q('#search').addEventListener('submit', async (event) => {
++  event.preventDefault();
++  const mark = epoch;
++  try {
++    const rows = await request(
++      `/locations?q=${encodeURIComponent(q('#query').value)}`,
++    );
++    if (mark !== epoch) return;
++    q('#results').replaceChildren();
++    for (const row of rows) {
++      const button = document.createElement('button');
++      button.type = 'button';
++      button.textContent = row.name;
++      button.dataset.location = row.id;
++      button.addEventListener('click', () => {
++        if (mark !== epoch) return;
++        clearDisplayedPoint();
++        q('#metadata').textContent = '';
++        displayPoint(row);
++        q('#status').textContent = `Selected ${row.name}`;
++      });
++      q('#results').append(button);
++    }
++    q('#status').textContent = rows.length
++      ? 'Choose a local result.'
++      : 'No local locations found.';
++  } catch (error) {
++    if (mark === epoch) q('#status').textContent = error.message;
++  }
++});
++
++function timezoneAwareInput(value) {
++  // datetime-local is explicitly labelled UTC in this console.  Preserve an
++  // offset if a caller supplies one while making the normal UI value aware.
++  return /(?:Z|z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`;
++}
++
++q('#rewind').addEventListener('submit', async (event) => {
++  event.preventDefault();
++  const mark = epoch;
++  try {
++    const result = await request(
++      `/rewind?id=${encodeURIComponent(q('#track').value)}&at=${encodeURIComponent(
++        timezoneAwareInput(q('#at').value),
++      )}`,
++    );
++    if (mark !== epoch) return;
++    displayPoint(result.sample);
++    q('#track-info').textContent = `${result.name} · ${result.description}`;
++    q('#metadata').textContent =
++      `${result.name} · ${result.description} · ${result.sample.time}`;
++    q('#status').textContent = 'Sample displayed.';
++  } catch (error) {
++    if (mark !== epoch) return;
++    clearDisplayedPoint();
++    q('#metadata').textContent = '';
++    q('#status').textContent = error.message;
++  }
++});
++
++const initialEpoch = epoch;
++request('/me')
++  .then((user) => {
++    if (epoch === initialEpoch) return enter(user);
++    return undefined;
++  })
++  .catch(() => undefined);
+diff --git a/index.html b/index.html
+index be7914b..47aeb00 100644
+--- a/index.html
++++ b/index.html
+@@ -1 +1 @@
+-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Local map console</title><link rel="stylesheet" href="/cesium/Widgets/widgets.css"><link rel="stylesheet" href="/style.css"><main><section id="login-panel"><h1>Local map console</h1><p>Sign in to this device.</p><form id="login"><label>Username <input id="username" required></label><label>Password <input id="password" type="password" required autocomplete="off"></label><button>Sign in</button></form><p id="login-error" role="alert"></p></section><section id="console" hidden><header><h1>Map console</h1><p id="user"></p><button id="logout">Sign out</button></header><nav><button id="main-toggle" aria-expanded="false">Locations panel</button><button id="camera-toggle" aria-expanded="false">Track panel</button></nav><div id="workspace"><aside id="main-panel" hidden><h2>Locations</h2><form id="search"><label>Search local locations <input id="query" type="search"></label><button>Search</button></form><div id="results"></div></aside><div id="map" aria-label="Offline three-dimensional map"></div><aside id="camera-panel" hidden><h2>Track history</h2><form id="rewind"><label>Track <select id="track"></select></label><label>UTC time <input id="at" type="datetime-local" step="1" required></label><button>Rewind</button></form><p id="metadata"></p></aside></div><p id="status" role="status"></p></section></main><script>window.CESIUM_BASE_URL='/cesium/';</script><script src="/cesium/Cesium.js"></script><script src="/app.js"></script></html>
+\ No newline at end of file
++<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Local map console</title><link rel="stylesheet" href="/cesium/Widgets/widgets.css"><link rel="stylesheet" href="/style.css"><main><section id="login-panel"><h1>Local map console</h1><p>Sign in to this device.</p><form id="login"><label>Username <input id="username" required autocomplete="username"></label><label>Password <input id="password" type="password" required autocomplete="current-password"></label><button type="submit">Sign in</button></form><p id="login-error" role="alert"></p></section><section id="console" hidden><header><h1>Map console</h1><p id="user"></p><button id="logout" type="button">Sign out</button></header><nav><button id="main-toggle" type="button" aria-expanded="false" aria-controls="main-panel">Locations panel</button><button id="camera-toggle" type="button" aria-expanded="false" aria-controls="camera-panel">Track panel</button></nav><div id="workspace"><aside id="main-panel" hidden><h2>Locations</h2><form id="search"><label>Search local locations <input id="query" type="search"></label><button type="submit">Search</button></form><div id="results"></div></aside><div id="map" aria-label="Offline three-dimensional map"></div><aside id="camera-panel" hidden><h2>Track history</h2><form id="rewind"><label>Track <select id="track"></select></label><label>UTC time <input id="at" type="datetime-local" step="1" required></label><button type="submit">Rewind</button></form><p id="track-info"></p><p id="metadata"></p></aside></div><p id="status" role="status"></p></section></main><script>window.CESIUM_BASE_URL='/cesium/';</script><script src="/cesium/Cesium.js"></script><script src="/app.js"></script></html>
+diff --git a/server.py b/server.py
+index c350550..67fccff 100644
+--- a/server.py
++++ b/server.py
+@@ -1,46 +1,177 @@
+-from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
+-from http.cookies import SimpleCookie
++"""Loopback-only HTTP shell for the offline map console."""
++
++from __future__ import annotations
++
++from http.cookies import CookieError, SimpleCookie
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from pathlib import Path
+-import os,json,urllib.parse,mimetypes
++import json
++import mimetypes
++import os
++import urllib.parse
++
+ from store import Store
+-ROOT=Path(__file__).parent;config=json.loads(Path(os.environ['CONSOLE_CONFIG']).read_text());assets=Path(os.environ['CESIUM_ASSET_DIR']).resolve();store=Store(os.environ['CONSOLE_DATABASE'],config)
++
++
++ROOT = Path(__file__).resolve().parent
++CONFIG_PATH = Path(os.environ.get("CONSOLE_CONFIG", "config.json"))
++DATABASE_PATH = os.environ.get("CONSOLE_DATABASE", "sessions.sqlite")
++ASSET_ROOT = Path(
++    os.environ.get("CESIUM_ASSET_DIR", "/opt/sweclar/cesium/Build/Cesium")
++).resolve()
++
++with CONFIG_PATH.open(encoding="utf-8") as config_file:
++    CONFIG = json.load(config_file)
++store = Store(DATABASE_PATH, CONFIG)
++
++PUBLIC_FILES = {
++    "/": ("index.html", "text/html; charset=utf-8"),
++    "/app.js": ("app.js", "text/javascript; charset=utf-8"),
++    "/style.css": ("style.css", "text/css; charset=utf-8"),
++}
++
++
+ class Handler(BaseHTTPRequestHandler):
+-    def log_message(self,*a):pass
+-    def token(self):
+-        cookies=SimpleCookie();cookies.load(self.headers.get('Cookie',''));return cookies['session'].value if 'session' in cookies else None
+-    def send(self,status,data,mime='application/json',token=None):
+-        if not isinstance(data,bytes):data=json.dumps(data).encode()
+-        self.send_response(status);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(data)))
+-        if token is not None:self.send_header('Set-Cookie',f'session={token}; HttpOnly; SameSite=Strict; Path=/')
+-        self.end_headers();self.wfile.write(data)
+-    def do_GET(self):
+-        url=urllib.parse.urlsplit(self.path);q=urllib.parse.parse_qs(url.query);files={'/':('index.html','text/html'),'/app.js':('app.js','text/javascript'),'/style.css':('style.css','text/css')}
++    """Serve only the page, the designated Cesium tree, and local APIs."""
++
++    # The application never needs reverse-DNS lookups for request logging.
++    def log_message(self, *_args: object) -> None:
++        pass
++
++    def token(self) -> str | None:
++        cookies = SimpleCookie()
+         try:
+-            if url.path in files:
+-                file,mime=files[url.path];return self.send(200,(ROOT/file).read_bytes(),mime)
+-            if url.path.startswith('/cesium/'):
+-                file=(assets/urllib.parse.unquote(url.path.removeprefix('/cesium/'))).resolve()
+-                if not file.is_relative_to(assets) or not file.is_file():return self.send(404,{})
+-                return self.send(200,file.read_bytes(),mimetypes.guess_type(str(file))[0] or 'application/octet-stream')
+-            user=store.actor(self.token())
+-            if url.path=='/me':return self.send(200,user)
+-            if url.path=='/locations':return self.send(200,store.locations(q.get('q',[''])[0]))
+-            if url.path=='/tracks':return self.send(200,store.tracks())
+-            if url.path=='/rewind':return self.send(200,store.rewind(q.get('id',[''])[0],q.get('at',[''])[0]))
+-            self.send(404,{})
+-        except PermissionError:self.send(403,{'error':'login_required'})
+-        except LookupError:self.send(404,{'error':'not_found'})
+-        except Exception:self.send(400,{'error':'request_failed'})
+-    def do_POST(self):
++            cookies.load(self.headers.get("Cookie", ""))
++        except CookieError:
++            return None
++        morsel = cookies.get("session")
++        return morsel.value if morsel is not None else None
++
++    def send(
++        self,
++        status: int,
++        data: object,
++        mime: str = "application/json; charset=utf-8",
++        token: str | None = None,
++    ) -> None:
++        if isinstance(data, bytes):
++            payload = data
++        elif mime.startswith("application/json"):
++            payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
++        else:
++            payload = bytes(data) if isinstance(data, bytearray) else data
++            if not isinstance(payload, bytes):
++                payload = str(payload).encode("utf-8")
++
++        self.send_response(status)
++        self.send_header("Content-Type", mime)
++        self.send_header("Content-Length", str(len(payload)))
++        self.send_header("X-Content-Type-Options", "nosniff")
++        if mime.startswith("application/json"):
++            self.send_header("Cache-Control", "no-store")
++        if token is not None:
++            cookie = SimpleCookie()
++            cookie["session"] = token
++            cookie["session"]["path"] = "/"
++            cookie["session"]["httponly"] = True
++            cookie["session"]["samesite"] = "Strict"
++            if token == "":
++                cookie["session"]["max-age"] = 0
++                cookie["session"]["expires"] = "Thu, 01 Jan 1970 00:00:00 GMT"
++            self.send_header("Set-Cookie", cookie.output(header="").strip())
++        self.end_headers()
++        self.wfile.write(payload)
++
++    def local_file(self, request_path: str) -> Path | None:
++        """Resolve a Cesium URL without allowing traversal outside its root."""
++
++        relative = urllib.parse.unquote(request_path.removeprefix("/cesium/"))
++        candidate = (ASSET_ROOT / relative).resolve()
++        if not candidate.is_relative_to(ASSET_ROOT) or not candidate.is_file():
++            return None
++        return candidate
++
++    def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
++        url = urllib.parse.urlsplit(self.path)
++        query = urllib.parse.parse_qs(url.query, keep_blank_values=True)
+         try:
+-            n=int(self.headers.get('Content-Length',0))
+-            if not 0<n<=10000:raise ValueError('size')
+-            a=json.loads(self.rfile.read(n))
+-            if not isinstance(a,dict):raise ValueError('body')
+-            if self.path=='/login':
+-                token,user=store.login(a);return self.send(200,user,token=token)
+-            if self.path=='/logout':store.logout(self.token());return self.send(200,{'logged_out':True},token='')
+-            self.send(404,{})
+-        except PermissionError:self.send(403,{'error':'invalid_login'})
+-        except Exception:self.send(400,{'error':'request_failed'})
+-server=ThreadingHTTPServer(('127.0.0.1',int(os.environ.get('PORT','0'))),Handler);print(json.dumps({'port':server.server_port}),flush=True);server.serve_forever()
++            if url.path in PUBLIC_FILES:
++                filename, mime = PUBLIC_FILES[url.path]
++                return self.send(200, (ROOT / filename).read_bytes(), mime)
++
++            if url.path.startswith("/cesium/"):
++                file_path = self.local_file(url.path)
++                if file_path is None:
++                    return self.send(404, {})
++                return self.send(
++                    200,
++                    file_path.read_bytes(),
++                    mimetypes.guess_type(str(file_path))[0]
++                    or "application/octet-stream",
++                )
++
++            user = store.actor(self.token())
++            if url.path == "/me":
++                return self.send(200, user)
++            if url.path == "/locations":
++                return self.send(200, store.locations(query.get("q", [""])[0]))
++            if url.path == "/tracks":
++                return self.send(200, store.tracks())
++            if url.path == "/rewind":
++                return self.send(
++                    200,
++                    store.rewind(
++                        query.get("id", [""])[0],
++                        query.get("at", [""])[0],
++                    ),
++                )
++            return self.send(404, {})
++        except PermissionError:
++            return self.send(403, {"error": "login_required"})
++        except LookupError:
++            return self.send(404, {"error": "not_found"})
++        except Exception:
++            # Do not turn private configuration or implementation details into
++            # an API response.  Invalid client input has one public shape.
++            return self.send(400, {"error": "request_failed"})
++
++    def do_POST(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
++        path = urllib.parse.urlsplit(self.path).path
++        try:
++            raw_length = self.headers.get("Content-Length", "0")
++            length = int(raw_length)
++            if length < 0 or length > 10000:
++                raise ValueError("size")
++            body = self.rfile.read(length) if length else b""
++
++            # Sign-out is intentionally usable with an empty body.  Revoking
++            # the server-side hash is what matters; the cookie is cleared too.
++            if path == "/logout":
++                store.logout(self.token())
++                return self.send(200, {"logged_out": True}, token="")
++
++            if path != "/login" or not body:
++                return self.send(404, {}) if path != "/login" else self.send(
++                    400, {"error": "request_failed"}
++                )
++            credentials = json.loads(body)
++            if not isinstance(credentials, dict):
++                raise ValueError("body")
++            token, user = store.login(credentials)
++            return self.send(200, user, token=token)
++        except PermissionError:
++            return self.send(403, {"error": "invalid_login"})
++        except Exception:
++            return self.send(400, {"error": "request_failed"})
++
++
++def main() -> None:
++    port = int(os.environ.get("PORT", "0"))
++    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
++    server.daemon_threads = True
++    print(json.dumps({"port": server.server_port}), flush=True)
++    server.serve_forever()
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/store.py b/store.py
+index 3ba57c2..152f1c0 100644
+--- a/store.py
++++ b/store.py
+@@ -1,26 +1,273 @@
+-import json,sqlite3,hashlib,secrets,hmac,math
+-from datetime import datetime,timezone
+-def instant(value):
+-    d=datetime.fromisoformat(value.replace('Z','+00:00'))
+-    if d.tzinfo is None:raise ValueError('timezone_required')
+-    return d.astimezone(timezone.utc)
+-def point(row):
+-    for key,bound in [('latitude',90),('longitude',180)]:
+-        value=row.get(key)
+-        if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or not -bound<=value<=bound:raise ValueError('invalid_point')
+-    return {key:row[key] for key in ['latitude','longitude']}
++"""Private configuration access and durable local-session storage.
++
++The web process keeps the configuration in memory, but only the small public
++projections returned by this module are sent to the browser.  Sessions are
++represented by random bearer tokens at the HTTP boundary and by SHA-256
++hashes in SQLite.
++"""
++
++from __future__ import annotations
++
++import hashlib
++import hmac
++import math
++import secrets
++import sqlite3
++from datetime import datetime, timezone
++from typing import Any, Mapping
++
++
++UTC = timezone.utc
++
++
++def _parse_instant(value: Any) -> datetime:
++    """Return an ISO-8601 or aware ``datetime`` value in UTC.
++
++    Fixture timestamps and API timestamps must carry a timezone.  Treating a
++    naive value as local time would make sample selection depend on the host,
++    so it is deliberately rejected instead.
++    """
++
++    if isinstance(value, datetime):
++        parsed = value
++    elif isinstance(value, str):
++        text = value.strip()
++        # ``fromisoformat`` accepts ``Z`` on recent Python versions, but
++        # normalising it also keeps this code portable to older runtimes.
++        if text.endswith(("Z", "z")):
++            text = text[:-1] + "+00:00"
++        try:
++            parsed = datetime.fromisoformat(text)
++        except (TypeError, ValueError) as exc:
++            raise ValueError("invalid_time") from exc
++    else:
++        raise ValueError("invalid_time")
++
++    if parsed.tzinfo is None or parsed.utcoffset() is None:
++        raise ValueError("timezone_required")
++    return parsed.astimezone(UTC)
++
++
++# Keep the timestamp helper available to callers while allowing the public
++# Store.rewind parameter to use the contract's name, ``instant``.
++instant = _parse_instant
++
++
++def point(row: Mapping[str, Any]) -> dict[str, Any]:
++    """Validate and copy the public geographic fields from a fixture row."""
++
++    if not isinstance(row, Mapping):
++        raise ValueError("invalid_point")
++
++    values: dict[str, Any] = {}
++    for key, bound in (("latitude", 90), ("longitude", 180)):
++        value = row.get(key)
++        if (
++            isinstance(value, bool)
++            or not isinstance(value, (int, float))
++            or not math.isfinite(value)
++            or not -bound <= value <= bound
++        ):
++            raise ValueError("invalid_point")
++        values[key] = value
++    return values
++
++
++def _token_hash(token: str | None) -> str:
++    """Hash an HTTP token without ever putting its value in the database."""
++
++    if not isinstance(token, str):
++        token = ""
++    return hashlib.sha256(token.encode("utf-8")).hexdigest()
++
++
+ class Store:
+-    def __init__(self,path,config):
+-        self.path=path;self.config=config
+-        with self.db() as db:db.execute('CREATE TABLE IF NOT EXISTS sessions(hash TEXT PRIMARY KEY,user TEXT)')
+-    def db(self):return sqlite3.connect(self.path,timeout=10)
+-    def login(self,a):raise NotImplementedError('Authenticate using the local credential record')
+-    def actor(self,token):
+-        with self.db() as db:row=db.execute('SELECT user FROM sessions WHERE hash=?',(hashlib.sha256((token or '').encode()).hexdigest(),)).fetchone()
+-        if not row or row[0] not in self.config['users']:raise PermissionError('login_required')
+-        return {'username':row[0],'name':self.config['users'][row[0]]['name']}
+-    def logout(self,token):
+-        with self.db() as db:db.execute('DELETE FROM sessions WHERE hash=?',(hashlib.sha256((token or '').encode()).hexdigest(),))
+-    def locations(self,query):return [{'id':row['id'],'name':row['name'],**point(row)} for row in self.config['locations'] if query.casefold() in row['name'].casefold()]
+-    def tracks(self):return [{'id':t['id'],'name':t['name'],'description':t['description']} for t in self.config['tracks']]
+-    def rewind(self,ident,at):raise NotImplementedError('Select the historical sample')
++    """Access the private fixture and the durable local session table."""
++
++    def __init__(self, path: str, config: Mapping[str, Any]):
++        self.path = path
++        self.config = config
++        with self.db() as database:
++            database.execute(
++                "CREATE TABLE IF NOT EXISTS sessions ("
++                "hash TEXT PRIMARY KEY, user TEXT NOT NULL"
++                ")"
++            )
++
++    def db(self) -> sqlite3.Connection:
++        return sqlite3.connect(self.path, timeout=10)
++
++    def login(self, credentials: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
++        """Verify the supplied local scrypt record and create a new session.
++
++        A malformed, unknown, or mismatching credential deliberately has the
++        same failure shape.  The clear token is returned only to the caller so
++        it can become an HttpOnly cookie; SQLite receives only its digest.
++        """
++
++        valid = False
++        record: Mapping[str, Any] | None = None
++        username: Any = None
++        password: Any = None
++        if isinstance(credentials, Mapping):
++            username = credentials.get("username")
++            password = credentials.get("password")
++            if isinstance(username, str) and isinstance(password, str):
++                users = self.config.get("users", {})
++                if isinstance(users, Mapping):
++                    candidate = users.get(username)
++                    if isinstance(candidate, Mapping):
++                        record = candidate
++                        try:
++                            salt = bytes.fromhex(candidate["salt"])
++                            expected = bytes.fromhex(candidate["password_hash"])
++                            actual = hashlib.scrypt(
++                                password.encode("utf-8"),
++                                salt=salt,
++                                n=16384,
++                                r=8,
++                                p=1,
++                            )
++                            valid = hmac.compare_digest(actual, expected)
++                        except (KeyError, TypeError, ValueError):
++                            # A bad private record must not become a server
++                            # traceback or disclose which part was malformed.
++                            valid = False
++
++        if not valid or record is None:
++            raise PermissionError("invalid_login")
++
++        token = secrets.token_urlsafe(32)
++        with self.db() as database:
++            database.execute(
++                "INSERT INTO sessions(hash, user) VALUES (?, ?)",
++                (_token_hash(token), username),
++            )
++        return token, {"username": username, "name": record["name"]}
++
++    def actor(self, token: str | None) -> dict[str, Any]:
++        """Resolve a still-valid session to its public actor projection."""
++
++        if not isinstance(token, str) or not token:
++            raise PermissionError("login_required")
++        with self.db() as database:
++            row = database.execute(
++                "SELECT user FROM sessions WHERE hash = ?",
++                (_token_hash(token),),
++            ).fetchone()
++
++        if not row:
++            raise PermissionError("login_required")
++        users = self.config.get("users", {})
++        record = users.get(row[0]) if isinstance(users, Mapping) else None
++        if not isinstance(record, Mapping) or "name" not in record:
++            # A session for a removed/private user is not usable.
++            raise PermissionError("login_required")
++        return {"username": row[0], "name": record["name"]}
++
++    def logout(self, token: str | None) -> None:
++        """Revoke the session represented by a cookie, if any."""
++
++        with self.db() as database:
++            database.execute(
++                "DELETE FROM sessions WHERE hash = ?",
++                (_token_hash(token),),
++            )
++
++    def locations(self, query: str) -> list[dict[str, Any]]:
++        """Return local locations whose names contain ``query`` case-folded."""
++
++        if not isinstance(query, str):
++            raise ValueError("invalid_query")
++        rows = self.config.get("locations", [])
++        if not isinstance(rows, list):
++            raise ValueError("invalid_locations")
++
++        result: list[dict[str, Any]] = []
++        needle = query.casefold()
++        for row in rows:
++            if not isinstance(row, Mapping):
++                raise ValueError("invalid_location")
++            name = row.get("name")
++            if not isinstance(name, str):
++                raise ValueError("invalid_location")
++            if needle in name.casefold():
++                result.append(
++                    {
++                        "id": row["id"],
++                        "name": name,
++                        **point(row),
++                    }
++                )
++        return result
++
++    def tracks(self) -> list[dict[str, Any]]:
++        """Return track metadata without exposing its private sample list."""
++
++        rows = self.config.get("tracks", [])
++        if not isinstance(rows, list):
++            raise ValueError("invalid_tracks")
++        result: list[dict[str, Any]] = []
++        for track in rows:
++            if not isinstance(track, Mapping):
++                raise ValueError("invalid_track")
++            result.append(
++                {
++                    "id": track["id"],
++                    "name": track["name"],
++                    "description": track["description"],
++                }
++            )
++        return result
++
++    def rewind(self, track_id: str, instant: Any) -> dict[str, Any]:
++        """Select the latest supplied sample at or before an aware instant.
++
++        Samples are compared by parsed UTC time, so their order in the source
++        fixture is not treated as chronological.  The source mapping is never
++        sorted or modified, and the returned sample retains its original time
++        representation while carrying the coordinates from that same row.
++        """
++
++        requested = _parse_instant(instant)
++        tracks = self.config.get("tracks", [])
++        if not isinstance(tracks, list):
++            raise ValueError("invalid_tracks")
++
++        selected_track: Mapping[str, Any] | None = None
++        for track in tracks:
++            if isinstance(track, Mapping) and track.get("id") == track_id:
++                selected_track = track
++                break
++        if selected_track is None:
++            raise LookupError("not_found")
++
++        samples = selected_track.get("samples", [])
++        if not isinstance(samples, list):
++            raise ValueError("invalid_samples")
++
++        # Keep the original list position as a deterministic tie-breaker for
++        # duplicate timestamps without changing the fixture itself.
++        candidates: list[tuple[datetime, int, Mapping[str, Any]]] = []
++        for position, sample in enumerate(samples):
++            if not isinstance(sample, Mapping):
++                raise ValueError("invalid_sample")
++            sample_time = _parse_instant(sample.get("time"))
++            if sample_time <= requested:
++                point(sample)
++                candidates.append((sample_time, position, sample))
++
++        if not candidates:
++            raise LookupError("not_found")
++
++        _, _, chosen = max(candidates, key=lambda item: (item[0], item[1]))
++        selected_sample = {
++            "time": chosen["time"],
++            **point(chosen),
++        }
++        return {
++            "id": selected_track["id"],
++            "name": selected_track["name"],
++            "description": selected_track["description"],
++            "sample": selected_sample,
++        }
+diff --git a/style.css b/style.css
+index 4e79f5c..d28bfce 100644
+--- a/style.css
++++ b/style.css
+@@ -1 +1 @@
+-*{box-sizing:border-box}body{margin:0;background:#eaf0f2;color:#203b49;font:16px system-ui}main{padding:24px}h1{font-size:30px}header,nav{display:flex;align-items:center;gap:20px;flex-wrap:wrap}header h1{margin-right:auto}nav{margin:16px 0}button,input,select{font:inherit;padding:9px;border:1px solid #96adb9;border-radius:5px;max-width:100%}button{background:#d9e7ed;cursor:pointer}label{display:grid;gap:6px;min-width:0}form{display:grid;gap:14px}#login-panel{max-width:420px;margin:12vh auto;background:#fff;padding:30px;border-radius:8px}#workspace{--left:0px;--right:0px;display:grid;grid-template-columns:var(--left) minmax(0,1fr) var(--right);grid-template-rows:minmax(0,1fr);height:560px;border:1px solid #b9cbd3}aside{padding:16px;background:#f8fbfc;min-width:0;overflow:auto}aside h2{font-size:21px}#main-panel{grid-column:1;grid-row:1}#camera-panel{grid-column:3;grid-row:1}#map{grid-column:2;grid-row:1;min-width:0;min-height:0;height:100%;overflow:hidden}#results{display:grid;gap:10px;margin-top:20px}#metadata{overflow-wrap:anywhere;font-size:14px}#status{min-height:24px}@media(max-width:1000px){main{padding:16px}}
++*{box-sizing:border-box}html,body{min-height:100%;margin:0}body{background:#eaf0f2;color:#203b49;font:16px system-ui,sans-serif}main{padding:24px}h1{font-size:30px}header,nav{display:flex;align-items:center;gap:20px;flex-wrap:wrap}header h1{margin-right:auto}nav{margin:16px 0}button,input,select{font:inherit;padding:9px;border:1px solid #96adb9;border-radius:5px;max-width:100%}button{background:#d9e7ed;cursor:pointer}button:hover{background:#c8dce4}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #e29551;outline-offset:2px}label{display:grid;gap:6px;min-width:0}form{display:grid;gap:14px}#login-panel{max-width:420px;margin:12vh auto;background:#fff;padding:30px;border-radius:8px;box-shadow:0 8px 28px #203b4920}#workspace{--left:0px;--right:0px;display:grid;grid-template-columns:var(--left) minmax(0,1fr) var(--right);grid-template-rows:minmax(0,1fr);width:100%;height:560px;border:1px solid #b9cbd3;background:#253b4c;overflow:hidden}aside{width:clamp(240px,26vw,360px);height:100%;padding:16px;background:#f8fbfc;min-width:0;overflow:auto}aside h2{font-size:21px;margin-top:0}#main-panel{grid-column:1;grid-row:1}#camera-panel{grid-column:3;grid-row:1}#map{grid-column:2;grid-row:1;min-width:0;min-height:0;width:100%;height:100%;overflow:hidden}#results{display:grid;gap:10px;margin-top:20px}#results button{text-align:left}#track-info,#metadata{overflow-wrap:anywhere;font-size:14px}#status{min-height:24px}@media(max-width:1000px){main{padding:16px}}@media(max-width:650px){#workspace{height:calc(100vh - 210px);min-height:420px}aside{width:240px}}

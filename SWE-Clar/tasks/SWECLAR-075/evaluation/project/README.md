@@ -1,0 +1,17 @@
+# Local attendance component
+
+Independent Python HTTP/SQLite service and responsive browser UI. Install cryptography==50.0.1. Start CHECKIN_CONFIG=config.json CHECKIN_DATABASE=attendance.sqlite python server.py; it prints a loopback port. Private config supplies encryption_key (a random 32-byte hexadecimal key), sites:[{id,name,latitude,longitude,radius_m,active}] and five ordered sections with Plans in the middle. Generate these fixtures independently; never use customer accounts, sites, location history or keys. Optional CHECKIN_CLOCK_FILE is a private evaluator clock, never accepted from HTTP callers.
+
+Repair the real account and attendance workflow. Endpoints: POST /register and /login accept email/password; /checkin accepts id,site_id,latitude,longitude; /checkout and /logout accept an empty object. GET /me,/sites,/navigation,/history require the cookie session. The browser requests its Geolocation API; the server evaluates coordinates, not an asserted distance field. Store input schemas and the browser shell are supplied for the repair.
+
+Only this web-executed account/GPS workflow is reconstructed. iOS navigation, location permission UX, GPS hardware accuracy, location spoofing resistance, deployment and TestFlight are not verified. The source establishes a GPS-based check-in and Plans emphasis; precise radius, one-open-interval and checkout policies are independently selected for this benchmark. Those are explicit synthetic benchmark conventions, not confirmed original client rules. Password hashing, AES-GCM field encryption, local cookie protocol and email normalization are independently selected implementation conventions; SQLite metadata is not a fully encrypted database. Never place the encryption key beside publicly served assets.
+
+
+Prepared execution: Python, SQLite, cryptography and Chromium/Playwright are installed before the task budget. `python /public_tests/preflight.py` creates only synthetic runtime configuration; start with `CHECKIN_CONFIG=runtime/config.json CHECKIN_DATABASE=runtime/attendance.sqlite PORT=8080 python server.py`. The prepared environment runs that preflight automatically. Run `python /public_tests/test_public.py` for the existing account/session regression. Stop the service and delete `runtime/attendance.sqlite` to reset records. Runtime secrets are Git-ignored and excluded from export. Resources: 2 CPUs, 2 GiB RAM, 256 processes; no external network.
+
+Preserve the existing encrypted SQLite field boundary: emails and attendance JSON use AES-GCM with a 32-byte configuration key, a fresh 12-byte nonce prefixed to the ciphertext, base64 transport, and `checkin-fixture` associated data. SQLite routing metadata is not encrypted. Account verifier parameters may vary as long as actual salted scrypt is used and login remains consistent; salts and cryptographic fields are never public response data. Attendance records expose id,user_id,site_id,latitude,longitude,started_at,ended_at,duration_seconds. Public error responses must be nonempty; only the GPS permission-denial UI text `location_unavailable` is fixed. Additional response metadata is allowed.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

@@ -1,0 +1,1 @@
+Independent protected assertions exercise the solution through a generic public invocation worker, CLI and actual HTTP/SVG browser. Candidate operations and Chromium execute UID1000 with allowlisted environment. Required business fields are deterministic; extra metadata is allowed. The viewer is a bounded synthetic display, not live trading computation.

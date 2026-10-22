@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Conversation workspace</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header><div><p class="eyebrow">Synthetic review workspace</p><h1>Conversations &amp; images</h1></div><button id="logout" hidden>Log out</button></header>
+  <p id="error" role="alert" aria-live="polite"></p>
+  <form id="login-form" class="panel">
+    <h2>Open your workspace</h2>
+    <label>Username<input id="username" autocomplete="username" required></label>
+    <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+    <button id="login" type="submit">Log in</button>
+  </form>
+  <main id="workspace" hidden>
+    <aside class="panel">
+      <h2>Conversations</h2>
+      <label>New conversation<input id="conversation-title" maxlength="80"></label>
+      <button id="create-conversation">Create conversation</button>
+      <nav id="conversation-list" aria-label="Select conversation"></nav>
+      <h2>Preferences</h2>
+      <label>Tone<input id="tone" maxlength="120"></label>
+      <label>Goal<input id="goal" maxlength="120"></label>
+      <button id="save-profile">Save preferences</button>
+    </aside>
+    <section class="panel conversation-panel">
+      <h2>Transcript</h2>
+      <p class="hint">Select a conversation and a screenshot, then extract its text.</p>
+      <div id="transcript" aria-live="polite"></div>
+      <button id="extract">Extract selected screenshot</button>
+      <h2>Suggestions</h2>
+      <label>Question<textarea id="question" maxlength="300" rows="3"></textarea></label>
+      <button id="coach">Request a suggestion</button>
+      <div id="advice-list" aria-live="polite"></div>
+    </section>
+    <section class="panel images-panel">
+      <h2>Images</h2>
+      <label>Image label<input id="asset-label" maxlength="80"></label>
+      <label>Image kind<select id="asset-kind"><option value="screenshot">Conversation screenshot</option><option value="photo">Image for ranking</option></select></label>
+      <label>PNG file<input id="asset-file" type="file" accept="image/png"></label>
+      <button id="upload">Upload image</button>
+      <div id="asset-list"></div>
+      <button id="rank">Rank selected images</button>
+      <ol id="ranking" aria-live="polite"></ol>
+      <p class="hint">This local service uses generated images and synthetic suggestions. It does not assess real people.</p>
+    </section>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

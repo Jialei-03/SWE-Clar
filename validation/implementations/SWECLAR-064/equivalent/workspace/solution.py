@@ -1,0 +1,883 @@
+"""Reference implementation for the local event-matching command module.
+
+The SQLite wrapper deliberately keeps authentication fixtures out of the public
+state.  This module still accepts those fixtures when the wrapper injects them,
+uses them while processing a command, and projects them out of every returned
+value.
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+from typing import Any
+
+
+_PRIVATE_KEYS = {"phone", "otp"}
+_ROLES = {"lead", "follow"}
+_COMMAND_FIELDS = ("type", "command", "action", "operation", "op")
+_MISSING = object()
+
+
+# ---------------------------------------------------------------------------
+# Public projection and small validation helpers
+
+
+def _collect_secrets(value: Any, found: set[str] | None = None) -> set[str]:
+    """Collect local credential strings before the public projection.
+
+    The CLI normally has already removed credentials from its stored state, but
+    it injects them for this function.  Direct callers may provide them too.
+    Looking recursively also handles synthetic fixture layouts used by callers.
+    """
+
+    if found is None:
+        found = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in _PRIVATE_KEYS and isinstance(item, str) and item:
+                found.add(item)
+            _collect_secrets(item, found)
+    elif isinstance(value, list):
+        for item in value:
+            _collect_secrets(item, found)
+    return found
+
+
+def _public_projection(value: Any, secrets: set[str]) -> Any:
+    """Return a JSON-shaped copy with private fields and credential strings removed."""
+
+    if isinstance(value, dict):
+        projected: dict[Any, Any] = {}
+        for key, item in value.items():
+            if key in _PRIVATE_KEYS:
+                continue
+            projected[key] = _public_projection(item, secrets)
+        return projected
+    if isinstance(value, list):
+        return [_public_projection(item, secrets) for item in value]
+    if isinstance(value, str) and secrets:
+        # Longest first avoids replacing a short credential inside a longer one
+        # before the longer value gets a chance to be redacted.
+        for secret in sorted(secrets, key=lambda item: (-len(item), item)):
+            if secret:
+                value = value.replace(secret, "[private]")
+    return value
+
+
+def _without_previous_outcome(value: dict[str, Any]) -> dict[str, Any]:
+    """Remove transient outcome fields from a state used for the next action."""
+
+    result = copy.deepcopy(value)
+    # The CLI persists successful action output.  These fields describe the
+    # previous action, rather than business data, and must not become nested
+    # outcomes on the next action.
+    result.pop("result", None)
+    result.pop("error", None)
+    result.pop("registration_status", None)
+    return result
+
+
+def _valid_id(value: Any) -> bool:
+    # JSON object keys, and the public command examples, use nonempty strings
+    # for actor and event identifiers.  Rejecting other values also prevents
+    # unhashable command values from escaping into a handler.
+    return isinstance(value, str) and bool(value)
+
+
+def _valid_role(value: Any) -> bool:
+    return isinstance(value, str) and value in _ROLES
+
+
+def _valid_nonempty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value)
+
+
+def _users(state: dict[str, Any]) -> dict[str, Any] | None:
+    value = state.get("users", _MISSING)
+    return value if isinstance(value, dict) else None
+
+
+def _find_user(state: dict[str, Any], user_id: Any) -> tuple[str, dict[str, Any]] | None:
+    users = _users(state)
+    if users is None or not _valid_id(user_id):
+        return None
+    # State is JSON data, so mapping keys are strings.  Keeping the key from
+    # the state as the canonical ID protects identity fields in user records.
+    if user_id not in users or not isinstance(users[user_id], dict):
+        return None
+    return user_id, users[user_id]
+
+
+def _capacity_is_valid(capacity: Any) -> bool:
+    if not isinstance(capacity, dict):
+        return False
+    for role in _ROLES:
+        value = capacity.get(role, _MISSING)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return False
+    return True
+
+
+def _event_id_is_valid(value: Any) -> bool:
+    return _valid_id(value)
+
+
+def _command_name(command: dict[str, Any]) -> str | None:
+    values: list[str] = []
+    for field in _COMMAND_FIELDS:
+        if field in command:
+            value = command[field]
+            if not isinstance(value, str) or not value:
+                return None
+            values.append(value)
+    if not values or any(value != values[0] for value in values[1:]):
+        return None
+    return values[0]
+
+
+def _required(command: dict[str, Any], *fields: str) -> bool:
+    return all(field in command for field in fields)
+
+
+def _event_mapping(state: dict[str, Any]) -> dict[str, Any] | None:
+    value = state.get("events", _MISSING)
+    return value if isinstance(value, dict) else None
+
+
+def _match_mapping_or_list(state: dict[str, Any]) -> dict[str, Any] | list[Any] | None:
+    value = state.get("matches", _MISSING)
+    if value is _MISSING:
+        return None
+    return value if isinstance(value, (dict, list)) else None
+
+
+# ---------------------------------------------------------------------------
+# Event helpers
+
+
+def _validate_registration_entry(entry: Any) -> bool:
+    return (
+        isinstance(entry, dict)
+        and _valid_id(entry.get("user_id"))
+        and _valid_role(entry.get("role"))
+    )
+
+
+def _validate_event(event: Any) -> tuple[dict[str, Any], list[Any], list[Any]] | None:
+    if not isinstance(event, dict):
+        return None
+    if not _valid_id(event.get("organizer_id")):
+        return None
+    capacity = event.get("capacity", _MISSING)
+    attendees = event.get("attendees", _MISSING)
+    waitlist = event.get("waitlist", _MISSING)
+    if not _capacity_is_valid(capacity):
+        return None
+    if not isinstance(attendees, list) or not isinstance(waitlist, list):
+        return None
+    if not all(_validate_registration_entry(entry) for entry in attendees):
+        return None
+    if not all(_validate_registration_entry(entry) for entry in waitlist):
+        return None
+    return capacity, attendees, waitlist
+
+
+def _event_exists(events: dict[str, Any], event_id: str) -> bool:
+    if event_id in events:
+        return True
+    # Supporting an explicit event_id field is harmless and makes uniqueness
+    # hold even for a hand-authored mapping whose key is an internal key.
+    for event in events.values():
+        if isinstance(event, dict) and event.get("event_id") == event_id:
+            return True
+    return False
+
+
+def _registration_location(
+    attendees: list[Any], waitlist: list[Any], user_id: str
+) -> tuple[str, int, dict[str, Any]] | None | bool:
+    """Find a registration.
+
+    ``False`` means a malformed duplicate registration (the same actor appears
+    in both arrays), while ``None`` means no registration.
+    """
+
+    found: list[tuple[str, int, dict[str, Any]]] = []
+    for collection_name, collection in (("attendees", attendees), ("waitlist", waitlist)):
+        for index, entry in enumerate(collection):
+            if entry.get("user_id") == user_id:
+                found.append((collection_name, index, entry))
+    if len(found) > 1:
+        return False
+    return found[0] if found else None
+
+
+def _role_count(attendees: list[Any], role: str) -> int:
+    return sum(1 for entry in attendees if entry.get("role") == role)
+
+
+# ---------------------------------------------------------------------------
+# Interest, block, and match helpers
+
+
+def _directed_key(source: str, target: str) -> str:
+    return json.dumps([source, target], ensure_ascii=False, separators=(",", ":"))
+
+
+def _pair_key(first: str, second: str) -> str:
+    ordered = [first, second] if first <= second else [second, first]
+    return "match:" + json.dumps(ordered, ensure_ascii=False, separators=(",", ":"))
+
+
+def _interest_record_matches(record: Any, source: str, target: str) -> bool:
+    if not isinstance(record, dict):
+        return False
+    source_value = record.get("user_id", record.get("source_id", record.get("from_id")))
+    target_value = record.get("target_id", record.get("to_id", record.get("recipient_id")))
+    return source_value == source and target_value == target
+
+
+def _interest_exists(collection: Any, source: str, target: str) -> bool:
+    if isinstance(collection, dict):
+        candidates = (
+            _directed_key(source, target),
+            f"{source}->{target}",
+            f"{source}:{target}",
+            f"{source}|{target}",
+        )
+        for key in candidates:
+            if key in collection and bool(collection[key]):
+                return True
+        nested = collection.get(source, _MISSING)
+        if isinstance(nested, dict) and target in nested and bool(nested[target]):
+            return True
+        if isinstance(nested, list) and target in nested:
+            return True
+        return any(_interest_record_matches(item, source, target) for item in collection.values())
+    if isinstance(collection, list):
+        for item in collection:
+            if _interest_record_matches(item, source, target):
+                return True
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                if item[0] == source and item[1] == target:
+                    return True
+    return False
+
+
+def _add_interest(state: dict[str, Any], source: str, target: str) -> bool:
+    collection = state.get("interests", _MISSING)
+    if collection is _MISSING:
+        collection = {}
+        state["interests"] = collection
+    if not isinstance(collection, (dict, list)):
+        return False
+    if _interest_exists(collection, source, target):
+        return True
+    if isinstance(collection, dict):
+        collection[_directed_key(source, target)] = True
+    else:
+        collection.append({"user_id": source, "target_id": target})
+    return True
+
+
+def _active_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, dict):
+        if "active" in value:
+            return bool(value["active"])
+        if "blocked" in value:
+            return bool(value["blocked"])
+    return bool(value)
+
+
+def _block_record_matches(record: Any, source: str, target: str) -> bool:
+    if not isinstance(record, dict):
+        return False
+    source_value = record.get(
+        "user_id", record.get("blocker_id", record.get("source_id", record.get("from_id")))
+    )
+    target_value = record.get(
+        "target_id", record.get("blocked_id", record.get("recipient_id", record.get("to_id")))
+    )
+    if source_value != source or target_value != target:
+        return False
+    if "active" in record:
+        return _active_value(record["active"])
+    if "blocked" in record:
+        return _active_value(record["blocked"])
+    return True
+
+
+def _block_collection_has(collection: Any, source: str, target: str) -> bool:
+    if isinstance(collection, dict):
+        candidates = (
+            _directed_key(source, target),
+            f"{source}->{target}",
+            f"{source}:{target}",
+            f"{source}|{target}",
+        )
+        for key in candidates:
+            if key in collection and _active_value(collection[key]):
+                return True
+        nested = collection.get(source, _MISSING)
+        if isinstance(nested, dict) and target in nested and _active_value(nested[target]):
+            return True
+        if isinstance(nested, list) and target in nested:
+            return True
+        return any(_block_record_matches(item, source, target) for item in collection.values())
+    if isinstance(collection, list):
+        for item in collection:
+            if _block_record_matches(item, source, target):
+                return True
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                if item[0] == source and item[1] == target:
+                    return True
+    return False
+
+
+def _is_blocked(state: dict[str, Any], first: str, second: str) -> bool:
+    for key in ("blocks", "blocked"):
+        if key in state and _block_collection_has(state[key], first, second):
+            return True
+        if key in state and _block_collection_has(state[key], second, first):
+            return True
+    return False
+
+
+def _add_block(state: dict[str, Any], source: str, target: str) -> bool:
+    # Prefer an already supplied representation.  When there is no block
+    # collection, use a simple directed mapping; the reverse direction is
+    # checked by _is_blocked, so one record blocks both directions.
+    if "blocks" in state:
+        key = "blocks"
+    elif "blocked" in state:
+        key = "blocked"
+    else:
+        key = "blocks"
+        state[key] = {}
+    collection = state.get(key)
+    if not isinstance(collection, (dict, list)):
+        return False
+    if _block_collection_has(collection, source, target) or _block_collection_has(
+        collection, target, source
+    ):
+        return True
+    if isinstance(collection, dict):
+        collection[_directed_key(source, target)] = True
+    else:
+        collection.append({"user_id": source, "target_id": target})
+    return True
+
+
+def _record_users(record: Any) -> list[str] | None:
+    if not isinstance(record, dict):
+        return None
+    users = record.get("users")
+    if not isinstance(users, list) or len(users) != 2:
+        return None
+    if not all(_valid_id(value) for value in users) or users[0] == users[1]:
+        return None
+    return users
+
+
+def _pair_matches(users: list[str] | None, first: str, second: str) -> bool:
+    return users is not None and (
+        (users[0] == first and users[1] == second)
+        or (users[0] == second and users[1] == first)
+    )
+
+
+def _match_entries(collection: dict[str, Any] | list[Any]) -> list[tuple[Any, Any]]:
+    if isinstance(collection, dict):
+        return [(key, value) for key, value in collection.items()]
+    return list(enumerate(collection))
+
+
+def _find_pair_matches(
+    collection: dict[str, Any] | list[Any], first: str, second: str
+) -> list[tuple[Any, Any]]:
+    return [
+        (key, record)
+        for key, record in _match_entries(collection)
+        if _pair_matches(_record_users(record), first, second)
+    ]
+
+
+def _activate_match(state: dict[str, Any], first: str, second: str) -> bool:
+    collection = state.get("matches", _MISSING)
+    if collection is _MISSING:
+        collection = {}
+        state["matches"] = collection
+    if not isinstance(collection, (dict, list)):
+        return False
+    existing = _find_pair_matches(collection, first, second)
+    if existing:
+        # Reuse an existing inactive record rather than creating a duplicate.
+        record = existing[0][1]
+        if isinstance(record, dict):
+            record["active"] = True
+            return True
+        return False
+    users = [first, second] if first <= second else [second, first]
+    record = {"users": users, "active": True}
+    if isinstance(collection, dict):
+        collection[_pair_key(first, second)] = record
+    else:
+        collection.append(record)
+    return True
+
+
+def _remove_pair_matches(state: dict[str, Any], first: str, second: str) -> None:
+    collection = state.get("matches", _MISSING)
+    if isinstance(collection, dict):
+        for key, record in list(collection.items()):
+            if _pair_matches(_record_users(record), first, second):
+                del collection[key]
+    elif isinstance(collection, list):
+        collection[:] = [
+            record
+            for record in collection
+            if not _pair_matches(_record_users(record), first, second)
+        ]
+
+
+def _active_pair_exists(state: dict[str, Any], first: str, second: str) -> bool:
+    collection = state.get("matches", _MISSING)
+    if not isinstance(collection, (dict, list)):
+        return False
+    if _is_blocked(state, first, second):
+        return False
+    for _, record in _find_pair_matches(collection, first, second):
+        if isinstance(record, dict) and record.get("active") is True:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Individual command handlers
+
+
+def _handle_verify(state: dict[str, Any], command: dict[str, Any]) -> tuple[bool, Any, str | None]:
+    if not _required(command, "user_id", "otp"):
+        return False, None, "malformed_command"
+    found = _find_user(state, command.get("user_id"))
+    supplied = command.get("otp")
+    if found is None:
+        return False, None, "unknown_user"
+    if not _valid_nonempty_string(supplied):
+        return False, None, "invalid_otp"
+    _, user = found
+    stored = user.get("otp", _MISSING)
+    if not isinstance(stored, str) or supplied != stored:
+        return False, None, "invalid_otp"
+    user["verified"] = True
+    return True, {"verified": True}, None
+
+
+def _handle_profile(state: dict[str, Any], command: dict[str, Any]) -> tuple[bool, Any, str | None]:
+    fields = ("user_id", "dance_style", "skill_level", "preferred_role")
+    if not _required(command, *fields):
+        return False, None, "malformed_command"
+    found = _find_user(state, command.get("user_id"))
+    if found is None:
+        return False, None, "unknown_user"
+    _, user = found
+    if user.get("verified") is not True:
+        return False, None, "user_not_verified"
+    dance_style = command.get("dance_style")
+    skill_level = command.get("skill_level")
+    preferred_role = command.get("preferred_role")
+    if not _valid_nonempty_string(dance_style) or not _valid_nonempty_string(skill_level):
+        return False, None, "invalid_profile"
+    if preferred_role not in _ROLES:
+        return False, None, "invalid_profile"
+    old_profile = user.get("profile", _MISSING)
+    if old_profile is not _MISSING and not isinstance(old_profile, dict):
+        return False, None, "invalid_profile"
+    profile = {} if old_profile is _MISSING else old_profile
+    # Only these profile keys are writable.  In particular, command extras do
+    # not get merged into the user record.
+    profile["dance_style"] = dance_style
+    profile["skill_level"] = skill_level
+    profile["preferred_role"] = preferred_role
+    user["profile"] = profile
+    # Keep the three names available as ordinary user profile fields as well.
+    # The nested profile is the canonical representation, while the aliases
+    # make hand-authored synthetic records that use flat profile fields
+    # interoperable without exposing or changing authentication fields.
+    user["dance_style"] = dance_style
+    user["skill_level"] = skill_level
+    user["preferred_role"] = preferred_role
+    public_profile = {
+        "dance_style": dance_style,
+        "skill_level": skill_level,
+        "preferred_role": preferred_role,
+    }
+    return True, {"profile": public_profile}, None
+
+
+def _handle_create_event(state: dict[str, Any], command: dict[str, Any]) -> tuple[bool, Any, str | None]:
+    if not _required(command, "organizer_id", "event_id", "capacity"):
+        return False, None, "malformed_command"
+    organizer = _find_user(state, command.get("organizer_id"))
+    if organizer is None:
+        return False, None, "unknown_organizer"
+    _, organizer_record = organizer
+    if organizer_record.get("approved_organizer") is not True:
+        return False, None, "organizer_not_approved"
+    event_id = command.get("event_id")
+    capacity = command.get("capacity")
+    if not _event_id_is_valid(event_id) or not _capacity_is_valid(capacity):
+        return False, None, "invalid_event"
+    events_value = state.get("events", _MISSING)
+    if events_value is _MISSING:
+        events: dict[str, Any] = {}
+        state["events"] = events
+    elif isinstance(events_value, dict):
+        events = events_value
+    else:
+        return False, None, "invalid_events"
+    if _event_exists(events, event_id):
+        return False, None, "event_exists"
+    event = {
+        "organizer_id": organizer[0],
+        "capacity": {"lead": capacity["lead"], "follow": capacity["follow"]},
+        "attendees": [],
+        "waitlist": [],
+    }
+    events[event_id] = event
+    return True, {"event_id": event_id, "event": copy.deepcopy(event)}, None
+
+
+def _handle_register_event(state: dict[str, Any], command: dict[str, Any]) -> tuple[bool, Any, str | None]:
+    if not _required(command, "event_id", "user_id", "role"):
+        return False, None, "malformed_command"
+    event_id = command.get("event_id")
+    user_id = command.get("user_id")
+    role = command.get("role")
+    if not _event_id_is_valid(event_id) or not _valid_id(user_id) or not _valid_role(role):
+        return False, None, "invalid_registration"
+    if _find_user(state, user_id) is None:
+        return False, None, "unknown_user"
+    events = _event_mapping(state)
+    if events is None or event_id not in events:
+        return False, None, "unknown_event"
+    validated = _validate_event(events[event_id])
+    if validated is None:
+        return False, None, "invalid_event"
+    capacity, attendees, waitlist = validated
+    location = _registration_location(attendees, waitlist, user_id)
+    if location is False:
+        return False, None, "invalid_event"
+    if location is not None:
+        status = "confirmed" if location[0] == "attendees" else "waitlisted"
+        result = {
+            "event_id": event_id,
+            "user_id": user_id,
+            "role": location[2].get("role"),
+            "registration_status": status,
+        }
+        return True, result, status
+    entry = {"user_id": user_id, "role": role}
+    if _role_count(attendees, role) < capacity[role]:
+        attendees.append(entry)
+        status = "confirmed"
+    else:
+        waitlist.append(entry)
+        status = "waitlisted"
+    return (
+        True,
+        {
+            "event_id": event_id,
+            "user_id": user_id,
+            "role": role,
+            "registration_status": status,
+        },
+        status,
+    )
+
+
+def _handle_override_role(state: dict[str, Any], command: dict[str, Any]) -> tuple[bool, Any, str | None]:
+    if not _required(command, "event_id", "organizer_id", "user_id", "role"):
+        return False, None, "malformed_command"
+    event_id = command.get("event_id")
+    organizer_id = command.get("organizer_id")
+    user_id = command.get("user_id")
+    role = command.get("role")
+    if (
+        not _event_id_is_valid(event_id)
+        or not _valid_id(organizer_id)
+        or not _valid_id(user_id)
+        or not _valid_role(role)
+    ):
+        return False, None, "invalid_override"
+    if _find_user(state, organizer_id) is None:
+        return False, None, "unknown_organizer"
+    if _find_user(state, user_id) is None:
+        return False, None, "unknown_user"
+    events = _event_mapping(state)
+    if events is None or event_id not in events:
+        return False, None, "unknown_event"
+    event = events[event_id]
+    validated = _validate_event(event)
+    if validated is None:
+        return False, None, "invalid_event"
+    capacity, attendees, waitlist = validated
+    if event.get("organizer_id") != organizer_id:
+        return False, None, "not_event_organizer"
+    organizer_record = _find_user(state, organizer_id)
+    if organizer_record is None or organizer_record[1].get("approved_organizer") is not True:
+        return False, None, "organizer_not_approved"
+    location = _registration_location(attendees, waitlist, user_id)
+    if location is False:
+        return False, None, "invalid_event"
+    if location is None:
+        return False, None, "registration_not_found"
+    collection_name, index, entry = location
+    old_role = entry.get("role")
+    if collection_name == "attendees":
+        if old_role != role and _role_count(attendees, role) >= capacity[role]:
+            # No source role or destination role is changed on a full move.
+            return False, None, "capacity_full"
+        entry["role"] = role
+        status = "confirmed"
+    else:
+        if _role_count(attendees, role) < capacity[role]:
+            moved = copy.deepcopy(entry)
+            moved["role"] = role
+            del waitlist[index]
+            attendees.append(moved)
+            status = "confirmed"
+        else:
+            entry["role"] = role
+            status = "waitlisted"
+    result = {
+        "event_id": event_id,
+        "user_id": user_id,
+        "role": role,
+        "registration_status": status,
+    }
+    return True, result, status
+
+
+def _handle_interest(state: dict[str, Any], command: dict[str, Any]) -> tuple[bool, Any, str | None]:
+    if not _required(command, "user_id", "target_id"):
+        return False, None, "malformed_command"
+    source = command.get("user_id")
+    target = command.get("target_id")
+    if not _valid_id(source) or not _valid_id(target) or source == target:
+        return False, None, "invalid_interest"
+    if _find_user(state, source) is None or _find_user(state, target) is None:
+        return False, None, "unknown_user"
+    interests = state.get("interests", _MISSING)
+    already = interests is not _MISSING and _interest_exists(interests, source, target)
+    if not already and not _add_interest(state, source, target):
+        return False, None, "invalid_interests"
+    reciprocal = _interest_exists(state.get("interests", {}), target, source)
+    matched = reciprocal and not _is_blocked(state, source, target)
+    if matched and not _activate_match(state, source, target):
+        return False, None, "invalid_matches"
+    return True, {"interest_recorded": True, "matched": bool(matched)}, None
+
+
+def _handle_send_message(state: dict[str, Any], command: dict[str, Any]) -> tuple[bool, Any, str | None]:
+    if not _required(command, "sender_id", "recipient_id", "text"):
+        return False, None, "malformed_command"
+    sender = command.get("sender_id")
+    recipient = command.get("recipient_id")
+    text = command.get("text")
+    if not _valid_id(sender) or not _valid_id(recipient) or sender == recipient:
+        return False, None, "invalid_message"
+    if not _valid_nonempty_string(text):
+        return False, None, "invalid_message"
+    if _find_user(state, sender) is None or _find_user(state, recipient) is None:
+        return False, None, "unknown_user"
+    if not _active_pair_exists(state, sender, recipient):
+        return False, None, "match_required"
+    messages_value = state.get("messages", _MISSING)
+    if messages_value is _MISSING:
+        messages: list[Any] = []
+        state["messages"] = messages
+    elif isinstance(messages_value, list):
+        messages = messages_value
+    else:
+        return False, None, "invalid_messages"
+    message = {"sender_id": sender, "recipient_id": recipient, "text": text}
+    messages.append(message)
+    return True, {"message": copy.deepcopy(message)}, None
+
+
+def _handle_list_matches(state: dict[str, Any], command: dict[str, Any]) -> tuple[bool, Any, str | None]:
+    if not _required(command, "user_id"):
+        return False, None, "malformed_command"
+    user_id = command.get("user_id")
+    if not _valid_id(user_id):
+        return False, None, "invalid_user"
+    if _find_user(state, user_id) is None:
+        return False, None, "unknown_user"
+    collection = state.get("matches", _MISSING)
+    if collection is _MISSING:
+        return True, {"matches": []}, None
+    if not isinstance(collection, (dict, list)):
+        return False, None, "invalid_matches"
+    visible: list[dict[str, Any]] = []
+    for _, record in _match_entries(collection):
+        users = _record_users(record)
+        if users is None or user_id not in users:
+            continue
+        if not isinstance(record, dict) or record.get("active") is not True:
+            continue
+        if _is_blocked(state, users[0], users[1]):
+            continue
+        # The public match shape intentionally contains only the contract's
+        # two fields, even if a synthetic internal record has more metadata.
+        visible.append({"users": copy.deepcopy(users), "active": True})
+    return True, {"matches": visible}, None
+
+
+def _handle_block(state: dict[str, Any], command: dict[str, Any]) -> tuple[bool, Any, str | None]:
+    if not _required(command, "user_id", "target_id"):
+        return False, None, "malformed_command"
+    source = command.get("user_id")
+    target = command.get("target_id")
+    if not _valid_id(source) or not _valid_id(target) or source == target:
+        return False, None, "invalid_block"
+    if _find_user(state, source) is None or _find_user(state, target) is None:
+        return False, None, "unknown_user"
+    if not _add_block(state, source, target):
+        return False, None, "invalid_blocks"
+    # Removing is allowed by the contract and makes both chat and visibility
+    # fail immediately, without touching matches for any other pair.
+    _remove_pair_matches(state, source, target)
+    return True, {"blocked": True}, None
+
+
+def _handle_report(state: dict[str, Any], command: dict[str, Any]) -> tuple[bool, Any, str | None]:
+    if not _required(command, "user_id", "target_id", "reason"):
+        return False, None, "malformed_command"
+    reporter = command.get("user_id")
+    target = command.get("target_id")
+    reason = command.get("reason")
+    if not _valid_id(reporter) or not _valid_id(target) or reporter == target:
+        return False, None, "invalid_report"
+    if not _valid_nonempty_string(reason):
+        return False, None, "invalid_report"
+    if _find_user(state, reporter) is None or _find_user(state, target) is None:
+        return False, None, "unknown_user"
+    reports_value = state.get("reports", _MISSING)
+    alerts_value = state.get("admin_alerts", _MISSING)
+    if reports_value is _MISSING:
+        reports: list[Any] = []
+    elif isinstance(reports_value, list):
+        reports = reports_value
+    else:
+        return False, None, "invalid_reports"
+    if alerts_value is _MISSING:
+        alerts: list[Any] = []
+    elif isinstance(alerts_value, list):
+        alerts = alerts_value
+    else:
+        return False, None, "invalid_alerts"
+    report = {"reporter_id": reporter, "target_id": target, "reason": reason}
+    alert = {"reporter_id": reporter, "target_id": target, "reason": reason}
+    # Both collections have been validated before either is changed.
+    if reports_value is _MISSING:
+        state["reports"] = reports
+    if alerts_value is _MISSING:
+        state["admin_alerts"] = alerts
+    reports.append(report)
+    alerts.append(alert)
+    return True, {"report": copy.deepcopy(report), "admin_alert": copy.deepcopy(alert)}, None
+
+
+_HANDLERS = {
+    "verify_otp": _handle_verify,
+    "update_profile": _handle_profile,
+    "create_event": _handle_create_event,
+    "register_event": _handle_register_event,
+    "override_role": _handle_override_role,
+    "express_interest": _handle_interest,
+    "send_message": _handle_send_message,
+    "list_matches": _handle_list_matches,
+    "block": _handle_block,
+    "report": _handle_report,
+}
+
+
+def _finish_success(base: dict[str, Any], payload: Any, status: str | None, secrets: set[str]) -> dict[str, Any]:
+    output = _public_projection(base, secrets)
+    output["result"] = _public_projection(payload, secrets)
+    if status is not None:
+        # The README calls this a top-level registration result.  It is also in
+        # result for callers that keep all command outcomes under that key.
+        output["registration_status"] = _public_projection(status, secrets)
+    return output
+
+
+def _finish_error(base: dict[str, Any], code: str, secrets: set[str]) -> dict[str, Any]:
+    output = _public_projection(base, secrets)
+    public_code = _public_projection(code or "invalid_command", secrets)
+    output["error"] = {"code": public_code or "invalid_command"}
+    return output
+
+
+class _CommandTransaction:
+    """Own the private working copy and the public commit/rollback boundary.
+
+    Handlers intentionally receive a mutable state because that keeps each
+    domain operation small.  The transaction is the part that makes those
+    mutations safe: ``base`` is the snapshot used for rejection and
+    ``working`` is the only copy a handler may change.  Both are separate
+    copies, so even a handler that mutates several collections before finding a
+    validation error cannot affect the caller's object or the rejected result.
+    """
+
+    __slots__ = ("base", "working", "secrets")
+
+    def __init__(self, source: dict[str, Any]) -> None:
+        self.secrets = _collect_secrets(source)
+        self.base = _without_previous_outcome(source)
+        self.working = copy.deepcopy(self.base)
+
+    def reject(self, code: str) -> dict[str, Any]:
+        return _finish_error(self.base, code, self.secrets)
+
+    def commit(self, payload: Any, status: str | None) -> dict[str, Any]:
+        return _finish_success(self.working, payload, status, self.secrets)
+
+
+def process_matchmaker_command(state: dict, command: dict) -> dict:
+    """Process one command transactionally and return a new public state.
+
+    The dispatch layer supplies every handler with an isolated working copy.
+    A handler's success commits that copy through the public projection; every
+    other path renders the untouched snapshot, which gives rejected commands
+    atomic semantics without exposing authentication fixtures.
+    """
+
+    if not isinstance(state, dict):
+        return {"error": {"code": "invalid_state"}}
+    try:
+        transaction = _CommandTransaction(state)
+    except Exception:
+        return {"error": {"code": "invalid_state"}}
+
+    if not isinstance(command, dict):
+        return transaction.reject("malformed_command")
+    name = _command_name(command)
+    handler = _HANDLERS.get(name) if name is not None else None
+    if handler is None:
+        return transaction.reject("unknown_command")
+
+    try:
+        succeeded, payload, status = handler(transaction.working, command)
+    except Exception:
+        # JSON-compatible malformed inputs should never make the public entry
+        # point throw.  The transaction still owns the untouched rejection
+        # snapshot, so partial handler mutations are discarded.
+        return transaction.reject("invalid_command")
+    if not succeeded:
+        return transaction.reject(str(status or "invalid_command"))
+    return transaction.commit(payload, status)

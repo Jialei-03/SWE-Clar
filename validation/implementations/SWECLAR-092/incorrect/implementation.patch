@@ -1,0 +1,308 @@
+--- a/dashboard.css
++++ b/dashboard.css
+@@ -1,10 +1,108 @@
+-body { margin:0; background:#f3f6fa; color:#24364b; }
+-.fleet-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; }
+-.summary-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:16px; }
+-.summary-tile { background:white; border:1px solid #dce4ed; border-radius:8px; padding:20px; }
+-.summary-value { font-size:28px; font-weight:600; }
+-.card { min-width:0; } .list-group-item { overflow-wrap:anywhere; }
+-#sidebar { position:fixed; right:0; top:0; bottom:0; width:min(420px,100%); padding:24px; background:white; box-shadow:-8px 0 30px #17243833; overflow:auto; z-index:20; }
+-[hidden] { display:none !important; }
+-@media (max-width:1023px) { .fleet-grid { gap:16px; } }
+-@media (max-width:599px) { .fleet-grid { grid-template-columns:repeat(2,360px); } main.container-fluid { padding:16px !important; } .card-header { align-items:flex-start !important; gap:10px; } }
++* { box-sizing: border-box; }
++
++html,
++body { min-height: 100%; }
++
++body {
++  margin: 0;
++  background: #f3f6fa;
++  color: #24364b;
++  overflow-x: hidden;
++}
++
++main.container-fluid {
++  width: 100%;
++  max-width: 1400px;
++  margin: 0 auto;
++}
++
++.fleet-grid {
++  display: grid;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  gap: 24px;
++}
++
++.summary-grid {
++  display: grid;
++  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
++  gap: 16px;
++}
++
++.summary-tile {
++  min-width: 0;
++  padding: 20px;
++  background: #fff;
++  border: 1px solid #dce4ed;
++  border-radius: 8px;
++}
++
++.summary-label,
++.summary-value {
++  overflow-wrap: anywhere;
++  word-break: break-word;
++}
++
++.summary-value {
++  font-size: 28px;
++  font-weight: 600;
++}
++
++.card { min-width: 0; }
++
++.list-group-item {
++  min-width: 0;
++  overflow-wrap: anywhere;
++  word-break: break-word;
++}
++
++#sidebar {
++  position: fixed;
++  top: 0;
++  right: 0;
++  bottom: 0;
++  z-index: 20;
++  width: min(420px, 100vw);
++  max-width: 100%;
++  padding: 24px;
++  overflow-x: hidden;
++  overflow-y: auto;
++  background: #fff;
++  box-shadow: -8px 0 30px #17243833;
++  pointer-events: none;
++}
++
++#sidebar > * { pointer-events: auto; }
++
++#sidebar-title {
++  min-width: 0;
++  overflow-wrap: anywhere;
++}
++
++[hidden] { display: none !important; }
++
++@media (max-width: 1023px) {
++  .fleet-grid { gap: 16px; }
++}
++
++@media (max-width: 599px) {
++  main.container-fluid { padding: 16px !important; }
++
++  .fleet-grid {
++    grid-template-columns: minmax(0, 1fr);
++  }
++
++  .card-header {
++    align-items: flex-start !important;
++    gap: 10px;
++  }
++
++  .card-header h2 {
++    min-width: 0;
++    overflow-wrap: anywhere;
++  }
++
++  .card-header .btn {
++    flex: 0 1 auto;
++    white-space: normal;
++  }
++}
+--- a/dashboard.js
++++ b/dashboard.js
+@@ -1,39 +1,160 @@
+ (() => {
++  'use strict';
++
++  const REQUIRED_FIELDS = ['summary', 'drivers', 'vehicles'];
+   const byId = (id) => document.getElementById(id);
+-  const data = window.FLEET_DATA;
+-  const fillList = (element, rows) => {
++
++  // Keep the currently selected panel as a small piece of UI state.  The
++  // records themselves always come from window.FLEET_DATA.
++  let openPanel = null;
++
++  const hasOwn = (object, key) => (
++    object !== null && object !== undefined
++    && Object.prototype.hasOwnProperty.call(object, key)
++  );
++
++  const getData = () => window.FLEET_DATA;
++
++  const missingFields = (data) => REQUIRED_FIELDS.filter((field) => !hasOwn(data, field));
++
++  const clearRenderedContent = () => {
++    byId('summary').replaceChildren();
++    byId('drivers').replaceChildren();
++    byId('vehicles').replaceChildren();
++  };
++
++  const showError = (error) => {
++    const element = byId('error');
++    element.hidden = false;
++    element.textContent = `${error.code}: ${(error.fields || []).join(', ')}`;
++    return { error };
++  };
++
++  const hideError = () => {
++    const element = byId('error');
++    element.hidden = true;
++    element.textContent = '';
++  };
++
++  const renderList = (element, rows) => {
+     element.replaceChildren();
+     rows.forEach((row) => {
+       const item = document.createElement('li');
+       item.className = 'list-group-item';
++      // textContent deliberately keeps names as text, even when a name looks
++      // like HTML or contains an event-handler-looking string.
+       item.textContent = row.name;
+-      item.dataset.recordId = row.id;
++      item.dataset.recordId = String(row.id);
+       element.append(item);
+     });
+   };
+-  const showError = (error) => {
+-    byId('error').hidden = false;
+-    byId('error').textContent = error.code + ': ' + (error.fields || []).join(', ');
+-    return {error};
++
++  const renderSummary = (summary) => {
++    const element = byId('summary');
++    element.replaceChildren();
++
++    Object.entries(summary).forEach(([label, value]) => {
++      const tile = document.createElement('div');
++      tile.className = 'summary-tile';
++
++      const heading = document.createElement('span');
++      heading.className = 'summary-label';
++      heading.textContent = label;
++
++      const number = document.createElement('div');
++      number.className = 'summary-value';
++      number.textContent = String(value);
++
++      tile.append(heading, number);
++      element.append(tile);
++    });
+   };
++
++  const closeSidebar = () => {
++    openPanel = null;
++    byId('sidebar').hidden = false;
++    byId('sidebar-items').replaceChildren();
++    byId('sidebar-title').textContent = '';
++  };
++
++  const renderSidebar = (target) => {
++    const data = getData();
++    const rows = data[target];
++    const title = target === 'drivers' ? 'All drivers' : 'All vehicles';
++    const sidebar = byId('sidebar');
++    const items = byId('sidebar-items');
++
++    openPanel = target;
++    byId('sidebar-title').textContent = title;
++    renderList(items, rows);
++    sidebar.hidden = false;
++  };
++
+   const render = () => {
+-    const missing = ['summary','drivers','vehicles'].filter((key) => !Object.hasOwn(data,key));
+-    if (missing.length) return showError({code:'missing_data',fields:missing});
+-    byId('error').hidden = true;
+-    byId('summary').replaceChildren();
+-    Object.entries(data.summary).forEach(([label,value]) => {
+-      const tile=document.createElement('div'); tile.className='summary-tile';
+-      const heading=document.createElement('span');heading.textContent=label;
+-      const number=document.createElement('div');number.className='summary-value';number.textContent=String(value);
+-      tile.append(heading,number);byId('summary').append(tile);
+-    });
+-    fillList(byId('drivers'),data.drivers);fillList(byId('vehicles'),data.vehicles);
+-    return {ok:true};
++    const data = getData();
++    const missing = missingFields(data);
++
++    if (missing.length) {
++      // Do not leave stale or partial records visible when the source is
++      // incomplete.
++      clearRenderedContent();
++      closeSidebar();
++      return showError({ code: 'missing_data', fields: missing });
++    }
++
++    hideError();
++    renderSummary(data.summary);
++    renderList(byId('drivers'), data.drivers);
++    renderList(byId('vehicles'), data.vehicles);
++
++    // A normal refresh keeps an already-open local panel in sync with the
++    // current source object.  It never creates records of its own.
++    if (openPanel) renderSidebar(openPanel);
++
++    return { ok: true };
+   };
+-  const dispatch = (action) => ({ok:true});
+-  window.dashboard = {dispatch, render};
+-  byId('view-drivers').addEventListener('click',()=>dispatch({type:'view_all',target:'drivers'}));
+-  byId('view-vehicles').addEventListener('click',()=>dispatch({type:'view_all',target:'vehicles'}));
+-  byId('close-sidebar').addEventListener('click',()=>dispatch({type:'close_sidebar'}));
++
++  const unknownAction = () => ({ error: { code: 'unknown_action' } });
++
++  const dispatch = (action) => {
++    // Validate the complete action before changing any UI state.  In
++    // particular, malformed actions must be harmless.
++    if (!action || typeof action !== 'object' || Array.isArray(action)) {
++      return unknownAction();
++    }
++
++    if (action.type === 'close_sidebar' && Object.keys(action).length === 1) {
++      closeSidebar();
++      return { ok: true };
++    }
++
++    if (
++      action.type === 'view_all'
++      && Object.keys(action).length === 2
++      && (action.target === 'drivers' || action.target === 'vehicles')
++    ) {
++      const data = getData();
++      const missing = missingFields(data);
++      if (missing.length) return { error: { code: 'missing_data', fields: missing } };
++
++      renderSidebar(action.target);
++      return { ok: true };
++    }
++
++    return unknownAction();
++  };
++
++  window.dashboard = { dispatch, render };
++
++  byId('view-drivers').addEventListener('click', () => {
++    dispatch({ type: 'view_all', target: 'drivers' });
++  });
++  byId('view-vehicles').addEventListener('click', () => {
++    dispatch({ type: 'view_all', target: 'vehicles' });
++  });
++  byId('close-sidebar').addEventListener('click', () => {
++    dispatch({ type: 'close_sidebar' });
++  });
++
+   render();
+ })();

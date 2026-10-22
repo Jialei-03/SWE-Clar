@@ -1,0 +1,40 @@
+# ASP.NET Core database setup
+
+Repair the supplied ASP.NET Core 8 API. It already has HTTP routes, a MariaDB helper, three supplied migration statements, HTTPS and client certificate chain validation. Implement genuine connection reporting, migration execution and protected-endpoint authorization. The project and data are independent reconstructions; no original repository or certificate is included.
+
+## Prepared environment and commands
+
+The benchmark provides .NET SDK 8.0.425, MySqlConnector 2.5.0 and its offline dependencies, MariaDB 11.4.5, a new database with a restricted account, and synthetic development certificates **before coding begins**. You do not install dependencies, create users, configure credentials, trust system certificates or start the database. From `/workspace`:
+
+- Build: `python build.py`
+- Start: `python start.py` (HTTPS on `https://127.0.0.1:8080`; optional `API_PORT` override)
+- Public smoke: `python /public_tests/test_public.py /workspace`
+- Reset: stop your API, then `python /workspace/dev_runtime/reset.py /workspace`; this resets the sample schema in your attempt's database.
+
+Build/start diagnostics appear in the terminal. The public smoke starts its own API on an available local port and terminates that process. Runtime connection details and synthetic certificate files live in `runtime/`; the launcher loads them automatically. They are generated per attempt, excluded from version control and must not be included in your deliverable. Stop the foreground API with Ctrl-C. Each new benchmark attempt receives an independent database and certificate set.
+
+## Public API and schema
+
+All responses are JSON. Additional harmless response fields are allowed. Route paths, field names, error tokens, migration identifiers and schema below are integration contracts, not hidden requirements. Ask the client about migration batch ordering/replays and authorization policy for the protected endpoint.
+
+| Endpoint | Input | Response contract |
+| --- | --- | --- |
+| POST /connect | object with provider string | connected boolean and provider string; failure error `database_connection_failed` |
+| POST /migrations | array of migration ID strings | applied and all arrays; invalid input error `invalid_migrations`/400; execution failure `migration_failed`/503 |
+| GET /health | none | database_connected boolean, migration_count integer, tls_configured boolean |
+| GET /samples | none | array of id/name/category objects; unready error `api_not_ready`/503 |
+| GET /secure | optional client TLS certificate | message `certificate accepted` and migration_count; unauthenticated error token `certificate_required` |
+| Unknown path | any | error `unknown_endpoint`/404 |
+
+`POST /connect` must accept MariaDB case-insensitively, open the configured connection and verify its server identity. Caller-supplied `connection_ok` is untrusted. Never report success for wrong credentials or an unreachable database. Responses must not expose connection strings, database passwords or private keys.
+
+The supplied migrations are `001_create_samples`, `002_add_category`, `003_index_category`. They create `samples(id VARCHAR(80) PRIMARY KEY, name VARCHAR(160) NOT NULL)`, add `category VARCHAR(80) NOT NULL DEFAULT 'general'`, and add index `sample_category` on category. The public durable history schema is `schema_migrations(sequence_id INT AUTO_INCREMENT PRIMARY KEY, migration_id VARCHAR(80) NOT NULL UNIQUE)`. Keep existing sample records. MariaDB DDL commits individually; do not assume a transaction can roll back a whole batch. The SQL statements are idempotent to support resuming interrupted DDL.
+
+HTTPS uses the generated server PFX. The scaffold requests optional client certificates and validates presented certificates against the generated CA with client-authentication purpose. These are existing public facilities. The candidate may modify their implementation while preserving this behavior; no system trust-store modification is needed. Development files include `runtime/ca.pem`, `runtime/client.pem` and `runtime/client.key` for testing. The client CA private key is not supplied.
+
+The public smoke checks the provided HTTPS/health scaffolding against a real database. It does not assert the hidden migration or protected-endpoint policy. Windows installation, production deployment and external customer services are outside this task.
+
+<!-- delivery-contract -->
+## Delivery agreement
+
+The public interface is also available in `DELIVERY_INTERFACE.json`. Its field names, signatures, defaults and error shapes are fixed; clarification may explain them but must not rename or contradict them. Business decisions intentionally left open above remain questions for the client. If a reply conflicts with this agreement, request a correction.

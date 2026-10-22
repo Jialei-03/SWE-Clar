@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "contract_version": "swe-clar",
+  "task_id": "SWECLAR-082",
+  "public": {
+    "readme": "# Classroom audio and session service\n\nRepair the supplied Python session service, local speech adapter and translation connector. `process_class_action(state,action,transcriber=None,translator=None)` is an internal immutable boundary. `python cli.py --db state.sqlite --assets audio-directory init|show|act` initializes once, inspects trusted local state, or reads one action from stdin and atomically saves successful state changes. act prints only result/error. State.users maps synthetic user IDs to teacher/student roles; actor_id is supplied by a trusted application adapter. This CLI is not a public authentication service.\n\nActions include create_class(class_id,code), join(code), start/pause/resume/complete(class_id,clock), question_click(class_id,question_id,elapsed), question_submit(class_id,question_id,text), transcribe(class_id,segment_id,audio_path,elapsed), feedback, post_class_view, add_material and translate. Audio paths are relative to the isolated asset directory. The supplied transcriber interface must read actual audio; caller text is not a transcription.\n\nRuntime: whisper.cpp 1.7.6, its public ggml tiny.en model, Python 3.12. Set WHISPER_BIN, WHISPER_MODEL and optional TRANSLATION_URL. Evaluator audio is independently synthesized English speech, 16 kHz mono PCM WAV, at most 30 seconds per segment; no classroom recording is distributed. The public model and tool are runtime dependencies, not customer assets. Translation uses a local synthetic HTTP provider during tests.\n\nThis reconstructs the audio/session backend component, not the original classroom application UI, production speech service, cloud accounts or live microphone capture. Local English transcription is actually exercised; accuracy in noisy classrooms and other languages is not claimed. Timer clocks and clicked elapsed values are application-supplied fixture values.",
+    "interfaces": [
+      {
+        "type": "function",
+        "entry": {
+          "language": "python",
+          "file": "solution.py",
+          "function": "process_class_action",
+          "signature": "process_class_action(state,action,transcriber=None,translator=None) -> dict"
+        },
+        "inputs": {
+          "state": "Private session state with users/classes/translations",
+          "action": "Supported action with trusted actor_id",
+          "transcriber": "LocalWhisper(binary,model,asset_root)",
+          "translator": "TranslationClient(url)"
+        },
+        "output": {
+          "type": "dict",
+          "meaning": "Next session state backed by actual audio transcription or translation I/O where required."
+        },
+        "operations": []
+      }
+    ]
+  },
+  "interfaces_by_ru": {
+    "RU-001": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_class_action",
+        "signature": "process_class_action(state,action,transcriber=None,translator=None) -> dict"
+      },
+      "inputs": {
+        "state": "Private session state with users/classes/translations",
+        "action": "Supported action with trusted actor_id",
+        "transcriber": "LocalWhisper(binary,model,asset_root)",
+        "translator": "TranslationClient(url)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next session state backed by actual audio transcription or translation I/O where required."
+      },
+      "operations": []
+    },
+    "RU-002": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_class_action",
+        "signature": "process_class_action(state,action,transcriber=None,translator=None) -> dict"
+      },
+      "inputs": {
+        "state": "Private session state with users/classes/translations",
+        "action": "Supported action with trusted actor_id",
+        "transcriber": "LocalWhisper(binary,model,asset_root)",
+        "translator": "TranslationClient(url)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next session state backed by actual audio transcription or translation I/O where required."
+      },
+      "operations": []
+    },
+    "RU-003": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_class_action",
+        "signature": "process_class_action(state,action,transcriber=None,translator=None) -> dict"
+      },
+      "inputs": {
+        "state": "Private session state with users/classes/translations",
+        "action": "Supported action with trusted actor_id",
+        "transcriber": "LocalWhisper(binary,model,asset_root)",
+        "translator": "TranslationClient(url)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next session state backed by actual audio transcription or translation I/O where required."
+      },
+      "operations": []
+    },
+    "RU-004": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_class_action",
+        "signature": "process_class_action(state,action,transcriber=None,translator=None) -> dict"
+      },
+      "inputs": {
+        "state": "Private session state with users/classes/translations",
+        "action": "Supported action with trusted actor_id",
+        "transcriber": "LocalWhisper(binary,model,asset_root)",
+        "translator": "TranslationClient(url)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next session state backed by actual audio transcription or translation I/O where required."
+      },
+      "operations": []
+    },
+    "RU-005": {
+      "type": "function",
+      "entry": {
+        "language": "python",
+        "file": "solution.py",
+        "function": "process_class_action",
+        "signature": "process_class_action(state,action,transcriber=None,translator=None) -> dict"
+      },
+      "inputs": {
+        "state": "Private session state with users/classes/translations",
+        "action": "Supported action with trusted actor_id",
+        "transcriber": "LocalWhisper(binary,model,asset_root)",
+        "translator": "TranslationClient(url)"
+      },
+      "output": {
+        "type": "dict",
+        "meaning": "Next session state backed by actual audio transcription or translation I/O where required."
+      },
+      "operations": []
+    }
+  },
+  "requirements_sha256": "c836140a226fc78225e82110cf2a3691a35cedf67e6752700f9521689bbd426c",
+  "test_sources_sha256": {
+    "evaluation/tests/candidate_proxy.py": "772900b7ab833d76097dce71d9c7c80d1bfca36914321936f00078adab1d0d03",
+    "evaluation/tests/conftest.py": "8b7860e7d8d0902169fab1abc22d2daff6c02906e44d3d565cdd16e3cb0ac45f",
+    "evaluation/tests/evaluate.py": "2d235ecbe7745653f3942a95a228e5105e6b2badf2d37fc290b47acd0c6687ca",
+    "evaluation/tests/expected_gates.json": "4607e7b10fa97b08ccde1f7e27a2e7b3e640cfdbf6fc7982b8a61fd7df0cee86",
+    "evaluation/tests/official_verifier.py": "ec2386d25394235b00f9e9dad7aa8d41a490557bfeff5e5cf5fc8559a39526fd",
+    "evaluation/tests/source_test.sh": "b368d552b8b6c54c28a80239801e7a5b145232b8f7771ad50d35be344f311055",
+    "evaluation/tests/test.sh": "668f5989e7089d6f66433ea2565433e8b745a37d3df395127e69932ab2f37867",
+    "evaluation/tests/test_solution.py": "0ff1030f5ca5b0d46009203feda399caae0ea176eb561128aeb0cfe5f79a10b2"
+  },
+  "public_environment_sha256": "9299c9f912de8bb29975e67c343374e26984a3f07f2fa12df89a3b25a474a9dc",
+  "information_policy": "elicitation-v3-private-project-documents"
+}

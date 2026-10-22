@@ -1,0 +1,1194 @@
+diff --git a/host.js b/host.js
+index b01c9fa1ce8e054018e4798267a47af33c38fb2a..4dc1a9d1a033206b37d4ac7317d905ae1c3a3dee 100644
+--- a/host.js
++++ b/host.js
+@@ -11,7 +11,13 @@ export function element(tag, text, attributes = {}) {
+ }
+ export function message(error) { document.querySelector('#message').textContent = error ? error.message : ''; }
+ export class NotebookHost {
+-  constructor() { this.nodes = []; this.current = null; }
++  constructor() { this.nodes = []; this.current = null; this.pendingEdits = new Set(); }
++  async flush() {
++    // A sidebar click can blur an editor and start its save immediately before
++    // the sidebar command.  Await those saves so a new default bookmark label
++    // and every subsequent domain mutation observe the edited document.
++    await Promise.all([...this.pendingEdits]);
++  }
+   async refresh() {
+     const data = await request('/api/document'); this.nodes = data.nodes; this.current = data.current; this.render();
+   }
+@@ -20,7 +26,7 @@ export class NotebookHost {
+     while (id) { const node = this.nodes.find(x=>x.id===id); if (!node) break; result.unshift(node); id = node.parent; }
+     return result;
+   }
+-  async navigate(id) { await request('/api/host',{type:'navigate',id}); await this.refresh(); }
++  async navigate(id) { await this.flush(); await request('/api/host',{type:'navigate',id}); await this.refresh(); }
+   target(kind) { return this.ancestors().find(x=>x.kind===kind); }
+   render() {
+     const nav = document.querySelector('#document-nav'); nav.replaceChildren();
+@@ -37,7 +43,13 @@ export class NotebookHost {
+     for (const node of this.nodes.filter(x=>x.kind==='paragraph' && x.parent===page)) {
+       const row = element('p',node.text,{contenteditable:'true','data-paragraph':node.id,tabindex:'0'});
+       row.addEventListener('focus',()=>{this.current=node.id;request('/api/host',{type:'navigate',id:node.id}).catch(message);});
+-      row.addEventListener('blur',()=>request('/api/host',{type:'edit',id:node.id,text:row.textContent}).then(()=>{node.text=row.textContent;}).catch(message));
++      row.addEventListener('blur',()=>{
++        const pending = request('/api/host',{type:'edit',id:node.id,text:row.textContent})
++          .then(()=>{node.text=row.textContent;})
++          .catch(message);
++        this.pendingEdits.add(pending);
++        pending.then(()=>this.pendingEdits.delete(pending),()=>this.pendingEdits.delete(pending));
++      });
+       editor.append(row);
+     }
+     if (current.kind==='paragraph') {
+diff --git a/model.py b/model.py
+index f88fff5be47df90a6578a91c0086f8dcdad24f6b..c878f32f905187800d1a1b55a98ff391f221a3bf 100644
+--- a/model.py
++++ b/model.py
+@@ -1,154 +1,365 @@
+-"""Notebook host and bookmark-domain operations, independent of transport."""
++"""Notebook host and bookmark-domain operations, independent of transport.
++
++The model deliberately keeps the host document and the bookmark workspace in
++one JSON value.  Every public operation works on a deep copy and the HTTP
++layer commits that copy only after the complete command has validated.  This
++makes the error behaviour (including view-only commands) atomic while keeping
++the representation easy to inspect in SQLite.
++"""
+ import copy
+ import re
+ 
+ 
+ class Rejected(ValueError):
+-    pass
++    """A client command which cannot be applied."""
++
++
++_ID = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
+ 
+ 
+-def require(condition, code='invalid_command'):
+-    if not condition: raise Rejected(code)
++def require(condition, code="invalid_command"):
++    if not condition:
++        raise Rejected(code)
+ 
+ 
+ def identifier(value):
+-    require(isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,64}', value))
++    """Validate and return an item/tab identifier."""
++    require(isinstance(value, str) and _ID.fullmatch(value) is not None)
+     return value
+ 
+ 
+ def label(value):
++    """Validate a user-visible label and return its trimmed form."""
+     require(isinstance(value, str) and 1 <= len(value.strip()) <= 120)
+     return value.strip()
+ 
+ 
+ def initial():
+     nodes = [
+-        ('BOOK-A', None, 'notebook', 'Field journal'),
+-        ('GROUP-A', 'BOOK-A', 'group', 'Practice'),
+-        ('SECTION-A', 'GROUP-A', 'section', 'Experiments'),
+-        ('PAGE-A', 'SECTION-A', 'page', 'Paper bridge'),
+-        ('PAR-A', 'PAGE-A', 'paragraph', 'Fold a strip into three equal panels.'),
+-        ('PAR-B', 'PAGE-A', 'paragraph', 'Record the load after each trial.'),
+-        ('PAGE-B', 'SECTION-A', 'page', 'Color wheel'),
+-        ('PAR-C', 'PAGE-B', 'paragraph', 'Mix the three sample colors.'),
+-        ('BOOK-B', None, 'notebook', 'Reading journal'),
+-        ('SECTION-B', 'BOOK-B', 'section', 'Ideas'),
+-        ('PAGE-C', 'SECTION-B', 'page', 'Sketch notes'),
+-        ('PAR-D', 'PAGE-C', 'paragraph', 'Draw the route using simple shapes.'),
++        ("BOOK-A", None, "notebook", "Field journal"),
++        ("GROUP-A", "BOOK-A", "group", "Practice"),
++        ("SECTION-A", "GROUP-A", "section", "Experiments"),
++        ("PAGE-A", "SECTION-A", "page", "Paper bridge"),
++        ("PAR-A", "PAGE-A", "paragraph", "Fold a strip into three equal panels."),
++        ("PAR-B", "PAGE-A", "paragraph", "Record the load after each trial."),
++        ("PAGE-B", "SECTION-A", "page", "Color wheel"),
++        ("PAR-C", "PAGE-B", "paragraph", "Mix the three sample colors."),
++        ("BOOK-B", None, "notebook", "Reading journal"),
++        ("SECTION-B", "BOOK-B", "section", "Ideas"),
++        ("PAGE-C", "SECTION-B", "page", "Sketch notes"),
++        ("PAR-D", "PAGE-C", "paragraph", "Draw the route using simple shapes."),
+     ]
+-    return {'document': [{'id': i, 'parent': p, 'kind': k, 'text': t} for i, p, k, t in nodes],
+-            'current': 'PAR-A', 'state': {'tabs': [{'id': 'HOME', 'name': 'Bookmarks', 'items': []}],
+-            'active_tab': 'HOME', 'expanded': [], 'width': 280, 'wrap': False}}
++    return {
++        "document": [{"id": i, "parent": p, "kind": k, "text": t} for i, p, k, t in nodes],
++        "current": "PAR-A",
++        "state": {
++            "tabs": [{"id": "HOME", "name": "Bookmarks", "items": []}],
++            "active_tab": "HOME",
++            "expanded": [],
++            "width": 280,
++            "wrap": False,
++        },
++    }
+ 
+ 
+ def walk(items):
+-    for item in items:
++    """Yield every item in display/tree order without a depth limit."""
++    stack = list(reversed(items))
++    while stack:
++        item = stack.pop()
+         yield item
+-        if item['kind'] == 'folder': yield from walk(item['children'])
++        if item.get("kind") == "folder":
++            stack.extend(reversed(item["children"]))
++
++
++def _find(items, key):
++    """Find an item and its direct sibling list without recursive descent."""
++    stack = [(item, items) for item in reversed(items)]
++    while stack:
++        item, siblings = stack.pop()
++        if item["id"] == key:
++            return item, siblings
++        if item.get("kind") == "folder":
++            stack.extend((child, item["children"]) for child in reversed(item["children"]))
++    return None
+ 
+ 
+ def locate(state, key):
+-    def visit(items):
+-        for item in items:
+-            if item['id'] == key: return item, items
+-            if item['kind'] == 'folder':
+-                found = visit(item['children'])
+-                if found: return found
+-    for tab in state['tabs']:
+-        found = visit(tab['items'])
+-        if found: return found
+-    raise Rejected('missing_item')
++    """Find an item and its direct sibling list across all tabs."""
++    # A malformed identifier is a malformed command; a well-formed unknown
++    # identifier is a missing item.  The latter is useful to callers which
++    # need to distinguish stale UI state from bad JSON.
++    if key is not None:
++        require(isinstance(key, str) and _ID.fullmatch(key) is not None)
++    for tab in state["tabs"]:
++        found = _find(tab["items"], key)
++        if found is not None:
++            return found
++    raise Rejected("missing_item")
++
++
++def locate_in_tab(state, tab_id, key):
++    """Find an item only in one tab, returning ``None`` when absent."""
++    tab = tab_by_id(state, tab_id)
++    return _find(tab["items"], key)
+ 
+ 
+ def tab_by_id(state, key):
+-    for tab in state['tabs']:
+-        if tab['id'] == key: return tab
+-    raise Rejected('missing_tab')
++    """Return a tab or reject with the public missing-tab error."""
++    # A missing field and an unknown well-formed tab have the same useful
++    # domain error.  Invalid shaped identifiers remain invalid commands.
++    if key is not None:
++        require(isinstance(key, str) and _ID.fullmatch(key) is not None)
++    for tab in state["tabs"]:
++        if tab["id"] == key:
++            return tab
++    raise Rejected("missing_tab")
++
++
++def _destination_tab(state, command):
++    value = command.get("tab_id")
++    # Creation/sorting use the active tab when the optional field is absent.
++    # Treating explicit null the same way is friendly to JSON clients and is
++    # consistent with parent_id's null-as-root convention.
++    if value is None:
++        value = state["active_tab"]
++    return tab_by_id(state, value)
+ 
+ 
+ def items_in(state, tab_id, parent_id):
++    """Return a direct child list, enforcing the parent/tab boundary."""
+     tab = tab_by_id(state, tab_id)
+-    if parent_id is None: return tab['items']
+-    for item in walk(tab['items']):
+-        if item['id'] == parent_id:
+-            require(item['kind'] == 'folder', 'invalid_parent')
+-            return item['children']
+-    raise Rejected('invalid_parent')
++    if parent_id is None:
++        return tab["items"]
++    # A parent is a tree item, not a host object.  An absent or malformed
++    # parent is reported as invalid_parent for creation/sorting commands;
++    # move has its own missing-parent distinction below.
++    require(isinstance(parent_id, str) and _ID.fullmatch(parent_id) is not None, "invalid_parent")
++    found = _find(tab["items"], parent_id)
++    require(found is not None, "invalid_parent")
++    item, _ = found
++    require(item["kind"] == "folder", "invalid_parent")
++    return item["children"]
+ 
+ 
+ def node_by_id(data, key):
+-    for node in data['document']:
+-        if node['id'] == key: return node
+-    raise Rejected('missing_target')
++    """Find a real host node; arbitrary/unknown target IDs never get made up."""
++    for node in data["document"]:
++        if node["id"] == key:
++            return node
++    raise Rejected("missing_target")
+ 
+ 
+ def unique(state, key):
++    """Check the global item/tab namespace."""
+     identifier(key)
+-    require(all(tab['id'] != key and all(x['id'] != key for x in walk(tab['items']))
+-                for tab in state['tabs']), 'duplicate_id')
++    for tab in state["tabs"]:
++        if tab["id"] == key:
++            raise Rejected("duplicate_id")
++        if any(item["id"] == key for item in walk(tab["items"])):
++            raise Rejected("duplicate_id")
++
++
++def _descendant_ids(item):
++    if item.get("kind") != "folder":
++        return set()
++    return {child["id"] for child in walk(item["children"])}
++
++
++def _move(state, command):
++    """Apply a validated ordered-subtree move to ``state``.
++
++    Validation is intentionally completed before touching any sibling list.
++    The references collected here point into the deep-copied candidate state,
++    so a failed command cannot leak a partial mutation to the caller.
++    """
++    ids = command.get("ids")
++    require(isinstance(ids, list) and len(ids) > 0)
++    # Do shape validation before set()/duplicate checks so non-string JSON
++    # values cannot turn into a server exception.
++    for key in ids:
++        require(isinstance(key, str) and _ID.fullmatch(key) is not None)
++    if len(set(ids)) != len(ids):
++        raise Rejected("duplicate_selection")
++
++    # A move has an explicit destination tab.  Do not silently activate or
++    # infer a different tab for it.
++    destination_tab_id = command.get("tab_id")
++    destination_tab = tab_by_id(state, destination_tab_id)
++
++    selected = []
++    for key in ids:
++        selected.append((key, *locate(state, key)))
++
++    selected_ids = set(ids)
++    for _, item, _siblings in selected:
++        if _descendant_ids(item) & selected_ids:
++            raise Rejected("overlapping_selection")
++
++    parent_id = command.get("parent_id")
++    if parent_id is None:
++        destination = destination_tab["items"]
++        destination_parent = None
++    else:
++        # A stale/missing destination item is a missing item.  An item in a
++        # different tab, or an existing non-folder, is an invalid parent.
++        require(isinstance(parent_id, str) and _ID.fullmatch(parent_id) is not None, "invalid_parent")
++        parent_found = locate(state, parent_id)
++        destination_parent, _parent_siblings = parent_found
++        require(destination_parent["kind"] == "folder", "invalid_parent")
++
++        # The destination cannot be an item being moved or below a moved
++        # folder.  This is checked after proving it is a folder so a bookmark
++        # still receives the more useful invalid_parent error.
++        if parent_id in selected_ids or any(
++            parent_id in _descendant_ids(item) for _, item, _ in selected
++        ):
++            raise Rejected("cyclic_move")
++
++        in_destination_tab = locate_in_tab(state, destination_tab_id, parent_id)
++        require(in_destination_tab is not None, "invalid_parent")
++        destination = destination_parent["children"]
++
++    # The insertion index is measured after every selected direct child of
++    # the destination has been removed.  This is what makes same-parent
++    # reordering predictable.
++    direct_removals = sum(1 for _, _item, siblings in selected if siblings is destination)
++    remaining_length = len(destination) - direct_removals
++    if "index" in command:
++        index = command["index"]
++        require(type(index) is int and 0 <= index <= remaining_length, "invalid_index")
++    else:
++        index = remaining_length
++
++    # All validation is complete.  Remove each selected root once, retaining
++    # the supplied selection order for insertion rather than source order.
++    moving = [item for _, item, _siblings in selected]
++    for _key, item, siblings in selected:
++        siblings.remove(item)
++    destination[index:index] = moving
+ 
+ 
+ def move(state, command):
+-    # Destination and selection policies are awaiting the extension implementation.
+-    return
++    """Compatibility entry point for applying a move to a candidate state."""
++    return _move(state, command)
+ 
+ 
+ def apply(data, command):
++    """Return the result of one bookmark/view command or raise ``Rejected``."""
+     require(isinstance(command, dict))
+-    data = copy.deepcopy(data)
+-    state = data['state']; action = command.get('type')
+-    if action in ('folder', 'bookmark'):
+-        key = command.get('id'); unique(state, key)
+-        items = items_in(state, command.get('tab_id', state['active_tab']), command.get('parent_id'))
+-        if action == 'folder': item = {'id': key, 'kind': 'folder', 'label': label(command.get('label')), 'children': []}
++    candidate = copy.deepcopy(data)
++    state = candidate["state"]
++    action = command.get("type")
++
++    if action in ("folder", "bookmark"):
++        key = command.get("id")
++        unique(state, key)
++        tab = _destination_tab(state, command)
++        items = items_in(state, tab["id"], command.get("parent_id"))
++        if action == "folder":
++            item = {
++                "id": key,
++                "kind": "folder",
++                "label": label(command.get("label")),
++                "children": [],
++            }
+         else:
+-            target = node_by_id(data, command.get('target_id'))
+-            item = {'id': key, 'kind': 'bookmark', 'label': label(command.get('label', target['text'].strip()[:120] or 'Untitled')),
+-                    'target_id': target['id'], 'target_type': target['kind']}
++            target = node_by_id(candidate, command.get("target_id"))
++            if "label" in command:
++                shown = label(command["label"])
++            else:
++                shown = target["text"].strip()[:120] or "Untitled"
++            item = {
++                "id": key,
++                "kind": "bookmark",
++                "label": shown,
++                "target_id": target["id"],
++                "target_type": target["kind"],
++            }
+         items.append(item)
+-    elif action == 'rename':
+-        item, _ = locate(state, command.get('id')); item['label'] = label(command.get('label'))
+-    elif action == 'delete':
+-        item, siblings = locate(state, command.get('id'))
+-        require(command.get('confirmed') is True, 'confirmation_required')
+-        descendants = list(walk(item['children'])) if item['kind'] == 'folder' else []
+-        require(not descendants or command.get('recursive') is True, 'folder_not_empty')
+-        removed = {item['id']} | {x['id'] for x in descendants}
+-        siblings.remove(item); state['expanded'] = [x for x in state['expanded'] if x not in removed]
+-    elif action == 'tab':
+-        key = command.get('id'); unique(state, key)
+-        state['tabs'].append({'id': key, 'name': label(command.get('name')), 'items': []})
+-    elif action == 'activate':
+-        state['active_tab'] = tab_by_id(state, command.get('id'))['id']
+-    elif action == 'move': move(state, command)
+-    elif action == 'sort':
+-        items = items_in(state, command.get('tab_id', state['active_tab']), command.get('parent_id'))
+-        folders = sorted((x for x in items if x['kind'] == 'folder'), key=lambda x: x['label'].casefold())
+-        # Folder-order policy is not yet applied.
+-    elif action == 'view':
+-        if 'width' in command:
+-            require(type(command['width']) is int and 180 <= command['width'] <= 480)
+-            # Width preference is not yet applied.
+-        if 'wrap' in command:
+-            require(type(command['wrap']) is bool); # Wrap preference is not yet applied.
+-        if 'expanded' in command:
+-            values = command['expanded']; require(isinstance(values, list) and all(isinstance(x, str) for x in values))
++
++    elif action == "rename":
++        item, _siblings = locate(state, command.get("id"))
++        item["label"] = label(command.get("label"))
++
++    elif action == "delete":
++        item, siblings = locate(state, command.get("id"))
++        require(command.get("confirmed") is True, "confirmation_required")
++        descendants = list(walk(item["children"])) if item["kind"] == "folder" else []
++        require(not descendants or command.get("recursive") is True, "folder_not_empty")
++        removed = {item["id"]} | {child["id"] for child in descendants}
++        siblings.remove(item)
++        state["expanded"] = [key for key in state["expanded"] if key not in removed]
++
++    elif action == "tab":
++        key = command.get("id")
++        unique(state, key)
++        state["tabs"].append({"id": key, "name": label(command.get("name")), "items": []})
++
++    elif action == "activate":
++        state["active_tab"] = tab_by_id(state, command.get("id"))["id"]
++
++    elif action == "move":
++        move(state, command)
++
++    elif action == "sort":
++        tab = _destination_tab(state, command)
++        items = items_in(state, tab["id"], command.get("parent_id"))
++        folders = sorted(
++            (item for item in items if item["kind"] == "folder"),
++            key=lambda item: item["label"].casefold(),
++        )
++        # Bookmark order is intentionally untouched.  Python's sorted is
++        # stable, so equal-folded folder labels retain their prior order.
++        bookmarks = [item for item in items if item["kind"] == "bookmark"]
++        items[:] = folders + bookmarks
++
++    elif action == "view":
++        # Validate every supplied preference before assigning any of them.
++        if "width" in command:
++            width = command["width"]
++            require(type(width) is int and 180 <= width <= 480)
++        if "wrap" in command:
++            wrap = command["wrap"]
++            require(type(wrap) is bool)
++        if "expanded" in command:
++            values = command["expanded"]
++            require(isinstance(values, list))
++            require(all(isinstance(key, str) for key in values))
+             require(len(values) == len(set(values)))
+-            for key in values: require(locate(state, key)[0]['kind'] == 'folder', 'invalid_parent')
+-            state['expanded'] = values[:]
+-    elif action == 'open':
+-        item, _ = locate(state, command.get('id')); require(item['kind'] == 'bookmark', 'not_bookmark')
+-        data['current'] = node_by_id(data, item['target_id'])['id']
+-    else: raise Rejected('invalid_command')
+-    return data
++            for key in values:
++                item, _siblings = locate(state, key)
++                require(item["kind"] == "folder", "invalid_parent")
++            expanded = values[:]
++        if "width" in command:
++            state["width"] = width
++        if "wrap" in command:
++            state["wrap"] = wrap
++        if "expanded" in command:
++            state["expanded"] = expanded
++
++    elif action == "open":
++        item, _siblings = locate(state, command.get("id"))
++        require(item["kind"] == "bookmark", "not_bookmark")
++        candidate["current"] = node_by_id(candidate, item["target_id"])["id"]
++
++    else:
++        raise Rejected("invalid_command")
++
++    return candidate
+ 
+ 
+ def host(data, command):
+-    require(isinstance(command, dict)); data = copy.deepcopy(data)
+-    node = node_by_id(data, command.get('id'))
+-    if command.get('type') == 'navigate': data['current'] = node['id']
+-    elif command.get('type') == 'edit':
+-        require(node['kind'] == 'paragraph' and isinstance(command.get('text'), str) and len(command['text']) <= 4000)
+-        node['text'] = command['text']
+-    else: raise Rejected('invalid_command')
+-    return data
++    """Return the result of one host navigation/edit command."""
++    require(isinstance(command, dict))
++    candidate = copy.deepcopy(data)
++    node = node_by_id(candidate, command.get("id"))
++    if command.get("type") == "navigate":
++        candidate["current"] = node["id"]
++    elif command.get("type") == "edit":
++        text = command.get("text")
++        require(node["kind"] == "paragraph" and isinstance(text, str) and len(text) <= 4000)
++        node["text"] = text
++    else:
++        raise Rejected("invalid_command")
++    return candidate
+diff --git a/server.py b/server.py
+index 774cfcdfe75d2f73343a965ce6bc477a98ad8f6c..832caafdea607136503ba3bbe54f5176a88cfa09 100644
+--- a/server.py
++++ b/server.py
+@@ -8,54 +8,135 @@ from model import Rejected, apply, host, initial
+ ROOT = Path(__file__).resolve().parent
+ 
+ 
++def encode_workspace(value):
++    """Store the snapshot as compact UTF-8 JSON without changing its data."""
++    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
++
++
++def decode_workspace(payload):
++    """Decode the storage representation used by the single-row workspace."""
++    return json.loads(payload)
++
++
+ def database(path):
+-    connection = sqlite3.connect(path, timeout=10, isolation_level=None)
+-    connection.execute('CREATE TABLE IF NOT EXISTS workspace (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
+-    connection.execute('INSERT OR IGNORE INTO workspace VALUES (1, ?)', (json.dumps(initial()),))
++    """Open the single-row workspace database and ensure its initial value."""
++    connection = sqlite3.connect(path, timeout=30, isolation_level=None)
++    connection.execute("PRAGMA busy_timeout=30000")
++    connection.execute(
++        "CREATE TABLE IF NOT EXISTS workspace (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)"
++    )
++    connection.execute(
++        "INSERT OR IGNORE INTO workspace VALUES (1, ?)",
++        (encode_workspace(initial()),),
++    )
+     return connection
+ 
+ 
++def load(connection):
++    row = connection.execute("SELECT payload FROM workspace WHERE id=1").fetchone()
++    # The table is owned by this service; this guard makes a damaged database
++    # a normal invalid-command response rather than an HTML traceback.
++    if row is None:
++        raise Rejected("invalid_command")
++    return decode_workspace(row[0])
++
++
+ class Handler(BaseHTTPRequestHandler):
+-    def log_message(self, *_): pass
++    def log_message(self, *_):
++        pass
+ 
+-    def send(self, status, body, kind='application/json'):
+-        encoded = body.encode() if isinstance(body, str) else json.dumps(body, ensure_ascii=False).encode()
+-        self.send_response(status); self.send_header('Content-Type', kind+'; charset=utf-8')
+-        self.send_header('Content-Length', str(len(encoded))); self.end_headers(); self.wfile.write(encoded)
++    def send(self, status, body, kind="application/json"):
++        encoded = body.encode() if isinstance(body, str) else json.dumps(
++            body, ensure_ascii=False
++        ).encode()
++        self.send_response(status)
++        self.send_header("Content-Type", kind + "; charset=utf-8")
++        self.send_header("Content-Length", str(len(encoded)))
++        self.end_headers()
++        self.wfile.write(encoded)
+ 
+     def do_GET(self):
+-        if self.path in ('/api/state', '/api/document'):
+-            with database(self.server.db) as connection:
+-                data = json.loads(connection.execute('SELECT payload FROM workspace WHERE id=1').fetchone()[0])
+-            return self.send(200, data['state'] if self.path == '/api/state' else {'nodes': data['document'], 'current': data['current']})
+-        static = {'/': ('index.html', 'text/html'), '/host.js': ('host.js', 'text/javascript'),
+-                  '/sidebar.js': ('sidebar.js', 'text/javascript'), '/styles.css': ('styles.css', 'text/css')}
+-        if self.path not in static: return self.send(404, {'error': 'not_found'})
+-        name, kind = static[self.path]; self.send(200, (ROOT/name).read_text(), kind)
++        if self.path in ("/api/state", "/api/document"):
++            try:
++                connection = database(self.server.db)
++                try:
++                    data = load(connection)
++                finally:
++                    connection.close()
++            except (ValueError, TypeError, KeyError, UnicodeError, sqlite3.Error):
++                return self.send(500, {"error": "invalid_command"})
++            return self.send(
++                200,
++                data["state"]
++                if self.path == "/api/state"
++                else {"nodes": data["document"], "current": data["current"]},
++            )
++
++        static = {
++            "/": ("index.html", "text/html"),
++            "/host.js": ("host.js", "text/javascript"),
++            "/sidebar.js": ("sidebar.js", "text/javascript"),
++            "/styles.css": ("styles.css", "text/css"),
++        }
++        if self.path not in static:
++            return self.send(404, {"error": "not_found"})
++        name, kind = static[self.path]
++        try:
++            content = (ROOT / name).read_text()
++        except OSError:
++            return self.send(404, {"error": "not_found"})
++        self.send(200, content, kind)
+ 
+     def do_POST(self):
+-        if self.path not in ('/api/action', '/api/host'): return self.send(404, {'error': 'not_found'})
++        if self.path not in ("/api/action", "/api/host"):
++            return self.send(404, {"error": "not_found"})
+         try:
+-            length = int(self.headers.get('Content-Length', '0'))
+-            if not 0 < length <= 65536: raise Rejected('invalid_command')
+-            command = json.loads(self.rfile.read(length))
++            length = int(self.headers.get("Content-Length", "0"))
++            if not 0 < length <= 65536:
++                raise Rejected("invalid_command")
++            raw = self.rfile.read(length)
++            command = json.loads(raw)
+             connection = database(self.server.db)
+             try:
+-                connection.execute('BEGIN IMMEDIATE')
+-                before = json.loads(connection.execute('SELECT payload FROM workspace WHERE id=1').fetchone()[0])
+-                after = (apply if self.path == '/api/action' else host)(before, command)
+-                connection.execute('UPDATE workspace SET payload=? WHERE id=1', (json.dumps(after),))
++                # IMMEDIATE serializes read/modify/write commands.  Since the
++                # candidate is fully validated before UPDATE, concurrent
++                # disjoint requests cannot overwrite one another.
++                connection.execute("BEGIN IMMEDIATE")
++                before = load(connection)
++                operation = apply if self.path == "/api/action" else host
++                after = operation(before, command)
++                connection.execute(
++                    "UPDATE workspace SET payload=? WHERE id=1",
++                    (encode_workspace(after),)
++                )
+                 connection.commit()
+             except BaseException:
+-                connection.rollback(); raise
+-            finally: connection.close()
+-            self.send(200, after['state'] if self.path == '/api/action' else {'nodes': after['document'], 'current': after['current']})
+-        except (ValueError, TypeError, KeyError, UnicodeError) as error:
+-            self.send(400, {'error': str(error) if isinstance(error, Rejected) else 'invalid_command'})
+-
+-
+-if __name__ == '__main__':
+-    parser = argparse.ArgumentParser(); parser.add_argument('--port', type=int, default=8000); parser.add_argument('--db', default='workspace.sqlite')
+-    args = parser.parse_args(); connection = database(args.db); connection.close()
+-    server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler); server.db = args.db
+-    print(json.dumps({'port': server.server_port}), flush=True); server.serve_forever()
++                connection.rollback()
++                raise
++            finally:
++                connection.close()
++            return self.send(
++                200,
++                after["state"]
++                if self.path == "/api/action"
++                else {"nodes": after["document"], "current": after["current"]},
++            )
++        except (ValueError, TypeError, KeyError, UnicodeError, sqlite3.Error) as error:
++            # Rejected carries exactly the public domain error code.  Other
++            # malformed JSON/transport/database values are deliberately
++            # normalized instead of exposing implementation details.
++            code = str(error) if isinstance(error, Rejected) else "invalid_command"
++            return self.send(400, {"error": code})
++
++
++if __name__ == "__main__":
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--port", type=int, default=8000)
++    parser.add_argument("--db", default="workspace.sqlite")
++    args = parser.parse_args()
++    connection = database(args.db)
++    connection.close()
++    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
++    server.db = args.db
++    print(json.dumps({"port": server.server_port}), flush=True)
++    server.serve_forever()
+diff --git a/sidebar.js b/sidebar.js
+index 92aa8da149c507636536f59a0a87d4c2741b70ff..d996d00e4538843fe24c923e921c476eb9b50947 100644
+--- a/sidebar.js
++++ b/sidebar.js
+@@ -1,94 +1,426 @@
+ import {NotebookHost, request, element, message} from './host.js';
++
+ const host = new NotebookHost();
+-let state, selected = [], anchor = null;
+-const sidebar = document.querySelector('#sidebar'), tree = document.querySelector('#tree');
+-const uid = ()=>'ITEM-'+crypto.randomUUID();
+-function allItems(items) { return items.flatMap(x=>[x,...(x.children ? allItems(x.children) : [])]); }
+-function active() { return state.tabs.find(x=>x.id===state.active_tab); }
+-function currentFolder() { const item=allItems(active().items).find(x=>x.id===selected[0]); return item?.kind==='folder' ? item.id : null; }
++let state = null;
++let selected = [];
++let anchor = null;
++
++const sidebar = document.querySelector('#sidebar');
++const tree = document.querySelector('#tree');
++const uid = () => 'ITEM-' + crypto.randomUUID();
++
++function allItems(items) {
++  return items.flatMap(item => [item, ...(item.children ? allItems(item.children) : [])]);
++}
++function active() {
++  return state.tabs.find(tab => tab.id === state.active_tab);
++}
++function activeItem(id) {
++  return allItems(active()?.items || []).find(item => item.id === id);
++}
++function currentFolder() {
++  // A selected folder is the visible destination for the creation controls.
++  // A bookmark or an empty selection means the active tab root.
++  const item = activeItem(selected[0]);
++  return item?.kind === 'folder' ? item.id : null;
++}
++function rows() {
++  return [...tree.querySelectorAll('.tree-row')];
++}
++function rowFor(id) {
++  return rows().find(row => row.dataset.item === id);
++}
++function applySelection() {
++  for (const node of rows()) {
++    const isSelected = selected.includes(node.dataset.item);
++    node.classList.toggle('selected', isSelected);
++    node.setAttribute('aria-selected', String(isSelected));
++  }
++}
++
+ async function action(command) {
+-  state = await request('/api/action',command); message(); render(); return state;
+-}
+-function guarded(work) { return (...args)=>Promise.resolve().then(()=>work(...args)).catch(message); }
+-function rows() { return [...tree.querySelectorAll('.tree-row')]; }
+-function select(row,event) {
+-  const id=row.dataset.item, visible=rows().map(x=>x.dataset.item);
+-  if (event.shiftKey && anchor && visible.includes(anchor)) {
+-    const a=visible.indexOf(anchor), b=visible.indexOf(id); selected=visible.slice(Math.min(a,b),Math.max(a,b)+1);
+-  } else if (event.ctrlKey || event.metaKey) {
+-    selected=selected.includes(id) ? selected.filter(x=>x!==id) : [...selected,id]; anchor=id;
+-  } else { selected=[id]; anchor=id; }
+-  for (const node of rows()) { node.classList.toggle('selected',selected.includes(node.dataset.item)); node.setAttribute('aria-selected',String(selected.includes(node.dataset.item))); }
++  await host.flush();
++  state = await request('/api/action', command);
++  message();
++  render();
++  return state;
++}
++function guarded(work) {
++  return (...args) => Promise.resolve().then(() => work(...args)).catch(message);
++}
++
++function select(row, event = {}) {
++  const id = row.dataset.item;
++  const visible = rows().map(node => node.dataset.item);
++  const shift = event.shiftKey === true;
++  const toggle = event.ctrlKey === true || event.metaKey === true;
++
++  if (shift && anchor && visible.includes(anchor) && visible.includes(id)) {
++    const start = visible.indexOf(anchor);
++    const end = visible.indexOf(id);
++    selected = visible.slice(Math.min(start, end), Math.max(start, end) + 1);
++  } else if (toggle) {
++    if (selected.includes(id)) {
++      selected = selected.filter(value => value !== id);
++      // Removing an item does not create a new anchor.  The clarification
++      // assigns the anchor only when a Ctrl/Meta gesture newly includes an
++      // item, so a later Shift range still starts at the prior anchor.
++    } else {
++      selected = [...selected, id];
++      anchor = id;
++    }
++  } else {
++    selected = [id];
++    anchor = id;
++  }
++  applySelection();
+   row.focus();
+ }
+-function rename(row,item) {
+-  const target=row.querySelector('.label'), input=element('input',undefined,{'aria-label':'Rename item'}); input.value=item.label;
+-  target.replaceChildren(input); input.focus(); input.select();
+-  let finished=false;
+-  const finish=guarded(async save=>{if(finished)return;finished=true;if(save)await action({type:'rename',id:item.id,label:input.value});else render();tree.querySelector(`[data-item="${item.id}"]`)?.focus();});
+-  input.onkeydown=event=>{event.stopPropagation();if(event.key==='Enter')finish(true);if(event.key==='Escape')finish(false);};
+-  input.onblur=()=>finish(true);
++
++async function rename(row, item) {
++  const target = row.querySelector('.label');
++  if (!target || target.querySelector('input')) return;
++  const input = element('input', undefined, {'aria-label': 'Rename item'});
++  input.value = item.label;
++  target.replaceChildren(input);
++  input.focus();
++  input.select();
++
++  let finishing = false;
++  const finish = async save => {
++    if (finishing) return;
++    // Mark the edit as closing before replacing the row.  Replacing a focused
++    // input fires blur synchronously in browsers; without this guard Enter
++    // could submit the same rename twice.
++    finishing = true;
++    if (!save) {
++      render();
++      rowFor(item.id)?.focus();
++      return;
++    }
++    try {
++      await action({type: 'rename', id: item.id, label: input.value});
++      rowFor(item.id)?.focus();
++    } catch (error) {
++      // An invalid label should not silently end an in-cell edit.  Keep the
++      // input available for correction and, importantly, never navigate host.
++      finishing = false;
++      message(error);
++      input.focus();
++      input.select();
++    }
++  };
++  input.onkeydown = event => {
++    event.stopPropagation();
++    if (event.key === 'Enter') {
++      event.preventDefault();
++      finish(true);
++    } else if (event.key === 'Escape') {
++      event.preventDefault();
++      finish(false);
++    }
++  };
++  input.onblur = () => finish(true);
+ }
++
++async function toggleFolder(item) {
++  if (item.kind !== 'folder') return;
++  const expanded = state.expanded.includes(item.id)
++    ? state.expanded.filter(id => id !== item.id)
++    : [...state.expanded, item.id];
++  await action({type: 'view', expanded});
++  rowFor(item.id)?.focus();
++}
++
+ async function open(item) {
+-  if(item.kind==='folder') {
+-    const expanded=state.expanded.includes(item.id)?state.expanded.filter(x=>x!==item.id):[...state.expanded,item.id];
+-    await action({type:'view',expanded});
+-  } else {await action({type:'open',id:item.id});await host.refresh();}
++  if (item.kind === 'folder') {
++    await toggleFolder(item);
++  } else {
++    await action({type: 'open', id: item.id});
++    await host.refresh();
++  }
++}
++
++async function keyboard(event, row, item) {
++  if (event.isComposing) return;
++  const key = event.key;
++
++  if (key === 'ArrowUp' || key === 'ArrowDown') {
++    event.preventDefault();
++    event.stopPropagation();
++    const visible = rows();
++    const position = visible.indexOf(row);
++    if (position < 0) return;
++    const nextPosition = Math.max(
++      0,
++      Math.min(visible.length - 1, position + (key === 'ArrowUp' ? -1 : 1)),
++    );
++    const target = visible[nextPosition];
++    select(target, event);
++    return;
++  }
++
++  if (key === 'ArrowRight') {
++    event.preventDefault();
++    event.stopPropagation();
++    if (item.kind === 'folder' && !state.expanded.includes(item.id)) {
++      await toggleFolder(item);
++    }
++    return;
++  }
++
++  if (key === 'ArrowLeft') {
++    event.preventDefault();
++    event.stopPropagation();
++    if (item.kind === 'folder' && state.expanded.includes(item.id)) {
++      await toggleFolder(item);
++    }
++    return;
++  }
++
++  if (key === 'F2') {
++    event.preventDefault();
++    event.stopPropagation();
++    await rename(row, item);
++    return;
++  }
++
++  if (key === 'Enter') {
++    event.preventDefault();
++    event.stopPropagation();
++    await open(item);
++    return;
++  }
++
++  if (key === 'Escape') {
++    event.preventDefault();
++    event.stopPropagation();
++    return;
++  }
+ }
+-async function keyboard(event,row,item) {
+-  // Complete the client-approved keyboard behavior.
++
++function selectedForDrag(_event, row) {
++  if (!selected.includes(row.dataset.item)) {
++    // A drag always establishes a one-item selection when its origin was not
++    // selected; modifier keys must not accidentally append an old selection.
++    selected = [row.dataset.item];
++    anchor = row.dataset.item;
++    applySelection();
++    row.focus();
++  }
++  return selected.slice();
+ }
+ 
+-async function drop(event,tabId,parentId,index) {
+-  event.preventDefault();event.stopPropagation();
+-  const ids=JSON.parse(event.dataTransfer.getData('application/x-notebook-items'));
+-  const command={type:'move',ids,tab_id:tabId,parent_id:parentId};if(index!==undefined)command.index=index;
++async function drop(event, tabId, parentId, index) {
++  event.preventDefault();
++  event.stopPropagation();
++  const encoded = event.dataTransfer?.getData('application/x-notebook-items');
++  if (!encoded) return;
++  let ids;
++  try {
++    ids = JSON.parse(encoded);
++  } catch (_) {
++    return;
++  }
++  const command = {type: 'move', ids, tab_id: tabId, parent_id: parentId};
++  if (index !== undefined) command.index = index;
+   await action(command);
+ }
++
+ function render() {
+-  sidebar.style.width=state.width+'px';sidebar.classList.toggle('wrap',state.wrap);document.querySelector('#word-wrap').checked=state.wrap;
+-  const tabs=document.querySelector('#tabs');tabs.replaceChildren();
+-  for(const tab of state.tabs) {
+-    const button=element('button',tab.name,{'data-tab':tab.id});button.classList.toggle('active',tab.id===state.active_tab);
+-    button.onclick=guarded(async()=>{selected=[];await action({type:'activate',id:tab.id});});
+-    button.ondragover=e=>e.preventDefault();button.ondrop=guarded(e=>drop(e,tab.id,null));tabs.append(button);
++  if (!state) return;
++  const currentTab = active();
++  if (!currentTab) return;
++
++  sidebar.style.width = state.width + 'px';
++  sidebar.classList.toggle('wrap', state.wrap);
++  document.querySelector('#word-wrap').checked = state.wrap;
++
++  const tabs = document.querySelector('#tabs');
++  tabs.replaceChildren();
++  for (const tab of state.tabs) {
++    const button = element('button', tab.name, {
++      'data-tab': tab.id,
++      'aria-selected': String(tab.id === state.active_tab),
++    });
++    button.classList.toggle('active', tab.id === state.active_tab);
++    button.onclick = guarded(async () => {
++      selected = [];
++      anchor = null;
++      await action({type: 'activate', id: tab.id});
++    });
++    button.ondragover = event => {
++      event.preventDefault();
++      event.dataTransfer.dropEffect = 'move';
++    };
++    button.ondrop = guarded(event => drop(event, tab.id, null));
++    tabs.append(button);
+   }
++
+   tree.replaceChildren();
+-  function append(items,depth,parentId) {
+-    for(const item of items) {
+-      const row=element('div',undefined,{class:'tree-row','data-item':item.id,role:'treeitem',tabindex:'0',draggable:'true','aria-selected':String(selected.includes(item.id))});row.style.paddingLeft=(depth*14)+'px';row.classList.toggle('selected',selected.includes(item.id));
+-      if(item.kind==='folder') {
+-        row.setAttribute('aria-expanded',String(state.expanded.includes(item.id)));
+-        const expand=element('button',state.expanded.includes(item.id)?'−':'+',{class:'expand','aria-label':'Toggle '+item.label});
+-        expand.onclick=guarded(async e=>{e.stopPropagation();await open(item);});row.append(expand);
+-      } else row.append(element('span','↗',{'aria-hidden':'true'}));
+-      const text=element('span',item.label,{class:'label'});row.append(text);
+-      if(item.kind==='bookmark'){const button=element('button','Open',{'aria-label':'Open '+item.label});button.onclick=guarded(async e=>{e.stopPropagation();await open(item);});row.append(button);}
+-      row.onclick=e=>select(row,e);text.ondblclick=e=>{e.stopPropagation();rename(row,item);};
+-      row.onkeydown=guarded(e=>keyboard(e,row,item));
+-      row.ondragstart=e=>{if(!selected.includes(item.id))select(row,{});e.dataTransfer.setData('application/x-notebook-items',JSON.stringify(selected));e.dataTransfer.effectAllowed='move';};
+-      row.ondragover=e=>{e.preventDefault();e.stopPropagation();};
+-      row.ondrop=guarded(e=>drop(e,state.active_tab,item.kind==='folder'?item.id:parentId,item.kind==='folder'?undefined:items.filter(x=>!selected.includes(x.id)).findIndex(x=>x.id===item.id)));
+-      tree.append(row);if(item.children&&state.expanded.includes(item.id))append(item.children,depth+1,item.id);
++  function append(items, depth, parentId) {
++    for (const item of items) {
++      const row = element('div', undefined, {
++        class: 'tree-row',
++        'data-item': item.id,
++        'data-kind': item.kind,
++        role: 'treeitem',
++        tabindex: '0',
++        draggable: 'true',
++        'aria-selected': String(selected.includes(item.id)),
++      });
++      row.style.paddingLeft = depth * 14 + 'px';
++      row.classList.toggle('selected', selected.includes(item.id));
++
++      if (item.kind === 'folder') {
++        const expanded = state.expanded.includes(item.id);
++        row.setAttribute('aria-expanded', String(expanded));
++        const expand = element('button', expanded ? '−' : '+', {
++          class: 'expand',
++          'aria-label': 'Toggle ' + item.label,
++          tabindex: '-1',
++        });
++        expand.onclick = guarded(async event => {
++          event.stopPropagation();
++          await toggleFolder(item);
++        });
++        row.append(expand);
++      } else {
++        row.append(element('span', '↗', {'aria-hidden': 'true', class: 'bookmark-glyph'}));
++      }
++
++      const text = element('span', item.label, {class: 'label'});
++      row.append(text);
++      if (item.kind === 'bookmark') {
++        const button = element('button', 'Open', {'aria-label': 'Open ' + item.label, tabindex: '-1'});
++        button.onclick = guarded(async event => {
++          event.stopPropagation();
++          await open(item);
++        });
++        row.append(button);
++      }
++
++      row.onclick = event => select(row, event);
++      text.ondblclick = event => {
++        event.stopPropagation();
++        rename(row, item).catch(message);
++      };
++      row.onkeydown = guarded(event => keyboard(event, row, item));
++      row.ondragstart = event => {
++        const ids = selectedForDrag(event, row);
++        event.dataTransfer.setData('application/x-notebook-items', JSON.stringify(ids));
++        event.dataTransfer.effectAllowed = 'move';
++      };
++      row.ondragover = event => {
++        event.preventDefault();
++        event.stopPropagation();
++        event.dataTransfer.dropEffect = 'move';
++      };
++      row.ondrop = guarded(event => {
++        if (item.kind === 'folder') {
++          return drop(event, currentTab.id, item.id);
++        }
++        // For a bookmark destination, compute the index after selected direct
++        // siblings are removed, exactly as the server does.
++        const remaining = items.filter(candidate => !selected.includes(candidate.id));
++        const before = remaining.findIndex(candidate => candidate.id === item.id);
++        return drop(event, currentTab.id, parentId, before < 0 ? 0 : before);
++      });
++
++      tree.append(row);
++      if (item.kind === 'folder' && state.expanded.includes(item.id)) {
++        append(item.children, depth + 1, item.id);
++      }
+     }
+   }
+-  append(active().items,0,null);
++  append(currentTab.items, 0, null);
+ }
+-tree.ondragover=e=>e.preventDefault();tree.ondrop=guarded(e=>drop(e,state.active_tab,null));
+-document.querySelector('#toggle-sidebar').onclick=()=>{sidebar.hidden=!sidebar.hidden;};
+-document.querySelector('#add-bookmark').onclick=guarded(async()=>{
+-  const target=host.target(document.querySelector('#target-kind').value);if(!target)throw new Error('No current object of this type');
+-  await action({type:'bookmark',id:uid(),target_id:target.id,parent_id:currentFolder()});
++
++tree.ondragover = event => {
++  event.preventDefault();
++  event.dataTransfer.dropEffect = 'move';
++};
++tree.ondrop = guarded(event => drop(event, active().id, null));
++
++document.querySelector('#toggle-sidebar').onclick = () => {
++  sidebar.hidden = !sidebar.hidden;
++  if (sidebar.hidden) document.querySelector('#wrap-menu').hidden = true;
++};
++
++document.querySelector('#add-bookmark').onclick = guarded(async () => {
++  const target = host.target(document.querySelector('#target-kind').value);
++  if (!target) throw new Error('No current object of this type');
++  await action({type: 'bookmark', id: uid(), target_id: target.id, parent_id: currentFolder()});
++});
++
++document.querySelector('#new-folder').onclick = guarded(async () => {
++  const name = prompt('Folder label');
++  if (name !== null) await action({type: 'folder', id: uid(), label: name, parent_id: currentFolder()});
++});
++
++document.querySelector('#new-tab').onclick = guarded(async () => {
++  const name = prompt('Tab name');
++  if (name !== null) await action({type: 'tab', id: uid(), name});
++});
++
++document.querySelector('#delete-item').onclick = guarded(async () => {
++  if (selected.length !== 1) throw new Error('Select one item to delete');
++  if (confirm('Delete selected item and its descendants?')) {
++    await action({type: 'delete', id: selected[0], confirmed: true, recursive: true});
++    selected = [];
++    anchor = null;
++    applySelection();
++  }
+ });
+-document.querySelector('#new-folder').onclick=guarded(async()=>{const name=prompt('Folder label');if(name!==null)await action({type:'folder',id:uid(),label:name,parent_id:currentFolder()});});
+-document.querySelector('#new-tab').onclick=guarded(async()=>{const name=prompt('Tab name');if(name!==null)await action({type:'tab',id:uid(),name});});
+-document.querySelector('#delete-item').onclick=guarded(async()=>{if(selected.length!==1)throw new Error('Select one item to delete');if(confirm('Delete selected item and its descendants?')){await action({type:'delete',id:selected[0],confirmed:true,recursive:true});selected=[];}});
+-document.querySelector('#sort-items').onclick=guarded(()=>action({type:'sort',parent_id:currentFolder()}));
+-sidebar.oncontextmenu=e=>{e.preventDefault();document.querySelector('#wrap-menu').hidden=false;};
+-document.querySelector('#word-wrap').onchange=guarded(e=>action({type:'view',wrap:e.target.checked}));
+-document.addEventListener('click',e=>{if(!sidebar.contains(e.target)&&e.target.id!=='toggle-sidebar'){sidebar.hidden=true;document.querySelector('#wrap-menu').hidden=true;}});
+-const resize=document.querySelector('#resize');let resizing=false,width=0;
+-resize.onpointerdown=e=>{resizing=true;resize.setPointerCapture(e.pointerId);e.preventDefault();};
+-resize.onpointermove=e=>{if(resizing){width=Math.round(Math.max(180,Math.min(480,e.clientX-sidebar.getBoundingClientRect().left)));sidebar.style.width=width+'px';}};
+-resize.onpointerup=guarded(async e=>{if(resizing){resizing=false;resize.releasePointerCapture(e.pointerId);if(width)await action({type:'view',width});}});
+-await host.refresh();state=await request('/api/state');render();
++
++document.querySelector('#sort-items').onclick = guarded(() => action({
++  type: 'sort',
++  parent_id: currentFolder(),
++}));
++
++sidebar.oncontextmenu = event => {
++  event.preventDefault();
++  document.querySelector('#wrap-menu').hidden = false;
++};
++document.querySelector('#word-wrap').onchange = guarded(event => action({
++  type: 'view',
++  wrap: event.target.checked,
++}));
++
++document.addEventListener('click', event => {
++  if (!sidebar.contains(event.target) && event.target.id !== 'toggle-sidebar') {
++    sidebar.hidden = true;
++    document.querySelector('#wrap-menu').hidden = true;
++  }
++});
++
++const resize = document.querySelector('#resize');
++let resizing = false;
++let pendingWidth = 0;
++resize.onpointerdown = event => {
++  resizing = true;
++  pendingWidth = state.width;
++  if (event.pointerId !== undefined) resize.setPointerCapture?.(event.pointerId);
++  event.preventDefault();
++};
++resize.onpointermove = event => {
++  if (!resizing || !Number.isFinite(event.clientX)) return;
++  pendingWidth = Math.round(Math.max(
++    180,
++    Math.min(480, event.clientX - sidebar.getBoundingClientRect().left),
++  ));
++  sidebar.style.width = pendingWidth + 'px';
++};
++resize.onpointerup = guarded(async event => {
++  if (!resizing) return;
++  resizing = false;
++  try {
++    if (event.pointerId !== undefined) resize.releasePointerCapture?.(event.pointerId);
++  } catch (_) { /* already released */ }
++  await action({type: 'view', width: pendingWidth});
++});
++resize.onpointercancel = resize.onpointerup;
++
++await host.refresh();
++state = await request('/api/state');
++render();

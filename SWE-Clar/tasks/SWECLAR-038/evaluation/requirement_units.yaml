@@ -1,0 +1,203 @@
+schema_version: 1
+task_id: SWECLAR-038
+registry_version: swe-clar
+registry_status: annotation_complete
+disclosure_design: controlled_requirement_disclosure
+selected_scope: Offline top-N lineup generation over synthetic player projections
+requirement_units:
+- ru_id: RU-001
+  name: Optimizer entry point
+  content: Implement optimize_lineups(players, limit, mode) and preserve the supplied JSON console interface.
+    Accept a list of records with id (nonempty string), position (QB, RB, WR or TE), and projected_points
+    (finite number, excluding booleans). Extra record metadata may occur. Return a JSON object with lineups
+    (records containing player_ids and numeric score), considered (integer), and unused_player_ids (list
+    of strings), or an error object with a nonempty code. Additional nonconflicting metadata is allowed.
+    Do not mutate the caller inputs. Required output fields are deterministic for the same request. Supported
+    workloads contain at most 600 players and request at most 10,000 results. A call has 15 CPU seconds
+    on the provided environment; environment setup and process startup are excluded. The resource budget
+    is a reconstruction constraint, not a source-client latency promise. Modes, exact result count and
+    error policies can be clarified.
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for optimizer entry point.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: optimize_lineups
+      signature: 'optimize_lineups(players: list[dict], limit: int, mode: str) -> dict'
+    inputs:
+      players: List of records; public README defines fields
+      limit: Requested output count
+      mode: String mode; policy may be clarified
+    output:
+      type: dict
+      meaning: Public result envelope; semantics defined by the applicable requirements
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-001-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independently reconstructed projection-only component. Source scenario supports five-slot optimization;
+    normalized schemas, exact tie/count/error/coverage semantics and resource budget are benchmark design
+    choices, not verbatim customer specifications. No original player records, implementation or attachments
+    are included.
+- ru_id: RU-002
+  name: Lineup slot rules
+  content: 'Each lineup has five distinct player IDs in the ordered slots QB, RB, WR, WR-or-TE, FLEX.
+    FLEX accepts RB, WR or TE. A lineup is an ordered assignment: swapping players between eligible slots
+    can produce a distinct lineup, even if it uses the same five players. An ID may occur in multiple
+    different output lineups; it may not occur twice in one lineup.'
+  requirement_category: core
+  source_visibility: visible
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for lineup slot rules.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: optimize_lineups
+      signature: 'optimize_lineups(players: list[dict], limit: int, mode: str) -> dict'
+    inputs:
+      players: List of records; public README defines fields
+      limit: Requested output count
+      mode: String mode; policy may be clarified
+    output:
+      type: dict
+      meaning: Public result envelope; semantics defined by the applicable requirements
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-002-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independently reconstructed projection-only component. Source scenario supports five-slot optimization;
+    normalized schemas, exact tie/count/error/coverage semantics and resource budget are benchmark design
+    choices, not verbatim customer specifications. No original player records, implementation or attachments
+    are included.
+- ru_id: RU-003
+  name: Projection ranking
+  content: For each valid ordered assignment, score is the sum of projected_points. Return the globally
+    highest-scoring assignments first, using the ordered tuple of player IDs in ascending Python string
+    order to break equal-score ties. Do not repeat an ordered assignment. Negative and tied projections
+    are supported. Floating-point score comparison allows absolute error 1e-9 or relative error 1e-9,
+    whichever is larger; this does not relax lineup selection or tie ordering.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for projection ranking.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: optimize_lineups
+      signature: 'optimize_lineups(players: list[dict], limit: int, mode: str) -> dict'
+    inputs:
+      players: List of records; public README defines fields
+      limit: Requested output count
+      mode: String mode; policy may be clarified
+    output:
+      type: dict
+      meaning: Public result envelope; semantics defined by the applicable requirements
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-003-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independently reconstructed projection-only component. Source scenario supports five-slot optimization;
+    normalized schemas, exact tie/count/error/coverage semantics and resource budget are benchmark design
+    choices, not verbatim customer specifications. No original player records, implementation or attachments
+    are included.
+- ru_id: RU-004
+  name: Deep and realtime output
+  content: Both deep and realtime modes have identical exact-result semantics; neither is an approximate
+    mode. Return exactly min(limit, total valid ordered assignments) lineups. considered is the total
+    number of valid ordered assignments, regardless of how many the algorithm enumerates or returns. With
+    no valid assignment, lineups is empty and considered is zero. limit must be a positive integer excluding
+    booleans, and mode must be deep or realtime; otherwise return error.code invalid_request and omit
+    lineups. Invalid request parameters are checked before player data.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for deep and realtime output.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: optimize_lineups
+      signature: 'optimize_lineups(players: list[dict], limit: int, mode: str) -> dict'
+    inputs:
+      players: List of records; public README defines fields
+      limit: Requested output count
+      mode: String mode; policy may be clarified
+    output:
+      type: dict
+      meaning: Public result envelope; semantics defined by the applicable requirements
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-004-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independently reconstructed projection-only component. Source scenario supports five-slot optimization;
+    normalized schemas, exact tie/count/error/coverage semantics and resource budget are benchmark design
+    choices, not verbatim customer specifications. No original player records, implementation or attachments
+    are included.
+- ru_id: RU-005
+  name: Input and coverage reporting
+  content: Reject malformed player records (including non-list input, missing fields, empty/non-string
+    ID, unknown position or non-finite/non-numeric/Boolean projection) with a nonempty error.code and
+    without lineups. Check record validity before duplicate IDs. Duplicate valid IDs produce error.code
+    duplicate_player_id without lineups. An empty player list is valid. For successful requests, unused_player_ids
+    contains each supplied ID that occurs in no returned lineup, once, sorted in ascending Python string
+    order. Extra input metadata is ignored.
+  requirement_category: refinement
+  source_visibility: hidden
+  benchmark_visibility: hidden
+  benchmark_visibility_reason: No requirement or delivery-interface intake injection; existing source
+    remains inspectable. Client supplies relevant agreements through clarification.
+  audit_question: Explain the exact required behavior for input and coverage reporting.
+  test_interface:
+    type: function
+    entry:
+      language: python
+      file: solution.py
+      function: optimize_lineups
+      signature: 'optimize_lineups(players: list[dict], limit: int, mode: str) -> dict'
+    inputs:
+      players: List of records; public README defines fields
+      limit: Requested output count
+      mode: String mode; policy may be clarified
+    output:
+      type: dict
+      meaning: Public result envelope; semantics defined by the applicable requirements
+    operations: []
+  evaluation: executable
+  pass_rule: all_tests_pass
+  matching_keywords: []
+  tests:
+  - test_id: RU-005-T01
+    file: evaluation/tests/test_solution.py
+  notes: Independently reconstructed projection-only component. Source scenario supports five-slot optimization;
+    normalized schemas, exact tie/count/error/coverage semantics and resource budget are benchmark design
+    choices, not verbatim customer specifications. No original player records, implementation or attachments
+    are included.
